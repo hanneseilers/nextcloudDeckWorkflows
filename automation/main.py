@@ -1,0 +1,114 @@
+"""Cron entry point: `python -m automation.main`.
+
+Wires the hexagon together (composition root) and runs every enabled workflow once
+against the events detected since the previous run. Intended to be invoked
+periodically by a cron job on shared webspace hosting.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+
+from automation import actions_registry
+from automation.adapters.actions.loader import ModuleLoader
+from automation.adapters.nextcloud.client import NextcloudClient
+from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
+from automation.adapters.nextcloud.event_source import PollingEventSource
+from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
+from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
+from automation.config.settings import Settings, load_settings
+from automation.core.domain.engine import WorkflowEngine
+
+logger = logging.getLogger(__name__)
+
+
+def run(settings: Settings) -> None:
+    workflows = YamlWorkflowRepository(settings.workflows_dir)
+    state_store = SqliteStateStore(settings.state_db_path)
+    action_loader = ModuleLoader(actions_registry)
+    engine = WorkflowEngine(workflows=workflows, actions=action_loader, execution_log=state_store)
+
+    boards_by_instance: dict[str, set[int]] = {}
+    for workflow in workflows.list_enabled():
+        boards_by_instance.setdefault(workflow.instance, set()).add(workflow.board_id)
+
+    for instance_name, board_ids in boards_by_instance.items():
+        instance = settings.instances[instance_name]
+        client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
+        deck = NextcloudDeckGateway(client)
+        event_source = PollingEventSource(deck, state_store)
+
+        for board_id in board_ids:
+            for event in event_source.poll(instance_name, board_id):
+                logger.info(
+                    "Detected %s on card %s (instance=%s board=%s)",
+                    event.event_type.value, event.card_id, instance_name, board_id,
+                )
+                engine.handle(event, deck)
+
+
+def run_dry_run() -> None:
+    """Exercises the full wiring with in-memory fakes - no config files, no network,
+    no real Nextcloud instance needed. Smoke test for `python -m automation.main --dry-run`.
+    """
+
+    from automation.core.domain.models import ActionStep, EventType, Trigger, Workflow
+    from automation.testing.fakes import (
+        InMemoryDeckGateway,
+        InMemoryExecutionLog,
+        InMemorySnapshotStore,
+        InMemoryWorkflowRepository,
+    )
+
+    deck = InMemoryDeckGateway({1: [{"id": 10, "cards": []}]})
+    workflow = Workflow(
+        id="dry-run-demo",
+        name="Dry-run demo",
+        instance="dry-run",
+        board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED, stack_id=10),
+        actions=(ActionStep(module="log_action", params={"message": "dry-run card created"}),),
+    )
+    workflows = InMemoryWorkflowRepository([workflow])
+    snapshots = InMemorySnapshotStore()
+    execution_log = InMemoryExecutionLog()
+    action_loader = ModuleLoader(actions_registry)
+    engine = WorkflowEngine(workflows=workflows, actions=action_loader, execution_log=execution_log)
+    event_source = PollingEventSource(deck, snapshots)
+
+    event_source.poll("dry-run", 1)  # establish the baseline snapshot (empty stack)
+    logger.info("Dry-run: adding a card to stack 10 to trigger 'card_created'")
+    deck.stacks[1][0]["cards"].append({"id": 100, "lastModified": 1})
+
+    for event in event_source.poll("dry-run", 1):
+        results = engine.handle(event, deck)
+        for result in results:
+            logger.info("Executed workflow '%s' -> success=%s", result.workflow_id, result.success)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run configured Nextcloud Deck workflows once.")
+    parser.add_argument("--config-dir", default=None, help="Override the config/ directory location")
+    parser.add_argument("--log-level", default=None, help="Override the configured log level, e.g. DEBUG")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Run the wiring against in-memory fakes instead of real config/Nextcloud",
+    )
+    args = parser.parse_args()
+
+    if args.dry_run:
+        logging.basicConfig(level=args.log_level or "INFO", format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        run_dry_run()
+        return
+
+    settings = load_settings(args.config_dir)
+    logging.basicConfig(
+        level=args.log_level or settings.log_level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    run(settings)
+
+
+if __name__ == "__main__":
+    main()

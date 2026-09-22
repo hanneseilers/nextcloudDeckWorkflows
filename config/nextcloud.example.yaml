@@ -1,0 +1,6 @@
+# Copy to nextcloud.yaml and fill in your values. nextcloud.yaml is gitignored.
+instances:
+  - name: prod
+    url: "https://cloud.example.com"
+    username: "workflow-bot"
+    app_password: "CHANGE_ME" # generate under Nextcloud Settings > Security > App passwords

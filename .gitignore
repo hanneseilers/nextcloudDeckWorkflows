@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Local virtual environments
+.venv/
+venv/
+
+# Runtime state (recreated automatically per deployment)
+automation/var/*
+!automation/var/.gitkeep
+
+# Real Nextcloud credentials & settings (copy the matching *.example.yaml)
+config/nextcloud.yaml
+config/settings.yaml
+
+# Workflow definitions are runtime data created via the website, not source
+workflows/*.yaml
+!workflows/.gitkeep

@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+
+class DeckGatewayPort(Protocol):
+    """Read/write access to Nextcloud Deck data for a single Nextcloud instance."""
+
+    def list_boards(self) -> list[dict[str, Any]]: ...
+
+    def list_stacks(self, board_id: int) -> list[dict[str, Any]]: ...
+
+    def list_cards(self, board_id: int, stack_id: int) -> list[dict[str, Any]]: ...
+
+    def add_label(self, board_id: int, card_id: int, label_id: int) -> None: ...
+
+    def move_card(self, board_id: int, card_id: int, target_stack_id: int, order: int = 0) -> None: ...
+
+    def add_comment(self, card_id: int, message: str) -> None: ...

@@ -1,0 +1,4 @@
+# Copy to settings.yaml and adjust if needed. settings.yaml is gitignored.
+workflows_dir: workflows
+state_db_path: automation/var/state.sqlite3
+log_level: INFO
