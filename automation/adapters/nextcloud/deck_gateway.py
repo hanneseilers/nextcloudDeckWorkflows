@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from automation.adapters.nextcloud.client import NextcloudClient
 
@@ -26,14 +26,53 @@ class NextcloudDeckGateway:
                 return stack.get("cards", [])
         return []
 
-    def add_label(self, board_id: int, card_id: int, label_id: int) -> None:
-        self._client.put(f"{DECK_API}/boards/{board_id}/cards/{card_id}/label/{label_id}")
+    def set_title(self, board_id: int, stack_id: int, card_id: int, title: str) -> None:
+        self._update_card(board_id, stack_id, card_id, title=title)
 
-    def move_card(self, board_id: int, card_id: int, target_stack_id: int, order: int = 0) -> None:
+    def set_description(self, board_id: int, stack_id: int, card_id: int, description: str) -> None:
+        self._update_card(board_id, stack_id, card_id, description=description)
+
+    def set_due_date(self, board_id: int, stack_id: int, card_id: int, due_date: Optional[str]) -> None:
+        self._update_card(board_id, stack_id, card_id, duedate=due_date)
+
+    def move_card(
+        self, board_id: int, stack_id: int, card_id: int, target_stack_id: int, order: int = 0
+    ) -> None:
         self._client.put(
-            f"{DECK_API}/boards/{board_id}/cards/{card_id}/reorder",
+            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/reorder",
             json={"stackId": target_stack_id, "order": order},
+        )
+
+    def add_label(self, board_id: int, stack_id: int, card_id: int, label_id: int) -> None:
+        self._client.put(
+            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/label/{label_id}"
+        )
+
+    def assign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
+        self._client.put(
+            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/assignUser",
+            json={"userId": user_id},
+        )
+
+    def unassign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
+        self._client.put(
+            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/unassignUser",
+            json={"userId": user_id},
         )
 
     def add_comment(self, card_id: int, message: str) -> None:
         self._client.post(f"{COMMENTS_API}/{card_id}", json={"message": message})
+
+    def _update_card(self, board_id: int, stack_id: int, card_id: int, **fields: Any) -> None:
+        # The Deck API's card update endpoint replaces the resource, so the current
+        # card is fetched first and only the requested field(s) are changed on top -
+        # this avoids accidentally clearing title/description/duedate on every call.
+        path = f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}"
+        card = self._client.get(path) or {}
+        payload = {
+            "title": card.get("title"),
+            "description": card.get("description"),
+            "duedate": card.get("duedate"),
+        }
+        payload.update(fields)
+        self._client.put(path, json=payload)
