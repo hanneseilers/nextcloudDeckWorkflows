@@ -8,7 +8,10 @@ periodically by a cron job on shared webspace hosting.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+from pathlib import Path
+from typing import Any
 
 from automation import actions_registry
 from automation.adapters.actions.loader import ModuleLoader
@@ -17,10 +20,16 @@ from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
 from automation.adapters.nextcloud.event_source import PollingEventSource
 from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
-from automation.config.settings import Settings, load_settings
+from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
+
+# Where the website (website/src/ModuleRegistry.php) reads the available action
+# modules from. Independent of any Nextcloud/settings config - listing modules
+# only needs the local actions_registry package - so it's refreshed on every
+# invocation of this script, dry-run or not, even if config/*.yaml is missing.
+MODULES_SNAPSHOT_PATH = REPO_ROOT / "automation" / "var" / "modules.json"
 
 
 def run(settings: Settings) -> None:
@@ -75,6 +84,35 @@ def _process_board(
         engine.handle(event, deck)
 
 
+def _modules_snapshot() -> dict[str, Any]:
+    """Describes every currently loadable action module as JSON - name, hard
+    dependencies, and its default_input()/default_output() example objects.
+    This is what the website reads to render the module picker and its
+    per-module parameter form; see automation/README.md."""
+
+    loader = ModuleLoader(actions_registry)
+    modules = []
+    for name in loader.list_names():
+        action = loader.get(name)
+        modules.append({
+            "name": name,
+            "requires": list(getattr(action, "REQUIRES", ())),
+            "input": action.default_input(),
+            "output": action.default_output(),
+        })
+    return {"modules": modules}
+
+
+def _write_modules_snapshot(path: Path) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_modules_snapshot(), indent=2))
+    except Exception:
+        # The website falls back to "no modules found" if this is stale/missing -
+        # never let a snapshot-writing problem stop the actual workflow run.
+        logger.exception("Could not write module snapshot to %s", path)
+
+
 def run_dry_run() -> None:
     """Exercises the full wiring with in-memory fakes - no config files, no network,
     no real Nextcloud instance needed. Smoke test for `python -m automation.main --dry-run`.
@@ -122,11 +160,23 @@ def main() -> None:
         "--dry-run", action="store_true",
         help="Run the wiring against in-memory fakes instead of real config/Nextcloud",
     )
+    parser.add_argument(
+        "--list-modules", action="store_true",
+        help="Print the available action modules (name, requires, input/output shape) as JSON and exit",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=args.log_level or "INFO", format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+
+    if args.list_modules:
+        print(json.dumps(_modules_snapshot(), indent=2))
+        return
+
+    # Independent of everything below: keep the website's module list fresh on
+    # every invocation, whether or not Nextcloud config is even valid.
+    _write_modules_snapshot(MODULES_SNAPSHOT_PATH)
 
     if args.dry_run:
         run_dry_run()

@@ -4,8 +4,8 @@ Workflow automation for the [Nextcloud Deck](https://apps.nextcloud.com/apps/dec
 
 ## How it works
 
-- **website/** — A web UI for selecting a configured Nextcloud instance and its boards/decks, and defining automation workflows for them.
-- **automation/** — A Python script that periodically executes the configured workflows in the background (e.g. via cron job).
+- **website/** — A web UI for selecting a configured Nextcloud instance and its boards/decks, and defining automation workflows for them. See [website/README.md](website/README.md).
+- **automation/** — A Python script that periodically executes the configured workflows in the background (e.g. via cron job). See [automation/README.md](automation/README.md).
 - **workflows/** — Storage for the workflow definitions created via the website.
 - **config/** — YAML configuration files (Nextcloud connections, credentials, general settings).
 
@@ -13,7 +13,7 @@ All configuration and workflow data is stored as YAML files, requiring no databa
 
 ## Requirements
 
-- A shared webspace with PHP (for the website) and Python 3 (for the automation script)
+- A shared webspace with PHP + Composer (for the website) and Python 3 (for the automation script)
 - Access to a Nextcloud instance with the Deck app enabled
 - Ability to schedule a recurring cron job
 

@@ -1,0 +1,160 @@
+:root {
+    color-scheme: light dark;
+    --border: #ccc;
+    --danger: #b3261e;
+    --accent: #2f6f4f;
+}
+
+body {
+    font-family: system-ui, sans-serif;
+    max-width: 960px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+}
+
+.button, button {
+    font: inherit;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #f5f5f5;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+}
+
+.button:hover, button:hover {
+    background: #e8e8e8;
+}
+
+button.danger {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+form.inline {
+    display: inline-block;
+    margin-right: 0.25rem;
+}
+
+.notice {
+    padding: 0.75rem 1rem;
+    border-radius: 4px;
+    background: #fff6d8;
+    border: 1px solid #e0c85a;
+}
+
+.notice.error {
+    background: #fdeceb;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+fieldset {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    padding: 1rem;
+}
+
+fieldset label {
+    display: block;
+    margin-bottom: 0.75rem;
+}
+
+fieldset input[type="text"],
+fieldset input[type="number"],
+fieldset select,
+fieldset textarea {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    margin-top: 0.25rem;
+    padding: 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font: inherit;
+}
+
+.step {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.step-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.step-header input[type="text"] {
+    width: 8rem;
+}
+
+.params {
+    margin-left: 1rem;
+}
+
+.param-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.param-row label {
+    width: 8rem;
+    font-weight: 600;
+}
+
+.param-row select,
+.param-row input[type="text"],
+.param-row input[type="number"] {
+    width: auto;
+    min-width: 10rem;
+}
+
+textarea[data-json-field] {
+    font-family: ui-monospace, monospace;
+    min-height: 4rem;
+}
+
+textarea.invalid, input.invalid {
+    border-color: var(--danger);
+    outline-color: var(--danger);
+}
+
+.muted {
+    color: #777;
+    font-style: italic;
+}
+
+code {
+    background: #f0f0f0;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+}
