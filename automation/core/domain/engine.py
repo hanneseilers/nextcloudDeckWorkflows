@@ -38,7 +38,7 @@ class WorkflowEngine:
         return results
 
     def _run(self, workflow: Workflow, event: DeckEvent, deck: DeckGatewayPort) -> ExecutionResult:
-        context = ActionContext(event=event, deck=deck)
+        context = ActionContext(event=event, deck=deck, modules=self._actions)
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         for step in workflow.actions:
             try:

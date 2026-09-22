@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
 from automation.core.domain.models import ActionStep, EventType, Trigger, Workflow
+
+logger = logging.getLogger(__name__)
 
 
 class YamlWorkflowRepository:
@@ -40,9 +43,14 @@ class YamlWorkflowRepository:
     def _load_all(self) -> list[Workflow]:
         workflows = []
         for path in sorted(self._directory.glob("*.yaml")):
-            data = yaml.safe_load(path.read_text())
-            if data:
-                workflows.append(self._parse(data))
+            try:
+                data = yaml.safe_load(path.read_text())
+                if data:
+                    workflows.append(self._parse(data))
+            except Exception:
+                # A single malformed workflow file must not take every other
+                # workflow down with it - skip it, log it, keep going.
+                logger.exception("Skipping invalid workflow file %s", path)
         return workflows
 
     @staticmethod

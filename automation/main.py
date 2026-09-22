@@ -34,18 +34,45 @@ def run(settings: Settings) -> None:
         boards_by_instance.setdefault(workflow.instance, set()).add(workflow.board_id)
 
     for instance_name, board_ids in boards_by_instance.items():
-        instance = settings.instances[instance_name]
+        instance = settings.instances.get(instance_name)
+        if instance is None:
+            logger.error(
+                "Skipping instance '%s': not configured in config/nextcloud.yaml", instance_name
+            )
+            continue
+
         client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
         deck = NextcloudDeckGateway(client)
         event_source = PollingEventSource(deck, state_store)
 
         for board_id in board_ids:
-            for event in event_source.poll(instance_name, board_id):
-                logger.info(
-                    "Detected %s on card %s (instance=%s board=%s)",
-                    event.event_type.value, event.card_id, instance_name, board_id,
-                )
-                engine.handle(event, deck)
+            _process_board(engine, event_source, deck, instance_name, board_id)
+
+
+def _process_board(
+    engine: WorkflowEngine,
+    event_source: PollingEventSource,
+    deck: NextcloudDeckGateway,
+    instance_name: str,
+    board_id: int,
+) -> None:
+    """One instance being unreachable or one board having disappeared must not stop
+    the rest of the run - polling errors here are logged and this board is skipped."""
+
+    try:
+        events = event_source.poll(instance_name, board_id)
+    except Exception:
+        logger.exception(
+            "Skipping board %s on instance '%s': could not poll for events", board_id, instance_name
+        )
+        return
+
+    for event in events:
+        logger.info(
+            "Detected %s on card %s (instance=%s board=%s)",
+            event.event_type.value, event.card_id, instance_name, board_id,
+        )
+        engine.handle(event, deck)
 
 
 def run_dry_run() -> None:
@@ -97,17 +124,28 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=args.log_level or "INFO", format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
     if args.dry_run:
-        logging.basicConfig(level=args.log_level or "INFO", format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         run_dry_run()
         return
 
-    settings = load_settings(args.config_dir)
-    logging.basicConfig(
-        level=args.log_level or settings.log_level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    run(settings)
+    try:
+        settings = load_settings(args.config_dir)
+    except Exception:
+        # No usable config is not a crash - there's nothing to do this run, log why
+        # and stop cleanly so the cron job keeps invoking us on schedule regardless.
+        logger.exception("Could not load configuration - nothing to do this run")
+        return
+
+    logging.getLogger().setLevel(args.log_level or settings.log_level)
+
+    try:
+        run(settings)
+    except Exception:
+        logger.exception("Unhandled error - stopping this run without crashing the process")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,15 @@
+Subject: Example notification
+
+Hello,
+
+This is an example email template for the send_email action
+(automation/actions_registry/send_email.py). Reference it from a workflow
+step via params.template: "example".
+
+Placeholders like $name are substituted from params.template_data when the
+template is rendered. A placeholder with no matching value is left exactly
+as written instead of causing an error.
+
+Hi $name, this line demonstrates that.
+
+- automation

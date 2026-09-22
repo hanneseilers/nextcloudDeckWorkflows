@@ -15,6 +15,7 @@ automation/var/*
 # Real Nextcloud credentials & settings (copy the matching *.example.yaml)
 config/nextcloud.yaml
 config/settings.yaml
+config/smtp.yaml
 
 # Workflow definitions are runtime data created via the website, not source
 workflows/*.yaml

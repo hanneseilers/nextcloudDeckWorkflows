@@ -1,0 +1,9 @@
+# Copy to smtp.yaml and fill in your values. smtp.yaml is gitignored.
+# Used by automation/actions_registry/send_email.py (module-specific config,
+# separate from settings.yaml/nextcloud.yaml on purpose).
+host: "smtp.example.com"
+port: 587
+username: "workflow-bot@example.com"
+password: "CHANGE_ME"
+use_tls: true
+from_address: "workflow-bot@example.com"

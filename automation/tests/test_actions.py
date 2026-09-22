@@ -10,13 +10,15 @@ from automation.actions_registry.set_title import SetTitleAction
 from automation.actions_registry.unassign_user import UnassignUserAction
 from automation.core.domain.models import DeckEvent, EventType
 from automation.core.ports.action_module import ActionContext
-from automation.testing.fakes import InMemoryDeckGateway
+from automation.testing.fakes import InMemoryActionRegistry, InMemoryDeckGateway
 
 
-def make_context(deck: InMemoryDeckGateway, **overrides) -> ActionContext:
+def make_context(deck: InMemoryDeckGateway, modules=None, **overrides) -> ActionContext:
     defaults = dict(instance="test", board_id=1, event_type=EventType.CARD_CREATED, card_id=100, stack_id=10)
     defaults.update(overrides)
-    return ActionContext(event=DeckEvent(**defaults), deck=deck)
+    return ActionContext(
+        event=DeckEvent(**defaults), deck=deck, modules=modules or InMemoryActionRegistry({})
+    )
 
 
 def make_deck() -> InMemoryDeckGateway:

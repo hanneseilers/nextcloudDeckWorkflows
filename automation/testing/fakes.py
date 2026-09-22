@@ -135,3 +135,6 @@ class InMemoryActionRegistry:
 
     def get(self, name: str) -> Any:
         return self._actions[name]
+
+    def list_names(self) -> list[str]:
+        return sorted(self._actions)
