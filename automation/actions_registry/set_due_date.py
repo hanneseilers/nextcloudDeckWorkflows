@@ -16,10 +16,14 @@ class SetDueDateAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "set_due_date"
 
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> None:
+    def default_input(self) -> dict[str, Any]:
+        return {"due_date": None}
+
+    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         context.deck.set_due_date(
             board_id=context.event.board_id,
             stack_id=context.current_stack_id,
             card_id=context.event.card_id,
             due_date=params.get("due_date"),
         )
+        return {}

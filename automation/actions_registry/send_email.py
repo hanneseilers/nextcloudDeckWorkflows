@@ -78,7 +78,10 @@ class SendEmailAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "send_email"
 
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> None:
+    def default_input(self) -> dict[str, Any]:
+        return {"to": "", "subject": "", "body": "", "template": None, "template_data": {}}
+
+    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         template_data = params.get("template_data", {})
 
         if params.get("template"):
@@ -104,3 +107,5 @@ class SendEmailAction(WorkflowAction):
             if smtp_config.username:
                 client.login(smtp_config.username, smtp_config.password or "")
             client.send_message(message)
+
+        return {}

@@ -34,6 +34,41 @@ def execute(self, context: ActionContext, params: dict) -> None:
   unpredictably the first time it runs. Dependency chains cascade: if `b` requires
   `a` and `a` gets disabled, `b` is disabled too.
 
+## Chaining a workflow's steps
+
+Every action's input and output is a plain JSON object (dict). A step's output
+can be fed into a *later* step's input via the workflow itself - no code needed
+- by giving the step an `id` and referencing `<id>.<field>` from another step's
+`params` with `{"$ref": "..."}`:
+
+```yaml
+actions:
+  - id: lookup
+    module: calendar_lookup
+    params:
+      summary: "Team sync"
+      start: "2026-01-05T10:00:00+00:00"
+  - module: send_email          # no id needed - nothing references this step
+    params:
+      to: "team@example.com"
+      subject: "Reminder"
+      body: "$summary at $start"
+      template_data:
+        summary: {$ref: lookup.summary}   # mapped from the lookup step's output
+        start: {$ref: lookup.start}
+```
+
+A `$ref` can appear anywhere in `params`, including nested inside another dict
+(like `template_data` above) or a list. Anything that isn't an exact
+`{"$ref": "..."}` object - including a literal like `"fixed value"` or a plain
+dict - is used as-is. A `$ref` to a step that hasn't run (wrong order), doesn't
+exist, or produced no such field resolves to `None` and logs a warning rather
+than raising - see `WorkflowEngine._resolve_ref` in `core/domain/engine.py`.
+
+This is the workflow-level counterpart to modules calling modules above: the
+*workflow* wires one step's output into another step's input declaratively;
+a *module's own code* decides when to call another module directly.
+
 ## Fault tolerance
 
 The system is meant to keep doing *something* useful even in a degraded
@@ -86,8 +121,18 @@ from automation.core.ports.action_module import ActionContext
 class MyAction(WorkflowAction):
     ACTION_NAME = "my_action"
 
-    def execute(self, context: ActionContext, params: dict) -> None:
+    def default_input(self) -> dict:
+        return {"some_field": ""}   # optional: document the expected input shape
+
+    def default_output(self) -> dict:
+        return {}   # optional: document what execute() returns, {} if nothing
+
+    def execute(self, context: ActionContext, params: dict) -> dict:
         ...  # use context.event and context.deck (a DeckGatewayPort)
+        return {}   # a JSON object - later steps can map fields from it via $ref
 ```
 
-Reference it from a workflow YAML's `actions[].module` field.
+Reference it from a workflow YAML's `actions[].module` field. `default_input`/
+`default_output` are optional (the base class defaults to `{}`, meaning "no
+particular shape") but documenting them is what lets other modules and a future
+website form know what a module accepts and produces.

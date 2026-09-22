@@ -15,5 +15,9 @@ class AddCommentAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "add_comment"
 
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> None:
+    def default_input(self) -> dict[str, Any]:
+        return {"message": ""}
+
+    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         context.deck.add_comment(card_id=context.event.card_id, message=params["message"])
+        return {}

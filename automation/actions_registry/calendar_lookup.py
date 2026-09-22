@@ -22,6 +22,12 @@ class CalendarLookupAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "calendar_lookup"
 
+    def default_input(self) -> dict[str, Any]:
+        return {"summary": "", "start": None, "end": None, "location": ""}
+
+    def default_output(self) -> dict[str, Any]:
+        return {"summary": "", "start": None, "end": None, "location": ""}
+
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         return {
             "summary": params.get("summary", ""),

@@ -15,10 +15,14 @@ class SetDescriptionAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "set_description"
 
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> None:
+    def default_input(self) -> dict[str, Any]:
+        return {"description": ""}
+
+    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         context.deck.set_description(
             board_id=context.event.board_id,
             stack_id=context.current_stack_id,
             card_id=context.event.card_id,
             description=params["description"],
         )
+        return {}

@@ -35,7 +35,17 @@ class Trigger:
 
 @dataclass(frozen=True)
 class ActionStep:
+    """One step of a workflow's action chain.
+
+    `id` lets a *later* step's `params` reference this step's output (see
+    automation.core.domain.engine._resolve_ref) - e.g. {"$ref": "lookup.summary"}
+    to use the `summary` field of the step with id "lookup". Optional: falls
+    back to the step's position in the list if left empty, so steps that don't
+    need to be referenced don't need one.
+    """
+
     module: str
+    id: str = ""
     params: dict = field(default_factory=dict)
 
 

@@ -27,9 +27,10 @@ def make_deck() -> InMemoryDeckGateway:
 
 def test_set_title_renames_the_card():
     deck = make_deck()
-    SetTitleAction().execute(make_context(deck), {"title": "New title"})
+    output = SetTitleAction().execute(make_context(deck), {"title": "New title"})
 
     assert deck.stacks[1][0]["cards"][0]["title"] == "New title"
+    assert output == {}
 
 
 def test_set_description_changes_content():

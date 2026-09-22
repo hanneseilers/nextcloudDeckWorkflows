@@ -15,7 +15,10 @@ class LogAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "log_action"
 
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> None:
+    def default_input(self) -> dict[str, Any]:
+        return {"message": ""}
+
+    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         logger.info(
             "Workflow triggered: event=%s card=%s stack=%s message=%s",
             context.event.event_type.value,
@@ -23,3 +26,4 @@ class LogAction(WorkflowAction):
             context.event.stack_id,
             params.get("message", ""),
         )
+        return {}

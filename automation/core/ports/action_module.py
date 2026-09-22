@@ -39,12 +39,24 @@ class ActionContext:
 
 
 class WorkflowActionPort(Protocol):
-    """Contract every action module must fulfil to be usable from a workflow."""
+    """Contract every action module must fulfil to be usable from a workflow.
+
+    Input and output are both plain JSON objects (dict[str, Any] of JSON-safe
+    values - str/int/float/bool/None/list/dict, same as anything loaded from a
+    workflow's YAML). `default_input`/`default_output` document a module's
+    expected shape as an example object; a workflow maps another step's output
+    field into a param via {"$ref": "<step_id>.<field>"} (see
+    automation.core.domain.engine._resolve_params).
+    """
 
     ACTION_NAME: str
     REQUIRES: ClassVar[tuple[str, ...]]
 
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> Any: ...
+    def default_input(self) -> dict[str, Any]: ...
+
+    def default_output(self) -> dict[str, Any]: ...
+
+    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]: ...
 
 
 class ActionModulePort(Protocol):

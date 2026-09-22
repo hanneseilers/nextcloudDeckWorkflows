@@ -61,7 +61,7 @@ class YamlWorkflowRepository:
             stack_id=trigger_data.get("stack_id"),
         )
         actions = tuple(
-            ActionStep(module=step["module"], params=step.get("params") or {})
+            ActionStep(module=step["module"], id=step.get("id", ""), params=step.get("params") or {})
             for step in data.get("actions", [])
         )
         return Workflow(
@@ -86,5 +86,13 @@ class YamlWorkflowRepository:
             "nextcloud_instance": workflow.instance,
             "board_id": workflow.board_id,
             "trigger": trigger,
-            "actions": [{"module": step.module, "params": dict(step.params)} for step in workflow.actions],
+            "actions": [_step_to_dict(step) for step in workflow.actions],
         }
+
+
+def _step_to_dict(step: ActionStep) -> dict:
+    data: dict = {"module": step.module}
+    if step.id:
+        data["id"] = step.id
+    data["params"] = dict(step.params)
+    return data
