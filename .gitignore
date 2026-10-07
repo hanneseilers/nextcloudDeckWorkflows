@@ -20,3 +20,6 @@ config/smtp.yaml
 # Workflow definitions are runtime data created via the website, not source
 workflows/*.yaml
 !workflows/.gitkeep
+
+# Build output of tools/build.sh - generated, never committed
+build/

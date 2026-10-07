@@ -17,9 +17,17 @@ All configuration and workflow data is stored as YAML files, requiring no databa
 - Access to a Nextcloud instance with the Deck app enabled
 - Ability to schedule a recurring cron job
 
-## Getting started
+## Deploying to a shared webspace
 
-1. Configure your Nextcloud connection(s) in `config/`.
+The repository itself isn't directly uploadable (dev-only files, no `vendor/`, no real credentials). Two scripts in `tools/` handle that:
+
+1. On your dev machine: `tools/build.sh` exports the current (or a given) git ref, strips developer-only files, bundles `website/vendor/` via Composer, and produces an upload-ready folder and `.zip`/`.tar.gz` in `build/upload/`.
+2. Upload that folder/archive to your webspace.
+3. On the server, inside the uploaded directory: run `./install.sh` - it walks you through PHP/Python dependencies, writes `config/*.yaml` interactively, optionally sets up HTTP Basic Auth for `website/`, checks write permissions, offers to add the cron job, and verifies everything at the end.
+
+## Getting started (manual / development setup)
+
+1. Configure your Nextcloud connection(s) in `config/` (copy the `*.example.yaml` files).
 2. Use the website to create and manage workflows for your decks; workflows are saved as YAML files in `workflows/`.
 3. Schedule `automation/` to run periodically via cron to execute the workflows in the background.
 
