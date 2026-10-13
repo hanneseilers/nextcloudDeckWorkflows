@@ -346,18 +346,78 @@ section_website_protection() {
     htpasswd_path="$WEBSITE_DIR/.htpasswd"
 
     printf '%s:%s\n' "$user" "$hash" > "$htpasswd_path"
-    chmod 600 "$htpasswd_path"
+    # 644, nicht 600: auf vielen Shared-Hosting-Setups läuft der Webserver-
+    # Prozess unter einem anderen Systembenutzer als die SSH-Session - mit
+    # 600 kann er die Datei dann nicht lesen. Das führt nicht zur erwarteten
+    # Login-Abfrage, sondern zu einem harten 500 (so beobachtet auf einem
+    # Strato-Webspace). Der apr1-Hash plus der Schutzblock gegen ".ht*"-
+    # Dateien weiter unten machen 644 hier vertretbar.
+    chmod 644 "$htpasswd_path"
 
     cat > "$WEBSITE_DIR/.htaccess" <<EOF
-# Erzeugt von tools/install.sh. Setzt Apache mit AllowOverride voraus.
-# Apache 2.2: zusätzlich "Order deny,allow" und "Deny from all" nötig.
+# Erzeugt von tools/install.sh - HTTP Basic Auth für dieses Verzeichnis.
+Options -Indexes
+
 AuthType Basic
 AuthName "Nextcloud Deck Workflows"
 AuthUserFile $htpasswd_path
-Require valid-user
+
+<IfModule mod_authz_core.c>
+    Require valid-user
+    AuthMerging Off
+</IfModule>
+<IfModule !mod_authz_core.c>
+    require valid-user
+</IfModule>
+
+# Reicht den Authorization-Header an PHP weiter, falls PHP über CGI/FastCGI
+# läuft (dort kommt er sonst nicht automatisch an). Harmlos, falls
+# mod_rewrite fehlt.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} ^(.+)\$
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
+</IfModule>
+
+# .htpasswd (und jede andere .ht*-Datei) nie direkt ausliefern.
+<IfModule mod_authz_core.c>
+    <FilesMatch "^\.ht">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "^\.ht">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
 EOF
 
     info "website/.htaccess + .htpasswd angelegt (Benutzer: $user)."
+
+    local test_url
+    test_url="$(ask "Öffentliche URL der Website zum Testen (z.B. https://example.com/website/) - leer = überspringen" "")"
+    if [ -n "$test_url" ] && command -v curl >/dev/null 2>&1; then
+        info "Prüfe, ob der Schutz funktioniert (ohne Login sollte HTTP 401 kommen) ..."
+        local code
+        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$test_url" 2>/dev/null)"
+        case "$code" in
+            401)
+                info "OK (HTTP 401 - Login wird korrekt verlangt)."
+                ;;
+            500)
+                warn "HTTP 500 statt 401 - diese .htaccess funktioniert auf diesem Server nicht. Entferne sie wieder, um die Website nicht zu blockieren."
+                rm -f "$WEBSITE_DIR/.htaccess" "$htpasswd_path"
+                note_todo "website/ stattdessen über die Hosting-Verwaltung schützen (z.B. 'Verzeichnis per Passwort schützen') - das erzeugt eine serverseitig garantiert passende Konfiguration."
+                ;;
+            *)
+                warn "Unerwarteter Status HTTP ${code:-?} beim Testaufruf - bitte manuell im Browser prüfen. Falls die Seite nicht mehr erreichbar ist: rm '$WEBSITE_DIR/.htaccess' '$htpasswd_path'"
+                ;;
+        esac
+    else
+        note_todo "Bitte die Website jetzt im Browser testen. Bei HTTP 500 statt einer Login-Abfrage: rm '$WEBSITE_DIR/.htaccess' '$htpasswd_path' ausführen und den Schutz stattdessen über die Hosting-Verwaltung einrichten."
+    fi
+
     note_todo "Falls der Webserver nginx (statt Apache) ist: Zugriffsschutz dort separat einrichten, .htaccess wird von nginx ignoriert."
 }
 
