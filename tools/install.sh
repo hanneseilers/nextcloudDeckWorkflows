@@ -43,6 +43,28 @@ yaml_escape() {
     printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
+# Echoes a working "pip" command prefix ("pip3" or "python3 -m pip"), or
+# nothing if neither is available. Some shared hosts ship python3 without a
+# standalone pip3 binary (Debian/Ubuntu split pip out of the base install) -
+# `-m pip` still works there if the pip module itself is present.
+pip_invocation() {
+    if command -v pip3 >/dev/null 2>&1; then
+        echo "pip3"
+    elif command -v python3 >/dev/null 2>&1 && python3 -m pip --version >/dev/null 2>&1; then
+        echo "python3 -m pip"
+    fi
+}
+
+# Some python3 installs have neither pip3 nor a working `-m pip`, but do
+# ship `ensurepip` in the stdlib (it bundles its own pip wheel, no network
+# install step needed) - try that once before concluding pip just isn't
+# available. Harmless no-op if ensurepip isn't present either.
+ensure_pip_bootstrap() {
+    if [ -z "$(pip_invocation)" ] && command -v python3 >/dev/null 2>&1; then
+        python3 -m ensurepip --user >/dev/null 2>&1 || true
+    fi
+}
+
 # ask "Frage" ["Default"] -> gibt die Antwort (oder den Default) auf stdout aus.
 # Prompt geht explizit nach stderr, damit `var=$(ask ...)` sauber nur die
 # Antwort einsammelt.
@@ -84,7 +106,11 @@ section_env_checks() {
     log "1/8 Umgebungs-Check"
 
     if command -v php >/dev/null 2>&1; then
-        info "PHP: $(php -r 'echo PHP_VERSION;' 2>/dev/null)"
+        # Not `php -r` - some hardened shared-hosting PHP CLI builds disable
+        # the -r flag entirely (arbitrary-code-from-the-command-line is a
+        # common thing to lock down), which just prints the usage text
+        # instead of the version. `-v` is always available.
+        info "PHP: $(php -v 2>/dev/null | head -n 1)"
         local ext
         for ext in curl mbstring; do
             if php -m 2>/dev/null | grep -qi "^${ext}\$"; then
@@ -109,8 +135,19 @@ section_env_checks() {
         warn "python3 wurde nicht gefunden - die Automation kann so nicht laufen."
     fi
 
-    command -v pip3 >/dev/null 2>&1 && info "pip3: vorhanden" || warn "pip3 wurde nicht gefunden."
-    command -v crontab >/dev/null 2>&1 && info "crontab: vorhanden" || info "crontab: nicht gefunden (Cron muss anders eingerichtet werden)"
+    local pip_found
+    pip_found="$(pip_invocation)"
+    if [ -n "$pip_found" ]; then
+        info "pip: vorhanden ($pip_found)"
+    else
+        warn "Kein pip gefunden (weder pip3 noch 'python3 -m pip')."
+    fi
+
+    if command -v crontab >/dev/null 2>&1; then
+        info "crontab: vorhanden"
+    else
+        info "crontab: nicht gefunden (Cron-Job über die Hosting-Verwaltung einrichten, z.B. eine 'Cron Jobs'-Seite im Control Panel)"
+    fi
 }
 
 section_php_deps() {
@@ -144,16 +181,18 @@ section_python_deps() {
         return
     fi
 
+    ensure_pip_bootstrap
+
     local made_venv="n"
     if [ -x "$AUTOMATION_DIR/.venv/bin/python" ]; then
         info "automation/.venv existiert bereits."
         made_venv="j"
     elif confirm "Virtuelle Umgebung (automation/.venv) anlegen? (empfohlen)" "j"; then
-        if python3 -m venv "$AUTOMATION_DIR/.venv"; then
+        if python3 -m venv "$AUTOMATION_DIR/.venv" 2>/dev/null; then
             info "venv angelegt."
             made_venv="j"
         else
-            warn "venv konnte nicht angelegt werden - installiere stattdessen für den aktuellen Nutzer (pip install --user)."
+            warn "venv konnte nicht angelegt werden (python3-venv/ensurepip evtl. nicht installiert) - installiere stattdessen für den aktuellen Nutzer."
         fi
     fi
 
@@ -166,14 +205,22 @@ section_python_deps() {
             warn "pip install im venv ist fehlgeschlagen."
             note_todo "Python-Abhängigkeiten manuell installieren: automation/.venv/bin/pip install -r automation/requirements.txt"
         fi
-    else
-        info "Installiere Pakete für den aktuellen Nutzer (pip3 install --user) ..."
-        if command -v pip3 >/dev/null 2>&1 && pip3 install -q --user -r "$AUTOMATION_DIR/requirements.txt"; then
+        return
+    fi
+
+    local pip_found
+    pip_found="$(pip_invocation)"
+    if [ -n "$pip_found" ]; then
+        info "Installiere Pakete für den aktuellen Nutzer ($pip_found install --user) ..."
+        if $pip_found install -q --user -r "$AUTOMATION_DIR/requirements.txt"; then
             info "Erfolgreich installiert."
         else
-            warn "pip3 install --user ist fehlgeschlagen oder pip3 fehlt."
-            note_todo "Python-Abhängigkeiten manuell installieren: pip3 install --user -r automation/requirements.txt"
+            warn "$pip_found install --user ist fehlgeschlagen."
+            note_todo "Python-Abhängigkeiten manuell installieren: $pip_found install --user -r automation/requirements.txt"
         fi
+    else
+        warn "Kein pip verfügbar (weder pip3 noch 'python3 -m pip', auch nicht nach ensurepip-Versuch)."
+        note_todo "Python-Abhängigkeiten konnten nicht installiert werden, da kein pip verfügbar ist. Auf Shared Hosting meist nicht per 'apt install' lösbar - in der Hosting-Verwaltung nach einer anderen/neueren Python-Version suchen (oft mit eigenem, vollständigem pip) oder den Support fragen."
     fi
 }
 
