@@ -18,6 +18,12 @@ class NextcloudClient:
         self._auth = (username, app_password)
         self._timeout = timeout
         self._headers = {"OCS-APIRequest": "true", "Accept": "application/json"}
+        # One Session per instance, reused across every call this client ever
+        # makes (Deck API and, via NextcloudCalendarGateway sharing this same
+        # client, CalDAV) - keeps the TCP/TLS connection to that Nextcloud
+        # host alive instead of reconnecting from scratch on every request, a
+        # real cost over a run that makes a dozen+ calls to the same host.
+        self._session = requests.Session()
 
     def get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
         return self._request("GET", path, params=params)
@@ -53,7 +59,7 @@ class NextcloudClient:
         they only differ in headers/body and how the response body is
         parsed afterwards (.json() vs .text)."""
 
-        response = requests.request(
+        response = self._session.request(
             method, f"{self._base_url}{path}", auth=self._auth, timeout=self._timeout, **kwargs
         )
         if not response.ok:

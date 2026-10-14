@@ -30,11 +30,14 @@ def make_instances() -> dict[str, NextcloudInstanceConfig]:
 
 
 def fake_requests_for(state: dict) -> callable:
-    """A stateful fake for requests.request: GET .../stacks reflects state["stack_id"],
-    PUT .../reorder updates it - so a real move_card action visibly changes what the
-    next poll sees, the same way a real Nextcloud would."""
+    """A stateful fake for requests.Session.request: GET .../stacks reflects
+    state["stack_id"], PUT .../reorder updates it - so a real move_card
+    action visibly changes what the next poll sees, the same way a real
+    Nextcloud would. NextcloudClient makes its calls through a
+    requests.Session instance, so the patched method is called bound (the
+    session instance is the leading arg, unused here)."""
 
-    def fake_request(method, url, **kwargs):
+    def fake_request(self, method, url, **kwargs):
         if method == "GET" and url.endswith("/stacks"):
             card = {"id": 1, "title": "Card", "lastModified": 1}
             stacks = [
@@ -52,7 +55,7 @@ def fake_requests_for(state: dict) -> callable:
 
 def test_run_reprocesses_within_one_invocation_when_an_action_triggers_another_workflow(tmp_path, monkeypatch):
     state = {"stack_id": 10}
-    monkeypatch.setattr("automation.adapters.nextcloud.client.requests.request", fake_requests_for(state))
+    monkeypatch.setattr("requests.Session.request", fake_requests_for(state))
 
     workflows_dir = tmp_path / "workflows"
     workflows = YamlWorkflowRepository(workflows_dir)
@@ -90,7 +93,7 @@ def test_run_reprocesses_within_one_invocation_when_an_action_triggers_another_w
 
 def test_run_stops_at_max_run_seconds_instead_of_looping_forever(tmp_path, monkeypatch, caplog):
     state = {"stack_id": 10}
-    monkeypatch.setattr("automation.adapters.nextcloud.client.requests.request", fake_requests_for(state))
+    monkeypatch.setattr("requests.Session.request", fake_requests_for(state))
 
     workflows_dir = tmp_path / "workflows"
     workflows = YamlWorkflowRepository(workflows_dir)
