@@ -10,6 +10,13 @@ from typing import Any, Optional, Union
 class EventType(str, Enum):
     CARD_CREATED = "card_created"
     CARD_MOVED = "card_moved"
+    # Fired alongside CARD_UPDATED (not instead of it) whenever the specific
+    # field changed - CARD_UPDATED keeps firing on any change, as before, so
+    # an existing workflow watching it is unaffected by these more specific
+    # additions. See PollingEventSource._diff.
+    CARD_ASSIGNED = "card_assigned"
+    CARD_DUE_DATE_CHANGED = "card_due_date_changed"
+    CARD_DESCRIPTION_CHANGED = "card_description_changed"
     CARD_UPDATED = "card_updated"
     CARD_DELETED = "card_deleted"
 

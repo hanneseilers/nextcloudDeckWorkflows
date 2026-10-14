@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
@@ -29,6 +30,11 @@ CREATE TABLE IF NOT EXISTS execution_log (
 );
 """
 
+# Added after the fact (see _SCHEMA above) via ALTER TABLE so an existing
+# state.sqlite3 from before this field existed keeps working - CREATE TABLE
+# IF NOT EXISTS alone wouldn't add it to an already-existing table.
+_EXTRA_COLUMN = "extra"
+
 
 class SqliteStateStore:
     """Implements SnapshotStorePort (board diffing state) and ExecutionLogPort
@@ -42,6 +48,10 @@ class SqliteStateStore:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as conn:
             conn.executescript(_SCHEMA)
+            try:
+                conn.execute(f"ALTER TABLE board_snapshots ADD COLUMN {_EXTRA_COLUMN} TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists (or table was just created with it - either is fine)
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -52,11 +62,15 @@ class SqliteStateStore:
     def load(self, instance: str, board_id: int) -> dict[int, dict[str, Any]]:
         with closing(self._connect()) as conn:
             rows = conn.execute(
-                "SELECT card_id, stack_id, last_modified FROM board_snapshots "
+                f"SELECT card_id, stack_id, last_modified, {_EXTRA_COLUMN} FROM board_snapshots "
                 "WHERE instance = ? AND board_id = ?",
                 (instance, board_id),
             ).fetchall()
-        return {row[0]: {"stack_id": row[1], "last_modified": row[2]} for row in rows}
+        result: dict[int, dict[str, Any]] = {}
+        for card_id, stack_id, last_modified, extra_json in rows:
+            extra = json.loads(extra_json) if extra_json else {}
+            result[card_id] = {"stack_id": stack_id, "last_modified": last_modified, **extra}
+        return result
 
     def save(self, instance: str, board_id: int, snapshot: dict[int, dict[str, Any]]) -> None:
         with closing(self._connect()) as conn:
@@ -65,10 +79,17 @@ class SqliteStateStore:
                 (instance, board_id),
             )
             conn.executemany(
-                "INSERT INTO board_snapshots (instance, board_id, card_id, stack_id, last_modified) "
-                "VALUES (?, ?, ?, ?, ?)",
+                f"INSERT INTO board_snapshots (instance, board_id, card_id, stack_id, last_modified, {_EXTRA_COLUMN}) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 [
-                    (instance, board_id, card_id, state["stack_id"], state["last_modified"])
+                    (
+                        instance,
+                        board_id,
+                        card_id,
+                        state["stack_id"],
+                        state["last_modified"],
+                        json.dumps({k: v for k, v in state.items() if k not in ("stack_id", "last_modified")}),
+                    )
                     for card_id, state in snapshot.items()
                 ],
             )

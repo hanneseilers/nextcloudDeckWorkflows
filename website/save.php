@@ -41,7 +41,10 @@ $modules = ModuleRegistry::fromRepoRoot();
 $workflows = new WorkflowRepository($config->workflowsDir());
 
 $errors = [];
-$knownEvents = ['card_created', 'card_moved', 'card_updated', 'card_deleted'];
+$knownEvents = [
+    'card_created', 'card_moved', 'card_assigned',
+    'card_due_date_changed', 'card_description_changed', 'card_updated', 'card_deleted',
+];
 
 $instanceName = (string) ($payload['instance'] ?? '');
 if ($config->instance($instanceName) === null) {

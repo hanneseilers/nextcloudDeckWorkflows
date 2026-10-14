@@ -16,6 +16,24 @@ or any date, plus/minus N days - e.g. to compute a due date); `slice_text`
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
 
+## Trigger events
+
+`EventType` (`core/domain/models.py`), detected by diffing each poll against
+the last snapshot (`adapters/nextcloud/event_source.py`):
+
+- `card_created`, `card_moved`, `card_deleted` - unambiguous, fire once each.
+- `card_assigned` - a *new* user was added to the card's assignees (not a
+  removal).
+- `card_due_date_changed`, `card_description_changed` - that specific field's
+  value differs from the last poll.
+- `card_updated` - fires on *any* change to the card, including the specific
+  ones above - it's a superset, not an alternative to them. A workflow can
+  watch either the specific event it cares about, or `card_updated` to catch
+  everything (e.g. a title or label change, which has no dedicated event).
+
+A `Trigger`'s `stack_id` is optional - omitted (or "all columns" in the
+website) means the workflow reacts to that event on any column of the board.
+
 ## Modules calling modules
 
 An action can call another action module directly through `context.modules` (the

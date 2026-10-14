@@ -14,11 +14,17 @@ function h(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
-// Same four event types automation/core/domain/models.py::EventType defines.
+// Same event types automation/core/domain/models.py::EventType defines.
+// card_assigned/card_due_date_changed/card_description_changed fire *in
+// addition to* card_updated when that specific field changed - card_updated
+// itself still fires on any change.
 $eventTypes = [
     'card_created' => 'Karte erstellt',
     'card_moved' => 'Karte verschoben',
-    'card_updated' => 'Karte geändert',
+    'card_assigned' => 'Neue Person zugewiesen',
+    'card_due_date_changed' => 'Fälligkeitsdatum geändert',
+    'card_description_changed' => 'Beschreibung geändert',
+    'card_updated' => 'Karte geändert (beliebiges Feld)',
     'card_deleted' => 'Karte gelöscht',
 ];
 ?>
