@@ -11,6 +11,7 @@ import argparse
 import json
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,20 @@ logger = logging.getLogger(__name__)
 MODULES_SNAPSHOT_PATH = REPO_ROOT / "automation" / "var" / "modules.json"
 
 
+@dataclass(frozen=True)
+class BoardTarget:
+    """One board this run polls/handles events for - built once per board in
+    run() below, then polled repeatedly by the fixed-point loop. A named
+    tuple (not a plain positional one) because this has grown a field each
+    time a new per-run dependency (event_source, then calendar) was added."""
+
+    instance_name: str
+    board_id: int
+    deck: NextcloudDeckGateway
+    event_source: PollingEventSource
+    calendar: NextcloudCalendarGateway
+
+
 def run(settings: Settings) -> None:
     workflows = YamlWorkflowRepository(settings.workflows_dir)
     state_store = SqliteStateStore(settings.state_db_path)
@@ -46,7 +61,7 @@ def run(settings: Settings) -> None:
 
     # Built once, polled repeatedly below - a board's deck/event_source don't
     # change between iterations of the fixed-point loop.
-    targets: list[tuple[str, int, NextcloudDeckGateway, PollingEventSource, NextcloudCalendarGateway]] = []
+    targets: list[BoardTarget] = []
     for instance_name, board_ids in boards_by_instance.items():
         instance = settings.instances.get(instance_name)
         if instance is None:
@@ -62,7 +77,7 @@ def run(settings: Settings) -> None:
         # separate credentials or config/nextcloud.yaml entry.
         calendar = NextcloudCalendarGateway(client, instance.username)
         for board_id in board_ids:
-            targets.append((instance_name, board_id, deck, event_source, calendar))
+            targets.append(BoardTarget(instance_name, board_id, deck, event_source, calendar))
 
     # A workflow's own actions (move a card, change its due date, ...) can be
     # exactly what triggers another workflow - so keep re-polling and
@@ -77,8 +92,8 @@ def run(settings: Settings) -> None:
     while True:
         iteration += 1
         any_triggered = False
-        for instance_name, board_id, deck, event_source, calendar in targets:
-            if _process_board(engine, event_source, deck, calendar, instance_name, board_id):
+        for target in targets:
+            if _process_board(engine, target):
                 any_triggered = True
 
         if not any_triggered:
@@ -94,14 +109,7 @@ def run(settings: Settings) -> None:
             return
 
 
-def _process_board(
-    engine: WorkflowEngine,
-    event_source: PollingEventSource,
-    deck: NextcloudDeckGateway,
-    calendar: NextcloudCalendarGateway,
-    instance_name: str,
-    board_id: int,
-) -> bool:
+def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:
     """One instance being unreachable or one board having disappeared must not stop
     the rest of the run - polling errors here are logged and this board is skipped.
 
@@ -113,21 +121,22 @@ def _process_board(
     """
 
     try:
-        events = event_source.poll(instance_name, board_id)
+        events = target.event_source.poll(target.instance_name, target.board_id)
     except Exception:
         logger.exception(
-            "Skipping board %s on instance '%s': could not poll for events", board_id, instance_name
+            "Skipping board %s on instance '%s': could not poll for events",
+            target.board_id, target.instance_name,
         )
         return False
 
     for event in events:
         logger.info(
             "Detected %s on card %s (instance=%s board=%s)",
-            event.event_type.value, event.card_id, instance_name, board_id,
+            event.event_type.value, event.card_id, target.instance_name, target.board_id,
         )
-        engine.handle(event, deck, calendar)
+        engine.handle(event, target.deck, target.calendar)
 
-    event_source.commit(instance_name, board_id)
+    target.event_source.commit(target.instance_name, target.board_id)
     return len(events) > 0
 
 
