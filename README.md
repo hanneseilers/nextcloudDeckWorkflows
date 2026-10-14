@@ -36,6 +36,8 @@ The repository itself isn't directly uploadable (dev-only files, no `vendor/`, n
 
 New to building workflows here? [TUTORIAL.md](TUTORIAL.md) (German) walks
 through using the tool from first principles to a multi-step example.
+Looking for ideas on what to build next? See [ROADMAP.md](ROADMAP.md)
+(German) for a curated list of not-yet-implemented features.
 
 ## License
 
