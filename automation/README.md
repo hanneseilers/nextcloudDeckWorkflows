@@ -5,15 +5,15 @@ Cron-driven workflow engine, built as a hexagonal (ports & adapters) architectur
 ## Layout
 
 - `core/domain/` — framework-free domain model (`Workflow`, `DeckEvent`, ...) and the `WorkflowEngine` application service. No I/O.
-- `core/ports/` — abstract interfaces the core depends on (`WorkflowRepositoryPort`, `DeckGatewayPort`, `EventSourcePort`, `ActionModulePort`, `ExecutionLogPort`).
-- `adapters/nextcloud/` — talks to the Nextcloud/Deck REST API; detects events by polling and diffing board state against the last snapshot (no webhooks needed).
+- `core/ports/` — abstract interfaces the core depends on (`WorkflowRepositoryPort`, `DeckGatewayPort`, `EventSourcePort`, `ActionModulePort`, `ExecutionLogPort`, `CalendarGatewayPort`).
+- `adapters/nextcloud/` — talks to the Nextcloud/Deck REST API; detects events by polling and diffing board state against the last snapshot (no webhooks needed). Also talks to Nextcloud Calendar over CalDAV (`calendar_gateway.py`, see below) using the same account/client as Deck.
 - `adapters/persistence/` — `YamlWorkflowRepository` (workflow definitions as YAML in `workflows/`) and `SqliteStateStore` (snapshot + execution log, `automation/var/state.sqlite3`).
 - `adapters/actions/` — dynamically loads action modules from `actions_registry/`.
 - `actions_registry/` — one file per action capability. Drop in a new file that subclasses `WorkflowAction` to add a capability; no other code needs to change. Ships with standard card-editing actions: `set_title`, `set_description`, `set_due_date`, `move_card`, `add_label`, `assign_user`, `unassign_user`, `add_comment`; `set_variable` (global workflow variables, see below); `date_offset` (today,
 or any date, plus/minus N days - e.g. to compute a due date); `slice_text`
 (extract the text between two delimiter strings); `extract_field` (pull a
 value out of a dict/list by path - like `$ref` but also walks into lists by
-index, e.g. "events.0.title"); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (data-lookup reference module, not wired to anything yet); plus `log_action` as a no-op reference/smoke-test action.
+index, e.g. "events.0.title"); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
@@ -43,7 +43,9 @@ same `ActionModulePort` registry the engine itself uses):
 
 ```python
 def execute(self, context: ActionContext, params: dict) -> None:
-    appointment = context.modules.get("calendar_lookup").execute(context, {...})
+    appointment = context.modules.get("calendar_lookup").execute(
+        context, {"calendar_id": "...", "title_contains": "Sync"}
+    )
     ...  # use appointment's return value, e.g. to fill an email body
 ```
 
@@ -68,15 +70,15 @@ actions:
   - id: lookup
     module: calendar_lookup
     params:
-      summary: "Team sync"
-      start: "2026-01-05T10:00:00+00:00"
+      calendar_id: "/remote.php/dav/calendars/alice/personal/"
+      title_contains: "Team sync"
   - module: send_email          # no id needed - nothing references this step
     params:
       to: "team@example.com"
       subject: "Reminder"
-      body: "$summary at $start"
+      body: "$title at $start"
       template_data:
-        summary: {$ref: lookup.summary}   # mapped from the lookup step's output
+        title: {$ref: lookup.title}   # mapped from the lookup step's output
         start: {$ref: lookup.start}
 ```
 
@@ -187,6 +189,47 @@ pytest                                # unit tests against in-memory fakes
 ```
 
 Schedule `python -m automation.main` via cron for periodic execution.
+
+## Calendar lookup
+
+`calendar_lookup` (`actions_registry/calendar_lookup.py`) searches a Nextcloud
+calendar over CalDAV for the next future occurrence of an event whose title
+contains a given substring (case-insensitive) - recurring events included, so
+a yearly "Birthday" or weekly "Standup" series resolves to its actual next
+occurrence, not the series' original start date.
+
+```yaml
+params:
+  calendar_id: "/remote.php/dav/calendars/alice/personal/"  # from list_calendars()
+  title_contains: "Standup"   # "" matches any event
+```
+
+Output: `title`, `start`, `end`, `location` (all `null` if nothing matched).
+
+How it works (`adapters/nextcloud/calendar_gateway.py`, `NextcloudCalendarGateway`):
+
+- `list_calendars()` - `PROPFIND` on `/remote.php/dav/calendars/<user>/` (same
+  account/`NextcloudClient` already used for Deck - no extra config needed).
+- `find_next_occurrence()` - a `REPORT` (`calendar-query`) bounded to a
+  two-year future time-range (CalDAV needs a bound to expand an open-ended
+  RRULE), parsed with `icalendar`; the title filter is applied client-side
+  (deliberately, not via CalDAV's server-side text-match, which is
+  inconsistently supported and awkward against a recurring master where the
+  title lives once for the whole series); each candidate's actual next
+  occurrence is computed with `dateutil.rrule`, respecting `EXDATE`; the
+  earliest matching occurrence overall wins.
+
+**Not verified against a live Nextcloud instance** - built against the CalDAV
+(RFC 4791) and iCalendar (RFC 5545) specs and Nextcloud's documented CalDAV
+URL convention, but there was no live server available while building this.
+Known limitations: `RDATE` (ad-hoc extra occurrences) and `RECURRENCE-ID`
+(single-instance overrides of a recurring series) are not handled - only
+`RRULE`+`EXDATE` on the series master. If something doesn't match a real
+server's behaviour, `calendar_gateway.py` is the place to fix it.
+
+With no calendar connection configured for an instance (e.g. the `--dry-run`
+smoke test), `calendar_lookup` raises a clear error instead of crashing -
+caught and logged like any other action's failure.
 
 ## send_email
 
