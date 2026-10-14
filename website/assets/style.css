@@ -222,3 +222,21 @@ code {
 .typeahead-result:hover {
     background: #eef3f0;
 }
+
+tr.run-failed {
+    background: #fdeceb;
+}
+
+ul.run-actions {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.action-ok {
+    color: var(--accent);
+}
+
+.action-failed {
+    color: var(--danger);
+}

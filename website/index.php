@@ -29,7 +29,10 @@ function h(string $value): string
 <body>
 <header>
     <h1>Nextcloud Deck Workflows</h1>
-    <a class="button" href="new.php">+ Neuer Workflow</a>
+    <div>
+        <a href="history.php">Historie</a>
+        <a class="button" href="new.php">+ Neuer Workflow</a>
+    </div>
 </header>
 
 <?php if (empty($config->instances())): ?>

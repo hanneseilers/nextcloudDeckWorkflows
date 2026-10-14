@@ -14,6 +14,7 @@ class Config
     /** @var array<string, array{name: string, url: string, username: string, app_password: string}> */
     private array $instances = [];
     private string $workflowsDir;
+    private string $stateDbPath;
 
     public function __construct(string $configDir)
     {
@@ -27,6 +28,11 @@ class Config
         $this->workflowsDir = str_starts_with($workflowsDir, '/')
             ? $workflowsDir
             : dirname($configDir) . '/' . $workflowsDir;
+
+        $stateDbPath = $settings['state_db_path'] ?? 'automation/var/state.sqlite3';
+        $this->stateDbPath = str_starts_with($stateDbPath, '/')
+            ? $stateDbPath
+            : dirname($configDir) . '/' . $stateDbPath;
     }
 
     public static function fromRepoRoot(): self
@@ -48,6 +54,11 @@ class Config
     public function workflowsDir(): string
     {
         return $this->workflowsDir;
+    }
+
+    public function stateDbPath(): string
+    {
+        return $this->stateDbPath;
     }
 
     private function readYaml(string $path): array
