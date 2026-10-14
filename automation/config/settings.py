@@ -54,7 +54,7 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
             name=entry["name"],
             base_url=entry["url"].rstrip("/"),
             username=entry["username"],
-            app_password=entry["app_password"],
+            app_password=_resolve_app_password(entry),
         )
         for entry in nextcloud.get("instances", [])
     }
@@ -76,6 +76,19 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
         max_run_seconds=float(general.get("max_run_seconds", 240.0)),
         error_notifications=error_notifications,
     )
+
+
+def _resolve_app_password(entry: dict[str, Any]) -> str:
+    """A nextcloud.yaml instance entry has either `app_password` (plain) or
+    `encrypted_app_password` (see automation/config/secrets.py) - never
+    both in practice, but encrypted wins if somehow both are present, since
+    that's the more deliberate choice."""
+
+    if "encrypted_app_password" in entry:
+        from automation.config.secrets import decrypt  # lazy: optional dependency
+
+        return decrypt(entry["encrypted_app_password"])
+    return entry["app_password"]
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:

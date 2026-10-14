@@ -320,6 +320,29 @@ then the body) referenced via `params.template`. `$placeholder` values from
 an unresolved placeholder is left as-is rather than raising). See
 `config/email_templates/example.txt`.
 
+## Encrypted app passwords
+
+Optional hardening for shared hosting (other accounts on the same machine
+sometimes being able to read files they shouldn't via misconfigured
+permissions): instead of a plaintext `app_password` in
+`config/nextcloud.yaml`, an instance can have `encrypted_app_password`.
+
+```bash
+python -m automation.config.secrets generate-key      # writes config/secret.key once
+python -m automation.config.secrets encrypt "the real app password"
+```
+
+Paste the printed value into `nextcloud.yaml` as `encrypted_app_password`
+instead of `app_password`. Uses `cryptography`'s Fernet (AES-128-CBC +
+HMAC-SHA256, authenticated) - deliberately **not** in `requirements.txt`
+or vendored by `tools/build.sh` like the project's other dependencies,
+since it has a compiled extension that can't be vendored as plain source;
+install it yourself (`pip install cryptography`) only if you use this.
+`website/src/Fernet.php` decrypts the exact same token format in pure PHP
+(via `openssl`/`hash_hmac`, no extra PHP dependency) using the same
+`config/secret.key` - keep that file's permissions tight and never commit
+it (already gitignored).
+
 ## Failure notifications
 
 Optional: email an admin address once a workflow has failed `threshold`

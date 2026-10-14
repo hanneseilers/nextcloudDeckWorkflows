@@ -16,6 +16,9 @@ automation/var/*
 config/nextcloud.yaml
 config/settings.yaml
 config/smtp.yaml
+# Decrypts any encrypted_app_password in nextcloud.yaml - see
+# automation/config/secrets.py. Never commit this.
+config/secret.key
 
 # Workflow definitions are runtime data created via the website, not source
 workflows/*.yaml
