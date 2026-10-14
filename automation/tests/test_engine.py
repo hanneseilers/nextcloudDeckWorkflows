@@ -206,3 +206,26 @@ def test_unresolvable_ref_resolves_to_none_instead_of_crashing():
 
     assert results[0].success
     assert consumer.received == {"missing": None}
+
+
+def test_card_fields_are_available_as_a_ref_source_without_any_step():
+    consumer = ConsumerAction()
+    workflow = make_workflow(
+        actions=(
+            ActionStep(
+                module="consumer",
+                params={"title": {"$ref": "card.title"}, "due": {"$ref": "card.duedate"}},
+            ),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"consumer": consumer}),
+        execution_log=InMemoryExecutionLog(),
+    )
+    event = make_event(card={"title": "Buy milk", "duedate": "2026-01-05T10:00:00+00:00"})
+
+    results = engine.handle(event, deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert consumer.received == {"title": "Buy milk", "due": "2026-01-05T10:00:00+00:00"}

@@ -16,6 +16,15 @@
   });
   const moduleNames = Object.keys(modulesByName).sort();
 
+  // "card" is a reserved $ref source (see automation/README.md): the raw
+  // Nextcloud Deck fields of the card that triggered the workflow, always
+  // available without adding a step. This list is only used to populate the
+  // field-name datalist below - the actual value comes straight from the
+  // Deck API at run time, so any other field name the API returns also works.
+  const CARD_FIELDS = [
+    'title', 'description', 'duedate', 'labels', 'assignedUsers', 'owner', 'done', 'archived',
+  ];
+
   const state = { steps: [] };
   let idManuallyEdited = false;
 
@@ -281,17 +290,19 @@
     row.appendChild(sourceSelect);
 
     if (step.params[key].source === 'ref') {
-      const priorSteps = state.steps.slice(0, index);
+      // "card" (the triggering card's raw fields) is always selectable, in
+      // addition to any earlier step in this workflow.
+      const refSources = [{ id: 'card', module: null }, ...state.steps.slice(0, index)];
       const refSelect = document.createElement('select');
       const emptyOpt = document.createElement('option');
       emptyOpt.value = '';
-      emptyOpt.textContent = '– Schritt wählen –';
+      emptyOpt.textContent = '– Quelle wählen –';
       refSelect.appendChild(emptyOpt);
-      priorSteps.forEach((prior) => {
+      refSources.forEach((source) => {
         const option = document.createElement('option');
-        option.value = prior.id;
-        option.textContent = prior.id + ' (' + prior.module + ')';
-        option.selected = prior.id === step.params[key].refStep;
+        option.value = source.id;
+        option.textContent = source.module ? source.id + ' (' + source.module + ')' : source.id;
+        option.selected = source.id === step.params[key].refStep;
         refSelect.appendChild(option);
       });
       refSelect.addEventListener('change', () => {
@@ -311,9 +322,15 @@
 
       const datalist = document.createElement('datalist');
       datalist.id = 'output-fields-' + index + '-' + key;
-      const refStepObj = priorSteps.find((s) => s.id === step.params[key].refStep);
-      const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
-      Object.keys((refModule && refModule.output) || {}).forEach((field) => {
+      let fieldOptions;
+      if (step.params[key].refStep === 'card') {
+        fieldOptions = CARD_FIELDS;
+      } else {
+        const refStepObj = refSources.find((s) => s.id === step.params[key].refStep);
+        const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
+        fieldOptions = Object.keys((refModule && refModule.output) || {});
+      }
+      fieldOptions.forEach((field) => {
         const option = document.createElement('option');
         option.value = field;
         datalist.appendChild(option);

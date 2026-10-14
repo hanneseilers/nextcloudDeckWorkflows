@@ -41,7 +41,10 @@ class WorkflowEngine:
     def _run(self, workflow: Workflow, event: DeckEvent, deck: DeckGatewayPort) -> ExecutionResult:
         context = ActionContext(event=event, deck=deck, modules=self._actions)
         result = ExecutionResult(workflow_id=workflow.id, event=event)
-        outputs_by_step: dict[str, dict[str, Any]] = {}
+        # Seeded before any step runs: lets every step's params reference the
+        # triggering card's raw Nextcloud fields directly via {"$ref": "card.<field>"}
+        # (e.g. "card.title", "card.duedate") without needing a lookup module.
+        outputs_by_step: dict[str, dict[str, Any]] = {"card": dict(event.card)}
 
         for index, step in enumerate(workflow.actions):
             step_key = step.id or str(index)

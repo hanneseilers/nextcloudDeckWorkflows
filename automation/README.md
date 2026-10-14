@@ -65,6 +65,12 @@ dict - is used as-is. A `$ref` to a step that hasn't run (wrong order), doesn't
 exist, or produced no such field resolves to `None` and logs a warning rather
 than raising - see `WorkflowEngine._resolve_ref` in `core/domain/engine.py`.
 
+`card` is a reserved step id, always available without adding any step: it
+holds the triggering card's raw Nextcloud fields, e.g. `{$ref: card.title}` or
+`{$ref: card.duedate}` - whatever the Deck API returned for that card
+(`title`, `description`, `duedate`, `labels`, `assignedUsers`, ...). Don't give
+one of your own steps the id `card` - it would shadow this.
+
 This is the workflow-level counterpart to modules calling modules above: the
 *workflow* wires one step's output into another step's input declaratively;
 a *module's own code* decides when to call another module directly.
