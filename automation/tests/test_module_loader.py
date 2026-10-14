@@ -87,22 +87,21 @@ def test_real_registry_includes_the_standard_actions():
     } <= names
 
 
-class AppointmentSummaryAction:
-    """Test-only example of a module calling another module via context.modules -
-    the mechanism the calendar_lookup/send_email pairing will use later."""
+class SummaryAction:
+    """Test-only example of a module calling another module via context.modules."""
 
-    ACTION_NAME = "appointment_summary"
-    REQUIRES = ("calendar_lookup",)
+    ACTION_NAME = "summary_action"
+    REQUIRES = ("date_offset",)
 
     def execute(self, context: ActionContext, params: dict) -> str:
-        appointment = context.modules.get("calendar_lookup").execute(context, params["appointment"])
-        return f"{appointment['summary']} at {appointment['start']}"
+        computed = context.modules.get("date_offset").execute(context, params["date_params"])
+        return f"computed date: {computed['date']}"
 
 
 def test_one_module_can_call_another_module_and_use_its_return_value():
     loader = ModuleLoader(actions_registry)
-    calendar = loader.get("calendar_lookup")
-    consumer = AppointmentSummaryAction()
+    date_offset_module = loader.get("date_offset")
+    consumer = SummaryAction()
 
     context = ActionContext(
         event=DeckEvent(instance="test", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10),
@@ -110,8 +109,10 @@ def test_one_module_can_call_another_module_and_use_its_return_value():
         modules=loader,
     )
 
-    summary = consumer.execute(context, {"appointment": {"summary": "Sync", "start": "2026-01-05T10:00"}})
+    summary = consumer.execute(
+        context, {"date_params": {"base": "2026-01-01T00:00:00+00:00", "days": 5}}
+    )
 
-    assert summary == "Sync at 2026-01-05T10:00"
-    # sanity check that context.modules really is the same registry calendar came from
-    assert context.modules.get("calendar_lookup") is calendar
+    assert summary == "computed date: 2026-01-06T00:00:00+00:00"
+    # sanity check that context.modules really is the same registry date_offset came from
+    assert context.modules.get("date_offset") is date_offset_module

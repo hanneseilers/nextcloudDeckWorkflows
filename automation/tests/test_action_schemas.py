@@ -34,12 +34,11 @@ def test_set_title_declares_its_input_shape():
     assert SetTitleAction().default_input() == {"title": ""}
 
 
-def test_calendar_lookup_input_and_output_shapes_match():
+def test_calendar_lookup_declares_its_input_and_output_shapes():
     action = CalendarLookupAction()
 
-    assert action.default_input() == action.default_output() == {
-        "summary": "", "start": None, "end": None, "location": "",
-    }
+    assert action.default_input() == {"calendar_id": "", "title_contains": ""}
+    assert action.default_output() == {"title": None, "start": None, "end": None, "location": None}
 
 
 def test_send_email_declares_its_input_shape():
