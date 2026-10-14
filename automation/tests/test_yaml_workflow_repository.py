@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
-from automation.core.domain.models import ActionStep, EventType, Trigger, Workflow
+from automation.core.domain.models import (
+    ActionStep,
+    ComparisonOp,
+    Condition,
+    EventType,
+    IfStep,
+    Trigger,
+    Workflow,
+)
 
 
 def test_save_and_reload_roundtrip(tmp_path):
@@ -55,3 +63,33 @@ def test_delete_removes_the_file(tmp_path):
     repo.delete("wf-1")
 
     assert repo.get("wf-1") is None
+
+
+def test_roundtrip_with_a_nested_if_else(tmp_path):
+    repo = YamlWorkflowRepository(tmp_path)
+    workflow = Workflow(
+        id="wf-cond",
+        name="Conditional",
+        instance="prod",
+        board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(
+            IfStep(
+                condition=Condition(left={"$ref": "card.priority"}, op=ComparisonOp.EQ, right="high"),
+                then_steps=(
+                    ActionStep(module="add_label", id="urgent", params={"label_id": 1}),
+                    IfStep(
+                        condition=Condition(left=1, op=ComparisonOp.LT, right=2),
+                        then_steps=(ActionStep(module="log_action", params={"message": "nested"}),),
+                        else_steps=(),
+                    ),
+                ),
+                else_steps=(ActionStep(module="log_action", params={"message": "not urgent"}),),
+            ),
+        ),
+    )
+
+    repo.save(workflow)
+    loaded = repo.get("wf-cond")
+
+    assert loaded == workflow

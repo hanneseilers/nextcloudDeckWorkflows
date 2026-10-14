@@ -118,6 +118,41 @@ fieldset textarea {
     margin-left: 1rem;
 }
 
+.if-step {
+    background: #f7f9f8;
+}
+
+.branch {
+    margin-left: 1rem;
+    margin-top: 0.5rem;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--border);
+}
+
+.branch-label {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.branch-steps .step {
+    background: #fff;
+}
+
+.step-list-controls {
+    margin-top: 0.25rem;
+}
+
+.step-list-controls button {
+    margin-right: 0.25rem;
+}
+
+.value-or-ref {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .param-row {
     display: flex;
     gap: 0.5rem;

@@ -6,7 +6,16 @@ from typing import Optional
 
 import yaml
 
-from automation.core.domain.models import ActionStep, EventType, Trigger, Workflow
+from automation.core.domain.models import (
+    ActionStep,
+    ComparisonOp,
+    Condition,
+    EventType,
+    IfStep,
+    Trigger,
+    Workflow,
+    WorkflowStep,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +69,7 @@ class YamlWorkflowRepository:
             event_type=EventType(trigger_data["event"]),
             stack_id=trigger_data.get("stack_id"),
         )
-        actions = tuple(
-            ActionStep(module=step["module"], id=step.get("id", ""), params=step.get("params") or {})
-            for step in data.get("actions", [])
-        )
+        actions = _parse_steps(data.get("actions", []))
         return Workflow(
             id=data["id"],
             name=data.get("name", data["id"]),
@@ -90,7 +96,42 @@ class YamlWorkflowRepository:
         }
 
 
-def _step_to_dict(step: ActionStep) -> dict:
+def _parse_steps(items: list) -> tuple[WorkflowStep, ...]:
+    return tuple(_parse_step(item) for item in items)
+
+
+def _parse_step(data: dict) -> WorkflowStep:
+    if data.get("type") == "if":
+        condition_data = data["condition"]
+        condition = Condition(
+            left=condition_data["left"],
+            op=ComparisonOp(condition_data["op"]),
+            right=condition_data["right"],
+        )
+        return IfStep(
+            condition=condition,
+            then_steps=_parse_steps(data.get("then", [])),
+            else_steps=_parse_steps(data.get("else", [])),
+        )
+    return ActionStep(module=data["module"], id=data.get("id", ""), params=data.get("params") or {})
+
+
+def _steps_to_list(steps: tuple[WorkflowStep, ...]) -> list:
+    return [_step_to_dict(step) for step in steps]
+
+
+def _step_to_dict(step: WorkflowStep) -> dict:
+    if isinstance(step, IfStep):
+        return {
+            "type": "if",
+            "condition": {
+                "left": step.condition.left,
+                "op": step.condition.op.value,
+                "right": step.condition.right,
+            },
+            "then": _steps_to_list(step.then_steps),
+            "else": _steps_to_list(step.else_steps),
+        }
     data: dict = {"module": step.module}
     if step.id:
         data["id"] = step.id

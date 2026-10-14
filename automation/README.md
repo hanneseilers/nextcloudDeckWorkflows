@@ -83,6 +83,40 @@ This is the workflow-level counterpart to modules calling modules above: the
 *workflow* wires one step's output into another step's input declaratively;
 a *module's own code* decides when to call another module directly.
 
+## If/else branching
+
+A step can be a branch instead of a module call: `type: if` with a `condition`
+and `then`/`else` lists of further steps (which can themselves contain `if`
+steps - branches nest). Each side of the condition is a literal or a `$ref`,
+resolved the same way as a module's params.
+
+```yaml
+actions:
+  - type: if
+    condition:
+      left: {$ref: card.priority}
+      op: eq
+      right: high
+    then:
+      - module: add_label
+        params: {label_id: 3}
+    else:
+      - module: log_action
+        params: {message: "not urgent"}
+  - module: log_action          # runs either way - outside the if
+    params: {message: "always runs"}
+```
+
+`op` is one of `eq`, `ne`, `lt`, `gt`, `contains`, `beginswith`, `endswith`.
+`eq`/`ne`/`lt`/`gt` compare numerically if both sides parse as numbers (so a
+YAML int and a numeric-looking API string compare equal), otherwise as
+strings for `lt`/`gt` and with plain equality for `eq`/`ne`; the other three
+always compare as strings - see `WorkflowEngine._evaluate_condition`. A
+condition that fails to evaluate takes the `else` branch and logs a warning
+rather than crashing the workflow, consistent with everything else here.
+Steps inside either branch can still be referenced via `$ref` by id from
+anywhere else in the workflow, same as a top-level step.
+
 ## Fault tolerance
 
 The system is meant to keep doing *something* useful even in a degraded

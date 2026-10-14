@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 
 class EventType(str, Enum):
@@ -40,13 +40,53 @@ class ActionStep:
     `id` lets a *later* step's `params` reference this step's output (see
     automation.core.domain.engine._resolve_ref) - e.g. {"$ref": "lookup.summary"}
     to use the `summary` field of the step with id "lookup". Optional: falls
-    back to the step's position in the list if left empty, so steps that don't
+    back to the step's position in the run if left empty, so steps that don't
     need to be referenced don't need one.
     """
 
     module: str
     id: str = ""
     params: dict = field(default_factory=dict)
+
+
+class ComparisonOp(str, Enum):
+    """Operators an IfStep's condition can use. String-named rather than raw
+    Python operators so a condition serializes cleanly to/from YAML and can't
+    smuggle in arbitrary code - see WorkflowEngine._evaluate_condition."""
+
+    EQ = "eq"
+    NE = "ne"
+    LT = "lt"
+    GT = "gt"
+    CONTAINS = "contains"
+    BEGINS_WITH = "beginswith"
+    ENDS_WITH = "endswith"
+
+
+@dataclass(frozen=True)
+class Condition:
+    """`left <op> right`. Each side is a literal or {"$ref": ...}, resolved
+    the same way an ActionStep's params are (see
+    automation.core.domain.engine._resolve_params) before comparing."""
+
+    left: Any
+    op: ComparisonOp
+    right: Any
+
+
+@dataclass(frozen=True)
+class IfStep:
+    """A branching step: evaluates `condition` and runs `then_steps` if it's
+    true, `else_steps` if it's false. Each branch is itself a list of
+    ActionStep/IfStep, so branches can contain several steps and nest -
+    see WorkflowEngine._run_steps."""
+
+    condition: Condition
+    then_steps: tuple["WorkflowStep", ...] = ()
+    else_steps: tuple["WorkflowStep", ...] = ()
+
+
+WorkflowStep = Union[ActionStep, IfStep]
 
 
 @dataclass(frozen=True)
@@ -56,7 +96,7 @@ class Workflow:
     instance: str
     board_id: int
     trigger: Trigger
-    actions: tuple[ActionStep, ...]
+    actions: tuple[WorkflowStep, ...]
     enabled: bool = True
 
     def matches(self, event: DeckEvent) -> bool:

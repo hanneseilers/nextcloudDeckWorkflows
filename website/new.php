@@ -67,8 +67,8 @@ $eventTypes = [
     </select>
 </label>
 
-<label>Spalte
-    <select id="stack" disabled required>
+<label>Spalte (optional - leer/"Alle Spalten" lässt den Workflow auf jede Spalte reagieren)
+    <select id="stack" disabled>
         <option value="">– zuerst Board wählen –</option>
     </select>
 </label>

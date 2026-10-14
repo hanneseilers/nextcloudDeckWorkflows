@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import itertools
 import logging
-from typing import Any
+from typing import Any, Iterator, Optional
 
-from automation.core.domain.models import ActionResult, DeckEvent, ExecutionResult, Workflow
+from automation.core.domain.models import (
+    ActionResult,
+    ActionStep,
+    ComparisonOp,
+    DeckEvent,
+    ExecutionResult,
+    IfStep,
+    Workflow,
+    WorkflowStep,
+)
 from automation.core.ports.action_module import ActionContext, ActionModulePort
 from automation.core.ports.deck_gateway import DeckGatewayPort
 from automation.core.ports.execution_log import ExecutionLogPort
@@ -50,24 +60,63 @@ class WorkflowEngine:
         # triggering card's raw Nextcloud fields directly via {"$ref": "card.<field>"}
         # (e.g. "card.title", "card.duedate") without needing a lookup module.
         outputs_by_step: dict[str, dict[str, Any]] = {"card": dict(event.card), "vars": variables}
+        # One counter shared across the whole (possibly nested) run, so two
+        # id-less steps in different if/else branches never collide on the
+        # same fallback key - see _run_steps.
+        fallback_ids = itertools.count()
 
-        for index, step in enumerate(workflow.actions):
-            step_key = step.id or str(index)
-            try:
-                action = self._actions.get(step.module)
-                params = _resolve_params(step.params, outputs_by_step)
-                output = action.execute(context, params) or {}
-                outputs_by_step[step_key] = output
-                result.action_results.append(ActionResult(module=step.module, success=True))
-            except Exception as exc:
-                # Action modules are dynamically loaded, third-party-ish plugin code: one
-                # failing step must not abort the rest of the workflow run or the whole
-                # cron invocation, so failures are isolated and recorded instead of raised.
-                logger.exception("Action '%s' failed for workflow '%s'", step.module, workflow.id)
-                result.action_results.append(
-                    ActionResult(module=step.module, success=False, error=str(exc))
-                )
+        self._run_steps(workflow.actions, context, outputs_by_step, result, workflow.id, fallback_ids)
         return result
+
+    def _run_steps(
+        self,
+        steps: tuple[WorkflowStep, ...],
+        context: ActionContext,
+        outputs_by_step: dict[str, dict[str, Any]],
+        result: ExecutionResult,
+        workflow_id: str,
+        fallback_ids: Iterator[int],
+    ) -> None:
+        for step in steps:
+            if isinstance(step, IfStep):
+                left = _resolve_params(step.condition.left, outputs_by_step)
+                right = _resolve_params(step.condition.right, outputs_by_step)
+                try:
+                    branch_is_then = _evaluate_condition(step.condition.op, left, right)
+                except Exception:
+                    # A bad/unevaluable condition takes the else branch rather
+                    # than aborting the workflow - same "degrade, don't crash"
+                    # stance as everything else here.
+                    logger.exception("Could not evaluate if-condition in workflow '%s'", workflow_id)
+                    branch_is_then = False
+                branch = step.then_steps if branch_is_then else step.else_steps
+                self._run_steps(branch, context, outputs_by_step, result, workflow_id, fallback_ids)
+                continue
+
+            self._run_action_step(step, context, outputs_by_step, result, workflow_id, fallback_ids)
+
+    def _run_action_step(
+        self,
+        step: ActionStep,
+        context: ActionContext,
+        outputs_by_step: dict[str, dict[str, Any]],
+        result: ExecutionResult,
+        workflow_id: str,
+        fallback_ids: Iterator[int],
+    ) -> None:
+        step_key = step.id or str(next(fallback_ids))
+        try:
+            action = self._actions.get(step.module)
+            params = _resolve_params(step.params, outputs_by_step)
+            output = action.execute(context, params) or {}
+            outputs_by_step[step_key] = output
+            result.action_results.append(ActionResult(module=step.module, success=True))
+        except Exception as exc:
+            # Action modules are dynamically loaded, third-party-ish plugin code: one
+            # failing step must not abort the rest of the workflow run or the whole
+            # cron invocation, so failures are isolated and recorded instead of raised.
+            logger.exception("Action '%s' failed for workflow '%s'", step.module, workflow_id)
+            result.action_results.append(ActionResult(module=step.module, success=False, error=str(exc)))
 
 
 def _resolve_params(params: Any, outputs_by_step: dict[str, dict[str, Any]]) -> Any:
@@ -108,3 +157,40 @@ def _resolve_ref(ref: str, outputs_by_step: dict[str, dict[str, Any]]) -> Any:
             return None
         value = value[part]
     return value
+
+
+def _try_numeric(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None  # don't silently treat True/False as 1/0 in a comparison
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _evaluate_condition(op: ComparisonOp, left: Any, right: Any) -> bool:
+    """Evaluates an IfStep's condition. eq/ne/lt/gt compare numerically if
+    both sides parse as numbers (so a YAML int and a Nextcloud-API string
+    like "5" compare equal), otherwise as strings for lt/gt and with a plain
+    `==`/`!=` for eq/ne. contains/beginswith/endswith always compare as
+    strings - that's the point of them.
+    """
+
+    left_num, right_num = _try_numeric(left), _try_numeric(right)
+    both_numeric = left_num is not None and right_num is not None
+
+    if op == ComparisonOp.EQ:
+        return left_num == right_num if both_numeric else left == right
+    if op == ComparisonOp.NE:
+        return not _evaluate_condition(ComparisonOp.EQ, left, right)
+    if op == ComparisonOp.LT:
+        return left_num < right_num if both_numeric else str(left) < str(right)
+    if op == ComparisonOp.GT:
+        return left_num > right_num if both_numeric else str(left) > str(right)
+    if op == ComparisonOp.CONTAINS:
+        return str(right) in str(left)
+    if op == ComparisonOp.BEGINS_WITH:
+        return str(left).startswith(str(right))
+    if op == ComparisonOp.ENDS_WITH:
+        return str(left).endswith(str(right))
+    raise ValueError(f"Unknown comparison operator: {op!r}")
