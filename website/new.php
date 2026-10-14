@@ -6,10 +6,18 @@ use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ModuleRegistry;
+use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
 $modules = ModuleRegistry::fromRepoRoot();
 $eventTypes = EventTypes::labels();
+
+$editId = (string) ($_GET['id'] ?? '');
+$existingWorkflow = null;
+if ($editId !== '') {
+    $existingWorkflow = (new WorkflowRepository($config->workflowsDir()))->get($editId);
+}
+$isEdit = $editId !== '' && $existingWorkflow !== null;
 
 function h(string $value): string
 {
@@ -20,16 +28,18 @@ function h(string $value): string
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<title>Neuer Workflow — Nextcloud Deck Workflows</title>
+<title><?= $isEdit ? 'Workflow bearbeiten' : 'Neuer Workflow' ?> — Nextcloud Deck Workflows</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 <header>
-    <h1>Neuer Workflow</h1>
+    <h1><?= $isEdit ? 'Workflow bearbeiten: ' . h((string) $existingWorkflow['name']) : 'Neuer Workflow' ?></h1>
     <a href="index.php">&larr; Übersicht</a>
 </header>
 
-<?php if (empty($config->instances())): ?>
+<?php if ($editId !== '' && $existingWorkflow === null): ?>
+    <p class="notice error">Workflow '<?= h($editId) ?>' nicht gefunden.</p>
+<?php elseif (empty($config->instances())): ?>
     <p class="notice">Keine Nextcloud-Instanz konfiguriert. Lege <code>config/nextcloud.yaml</code> an
     (Vorlage: <code>config/nextcloud.example.yaml</code>), bevor du einen Workflow anlegst.</p>
 <?php elseif (!$modules->isAvailable()): ?>
@@ -83,7 +93,7 @@ function h(string $value): string
     <input type="text" id="name" required>
 </label>
 <label>Id (technischer Name, Dateiname in <code>workflows/</code>)
-    <input type="text" id="workflow-id" pattern="[a-z0-9\-]+" required>
+    <input type="text" id="workflow-id" pattern="[a-z0-9\-]+" required <?= $isEdit ? 'readonly' : '' ?>>
 </label>
 </fieldset>
 
@@ -93,10 +103,13 @@ function h(string $value): string
 <button type="button" id="add-step">+ Schritt hinzufügen</button>
 </fieldset>
 
-<button type="submit" class="button">Workflow speichern</button>
+<button type="submit" class="button"><?= $isEdit ? 'Änderungen speichern' : 'Workflow speichern' ?></button>
 </form>
 
 <script id="modules-data" type="application/json"><?= $modules->rawModulesJson() ?></script>
+<?php if ($isEdit): ?>
+<script id="existing-workflow-data" type="application/json"><?= json_encode($existingWorkflow, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>
+<?php endif; ?>
 <script src="assets/typeahead.js"></script>
 <script src="assets/builder.js"></script>
 <?php endif; ?>

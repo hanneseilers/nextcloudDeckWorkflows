@@ -78,7 +78,13 @@ function h(string $value): string
     <td><?= $stepCount ?></td>
     <td><?= $enabled ? 'ja' : 'nein' ?></td>
     <td class="actions">
+        <a class="button" href="new.php?id=<?= urlencode((string) $workflow['id']) ?>">Bearbeiten</a>
         <a class="button" href="test_run.php?workflow_id=<?= urlencode((string) $workflow['id']) ?>">Testlauf</a>
+        <form method="post" action="duplicate.php" class="inline">
+            <input type="hidden" name="id" value="<?= h((string) $workflow['id']) ?>">
+            <?= Csrf::field() ?>
+            <button type="submit">Duplizieren</button>
+        </form>
         <form method="post" action="toggle.php" class="inline">
             <input type="hidden" name="id" value="<?= h((string) $workflow['id']) ?>">
             <input type="hidden" name="enabled" value="<?= $enabled ? '0' : '1' ?>">

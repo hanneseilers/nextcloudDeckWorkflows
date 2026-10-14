@@ -120,44 +120,54 @@
     }
   }
 
-  function mountBoardField(boards) {
-    boardEl.value = '';
+  // `preselectId`, when given (edit mode restoring a saved board/stack),
+  // sets the hidden value immediately and looks up its title in the
+  // already-fetched list for the typeahead's initial display text - if the
+  // board/stack no longer exists (renamed/deleted since), the hidden value
+  // is still correct for saving, it just displays the raw id as a fallback.
+  function mountBoardField(boards, preselectId) {
+    const match = preselectId != null ? boards.find((b) => String(b.id) === String(preselectId)) : null;
+    boardEl.value = preselectId != null ? String(preselectId) : '';
     boardFieldEl.className = '';
     boardFieldEl.innerHTML = '';
     boardFieldEl.appendChild(
       renderTypeahead({
-        value: '',
+        value: match ? match.title : boardEl.value,
         placeholder: 'Board-Name eingeben',
         setValue: (value) => {
           boardEl.value = value;
         },
         loadOptions: (query) => filterByTitle(boards, query),
-        onPick: (item) => {
-          stackEl.value = '';
-          loadAndMount(
-            'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(item.id),
-            stackFieldEl,
-            '– lädt –',
-            (data) => mountStackField(data.stacks)
-          );
-        },
+        onPick: (item) => loadStacksFor(item.id),
       })
     );
   }
 
-  function mountStackField(stacks) {
-    stackEl.value = '';
+  function loadStacksFor(boardId, preselectStackId) {
+    stackEl.value = preselectStackId != null ? String(preselectStackId) : '';
+    loadAndMount(
+      'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId),
+      stackFieldEl,
+      '– lädt –',
+      (data) => mountStackField(data.stacks, preselectStackId)
+    );
+  }
+
+  function mountStackField(stacks, preselectId) {
+    const allColumns = { id: '', title: 'Alle Spalten' };
+    const all = [allColumns, ...stacks];
+    const match = preselectId != null ? all.find((s) => String(s.id) === String(preselectId)) : null;
+    stackEl.value = preselectId != null ? String(preselectId) : '';
     stackFieldEl.className = '';
     stackFieldEl.innerHTML = '';
-    const allColumns = { id: '', title: 'Alle Spalten' };
     stackFieldEl.appendChild(
       renderTypeahead({
-        value: '',
+        value: match ? match.title : stackEl.value,
         placeholder: 'Spaltenname eingeben (leer = alle Spalten)',
         setValue: (value) => {
           stackEl.value = value;
         },
-        loadOptions: (query) => filterByTitle([allColumns, ...stacks], query),
+        loadOptions: (query) => filterByTitle(all, query),
       })
     );
   }
@@ -172,11 +182,7 @@
       .map((item) => ({ id: String(item.id), label: item.title }));
   }
 
-  instanceEl.addEventListener('change', () => {
-    calendarsCache = null; // a different instance has different calendars
-    boardEl.value = '';
-    stackEl.value = '';
-    showPlaceholder(stackFieldEl, '– zuerst Board wählen –');
+  function loadBoardsFor(preselectBoardId, preselectStackId) {
     if (!instanceEl.value) {
       showPlaceholder(boardFieldEl, '– zuerst Instanz wählen –');
       return;
@@ -185,8 +191,21 @@
       'api_boards.php?instance=' + encodeURIComponent(instanceEl.value),
       boardFieldEl,
       '– lädt –',
-      (data) => mountBoardField(data.boards)
+      (data) => {
+        mountBoardField(data.boards, preselectBoardId);
+        if (preselectBoardId != null) {
+          loadStacksFor(preselectBoardId, preselectStackId);
+        }
+      }
     );
+  }
+
+  instanceEl.addEventListener('change', () => {
+    calendarsCache = null; // a different instance has different calendars
+    boardEl.value = '';
+    stackEl.value = '';
+    showPlaceholder(stackFieldEl, '– zuerst Board wählen –');
+    loadBoardsFor();
   });
 
   // -- workflow id suggestion from name -----------------------------------
@@ -756,6 +775,7 @@
     }
 
     return {
+      mode: isEditMode ? 'edit' : 'create',
       instance: instanceEl.value,
       board_id: boardId,
       stack_id: stackId,
@@ -777,6 +797,64 @@
     }
   });
 
-  state.steps.push(makeActionNode());
-  render();
+  // -- edit mode: restore an existing workflow's data into the form ----------
+
+  // Inverse of operandValue() above - turns a stored literal/{"$ref": ...}
+  // value back into the internal {source, value, refStep, refField} shape.
+  function toInternalOperand(value) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)
+        && Object.keys(value).length === 1 && typeof value.$ref === 'string') {
+      const dot = value.$ref.indexOf('.');
+      return {
+        source: 'ref',
+        refStep: dot === -1 ? value.$ref : value.$ref.slice(0, dot),
+        refField: dot === -1 ? '' : value.$ref.slice(dot + 1),
+      };
+    }
+    return { source: 'literal', value: value === undefined ? null : value };
+  }
+
+  // Inverse of collectSteps() - turns a stored step (action or if/then/else)
+  // back into the internal tree shape render()/collectSteps() expect.
+  function toInternalStep(raw) {
+    if (raw.type === 'if') {
+      const condition = raw.condition || {};
+      return {
+        kind: 'if',
+        condition: {
+          left: toInternalOperand(condition.left),
+          op: condition.op,
+          right: toInternalOperand(condition.right),
+        },
+        then: (raw.then || []).map(toInternalStep),
+        else: (raw.else || []).map(toInternalStep),
+      };
+    }
+    const params = {};
+    Object.keys(raw.params || {}).forEach((key) => {
+      params[key] = toInternalOperand(raw.params[key]);
+    });
+    return { kind: 'action', id: raw.id || 'step' + stepCounter++, module: raw.module, params };
+  }
+
+  function initializeForEdit(existing) {
+    instanceEl.value = existing.nextcloud_instance;
+    nameEl.value = existing.name;
+    idEl.value = existing.id;
+    idManuallyEdited = true; // the id is fixed in edit mode - never auto-slugify over it
+    document.getElementById('event-type').value = existing.trigger.event;
+    state.steps = (existing.actions || []).map(toInternalStep);
+    render();
+
+    loadBoardsFor(existing.board_id, existing.trigger.stack_id ?? null);
+  }
+
+  const existingDataEl = document.getElementById('existing-workflow-data');
+  const isEditMode = existingDataEl !== null;
+  if (isEditMode) {
+    initializeForEdit(JSON.parse(existingDataEl.textContent));
+  } else {
+    state.steps.push(makeActionNode());
+    render();
+  }
 })();

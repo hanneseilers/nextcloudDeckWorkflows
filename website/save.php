@@ -76,9 +76,19 @@ if ($name === '') {
     $errors[] = 'Bitte einen Namen angeben.';
 }
 
+// "edit" (an existing workflow's own form resubmits its own id, and must be
+// allowed to overwrite it) vs "create" (default - a new, not-yet-used id).
+$mode = (string) ($payload['mode'] ?? 'create');
+$existing = null;
+
 $id = trim((string) ($payload['id'] ?? ''));
 if (!preg_match('/^[a-z0-9\-]+$/', $id)) {
     $errors[] = "Ungültige Workflow-Id '$id' (nur a-z, 0-9 und -).";
+} elseif ($mode === 'edit') {
+    $existing = $workflows->get($id);
+    if ($existing === null) {
+        $errors[] = "Workflow '$id' existiert nicht (kann nicht bearbeitet werden).";
+    }
 } elseif ($workflows->exists($id)) {
     $errors[] = "Ein Workflow mit der Id '$id' existiert bereits.";
 }
@@ -155,7 +165,9 @@ if ($stackId !== null) {
 $workflow = [
     'id' => $id,
     'name' => $name,
-    'enabled' => true,
+    // Editing a workflow must not silently re-enable/disable it - keep
+    // whatever it already was. A brand new one starts enabled.
+    'enabled' => $existing['enabled'] ?? true,
     'nextcloud_instance' => $instanceName,
     'board_id' => $boardId,
     'trigger' => $trigger,
