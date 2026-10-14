@@ -1,46 +1,15 @@
 from __future__ import annotations
 
-import smtplib
-from dataclasses import dataclass
-from email.message import EmailMessage
 from pathlib import Path
 from string import Template
 from typing import Any, ClassVar, Optional
 
-import yaml
-
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.smtp_config import load_smtp_config, send_email as smtp_send
 from automation.config.settings import REPO_ROOT
 from automation.core.ports.action_module import ActionContext
 
-SMTP_CONFIG_PATH = REPO_ROOT / "config" / "smtp.yaml"
 TEMPLATES_DIR = REPO_ROOT / "config" / "email_templates"
-
-
-@dataclass(frozen=True)
-class SmtpConfig:
-    host: str
-    port: int
-    username: Optional[str]
-    password: Optional[str]
-    use_tls: bool
-    from_address: str
-
-
-def _load_smtp_config() -> SmtpConfig:
-    if not SMTP_CONFIG_PATH.exists():
-        raise FileNotFoundError(
-            f"Missing {SMTP_CONFIG_PATH} (copy config/smtp.example.yaml and fill in your values)"
-        )
-    data = yaml.safe_load(SMTP_CONFIG_PATH.read_text()) or {}
-    return SmtpConfig(
-        host=data["host"],
-        port=int(data.get("port", 587)),
-        username=data.get("username"),
-        password=data.get("password"),
-        use_tls=bool(data.get("use_tls", True)),
-        from_address=data.get("from_address") or data.get("username"),
-    )
 
 
 def _load_template(name: str) -> tuple[Optional[str], str]:
@@ -95,18 +64,5 @@ class SendEmailAction(WorkflowAction):
         subject = Template(subject).safe_substitute(**template_data)
         body = Template(body).safe_substitute(**template_data)
 
-        smtp_config = _load_smtp_config()
-        message = EmailMessage()
-        message["From"] = smtp_config.from_address
-        message["To"] = params["to"]
-        message["Subject"] = subject
-        message.set_content(body)
-
-        with smtplib.SMTP(smtp_config.host, smtp_config.port, timeout=15) as client:
-            if smtp_config.use_tls:
-                client.starttls()
-            if smtp_config.username:
-                client.login(smtp_config.username, smtp_config.password or "")
-            client.send_message(message)
-
+        smtp_send(load_smtp_config(), to=params["to"], subject=subject, body=body)
         return {}
