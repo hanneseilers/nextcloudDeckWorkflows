@@ -34,6 +34,9 @@ The repository itself isn't directly uploadable (dev-only files, no `vendor/`, n
 2. Use the website to create and manage workflows for your decks; workflows are saved as YAML files in `workflows/`.
 3. Schedule `automation/` to run periodically via cron to execute the workflows in the background.
 
+New to building workflows here? [TUTORIAL.md](TUTORIAL.md) (German) walks
+through using the tool from first principles to a multi-step example.
+
 ## License
 
 This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
