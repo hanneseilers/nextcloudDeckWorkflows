@@ -163,24 +163,9 @@ class NextcloudApi
             $url .= '?' . http_build_query($query);
         }
 
-        $handle = curl_init($url);
-        curl_setopt_array($handle, [
-            CURLOPT_RETURNTRANSFER => true,
+        $body = $this->curlRequest($url, [
             CURLOPT_HTTPHEADER => ['OCS-APIRequest: true', 'Accept: application/json'],
-            CURLOPT_USERPWD => $this->username . ':' . $this->appPassword,
-            CURLOPT_TIMEOUT => 15,
-        ]);
-        $body = curl_exec($handle);
-        $error = curl_error($handle);
-        $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
-        curl_close($handle);
-
-        if ($body === false) {
-            throw new \RuntimeException("Nextcloud request to $path failed: $error");
-        }
-        if ($status < 200 || $status >= 300) {
-            throw new \RuntimeException("Nextcloud request to $path failed: HTTP $status");
-        }
+        ], "Nextcloud request to $path");
 
         $data = json_decode($body, true);
         if (!is_array($data)) {
@@ -191,26 +176,39 @@ class NextcloudApi
 
     private function requestXml(string $method, string $path, string $body, int $depth): string
     {
-        $handle = curl_init($this->baseUrl . $path);
-        curl_setopt_array($handle, [
-            CURLOPT_RETURNTRANSFER => true,
+        return $this->curlRequest($this->baseUrl . $path, [
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => ['Content-Type: application/xml; charset=utf-8', 'Depth: ' . $depth],
             CURLOPT_POSTFIELDS => $body,
+        ], "Nextcloud CalDAV request to $path");
+    }
+
+    /**
+     * Shared curl lifecycle for request()/requestXml() - init, auth/timeout,
+     * exec, status check, close. `$options` are the caller's own curl_setopt
+     * entries (method/headers/body); `$errorContext` is prepended to both
+     * failure messages so request() and requestXml() keep their own distinct
+     * wording ("Nextcloud request" vs "Nextcloud CalDAV request").
+     */
+    private function curlRequest(string $url, array $options, string $errorContext): string
+    {
+        $handle = curl_init($url);
+        curl_setopt_array($handle, $options + [
+            CURLOPT_RETURNTRANSFER => true,
             CURLOPT_USERPWD => $this->username . ':' . $this->appPassword,
             CURLOPT_TIMEOUT => 15,
         ]);
-        $responseBody = curl_exec($handle);
+        $body = curl_exec($handle);
         $error = curl_error($handle);
         $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
         curl_close($handle);
 
-        if ($responseBody === false) {
-            throw new \RuntimeException("Nextcloud CalDAV request to $path failed: $error");
+        if ($body === false) {
+            throw new \RuntimeException("$errorContext failed: $error");
         }
         if ($status < 200 || $status >= 300) {
-            throw new \RuntimeException("Nextcloud CalDAV request to $path failed: HTTP $status");
+            throw new \RuntimeException("$errorContext failed: HTTP $status");
         }
-        return $responseBody;
+        return $body;
     }
 }
