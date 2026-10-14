@@ -192,6 +192,80 @@
     return input;
   }
 
+  // assign_user/unassign_user's user_id is the one field across all shipped
+  // modules that benefits from search-by-name instead of typing a raw id -
+  // handled as a single special case rather than a general field-type system
+  // that nothing else currently needs.
+  function isUserIdField(moduleName, key) {
+    return (moduleName === 'assign_user' || moduleName === 'unassign_user') && key === 'user_id';
+  }
+
+  function renderUserSearchField(step, key) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'user-search';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Name eingeben (ab 3 Zeichen) oder User-Id direkt eintragen';
+    input.value = step.params[key].value || '';
+
+    const resultsEl = document.createElement('div');
+    resultsEl.className = 'user-search-results';
+    resultsEl.hidden = true;
+
+    let debounceTimer = null;
+
+    function showResults(users) {
+      resultsEl.innerHTML = '';
+      if (users.length === 0) {
+        resultsEl.hidden = true;
+        return;
+      }
+      users.forEach((user) => {
+        const item = document.createElement('div');
+        item.className = 'user-search-result';
+        item.textContent = user.label + ' (' + user.id + ')';
+        item.addEventListener('click', () => {
+          step.params[key].value = user.id;
+          input.value = user.id;
+          resultsEl.hidden = true;
+        });
+        resultsEl.appendChild(item);
+      });
+      resultsEl.hidden = false;
+    }
+
+    input.addEventListener('input', () => {
+      // Typing directly always sets the literal value too, so pasting a
+      // known user id works without ever touching the search results.
+      step.params[key].value = input.value;
+      resultsEl.hidden = true;
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+      const query = input.value.trim();
+      if (query.length < 3 || !instanceEl.value) {
+        return;
+      }
+      debounceTimer = setTimeout(async () => {
+        try {
+          const data = await fetchJSON(
+            'api_users.php?instance=' + encodeURIComponent(instanceEl.value) + '&query=' + encodeURIComponent(query)
+          );
+          showResults(data.users || []);
+        } catch (e) {
+          // Non-fatal: the field still works as a plain text input even if
+          // the search itself fails (unreachable instance, etc.).
+        }
+      }, 300);
+    });
+
+    wrapper.appendChild(input);
+    wrapper.appendChild(resultsEl);
+    return wrapper;
+  }
+
   function renderStep(step, index) {
     const wrapper = document.createElement('div');
     wrapper.className = 'step';
@@ -349,6 +423,8 @@
         datalist.appendChild(option);
       });
       row.appendChild(datalist);
+    } else if (isUserIdField(step.module, key)) {
+      row.appendChild(renderUserSearchField(step, key));
     } else {
       const input = renderValueInput(defaultValue, step.params[key].value);
       const isCheckbox = input.type === 'checkbox';
