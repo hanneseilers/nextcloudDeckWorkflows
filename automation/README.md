@@ -5,15 +5,17 @@ Cron-driven workflow engine, built as a hexagonal (ports & adapters) architectur
 ## Layout
 
 - `core/domain/` — framework-free domain model (`Workflow`, `DeckEvent`, ...) and the `WorkflowEngine` application service. No I/O.
-- `core/ports/` — abstract interfaces the core depends on (`WorkflowRepositoryPort`, `DeckGatewayPort`, `EventSourcePort`, `ActionModulePort`, `ExecutionLogPort`, `CalendarGatewayPort`).
+- `core/ports/` — abstract interfaces the core depends on (`WorkflowRepositoryPort`, `DeckGatewayPort`, `EventSourcePort`, `ActionModulePort`, `ExecutionLogPort`, `CalendarGatewayPort`, `SequenceStorePort`).
 - `adapters/nextcloud/` — talks to the Nextcloud/Deck REST API; detects events by polling and diffing board state against the last snapshot (no webhooks needed). Also talks to Nextcloud Calendar over CalDAV (`calendar_gateway.py`, see below) using the same account/client as Deck.
-- `adapters/persistence/` — `YamlWorkflowRepository` (workflow definitions as YAML in `workflows/`) and `SqliteStateStore` (snapshot + execution log, `automation/var/state.sqlite3`).
+- `adapters/persistence/` — `YamlWorkflowRepository` (workflow definitions as YAML in `workflows/`) and `SqliteStateStore` (snapshot + execution log + generate_random_number's used-number lists, `automation/var/state.sqlite3`).
 - `adapters/actions/` — dynamically loads action modules from `actions_registry/`.
 - `actions_registry/` — one file per action capability. Drop in a new file that subclasses `WorkflowAction` to add a capability; no other code needs to change. Ships with standard card-editing actions: `set_title`, `set_description`, `set_due_date`, `move_card`, `add_label`, `assign_user`, `unassign_user`, `add_comment`; `set_variable` (global workflow variables, see below); `date_offset` (today,
 or any date, plus/minus N days - e.g. to compute a due date); `slice_text`
 (extract the text between two delimiter strings); `extract_field` (pull a
 value out of a dict/list by path - like `$ref` but also walks into lists by
-index, e.g. "events.0.title"); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
+index, e.g. "events.0.title"); `generate_random_number`/`forget_random_number`
+(a unique random number generator with a persistent "already generated"
+list, see "Random numbers" below); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
@@ -189,6 +191,46 @@ pytest                                # unit tests against in-memory fakes
 ```
 
 Schedule `python -m automation.main` via cron for periodic execution.
+
+## Random numbers
+
+`generate_random_number` generates a random, digit-only number (leading
+zeros allowed) that hasn't been generated before in the same named list -
+e.g. for a unique ticket/ID number written onto a card.
+
+```yaml
+params:
+  list_name: "tickets"   # independent workflows can use different lists (default "default")
+  min_digits: 4          # starting/minimum width - "0042" at min_digits=4 (default 4)
+  save: true             # record it so it won't be generated again (default true)
+```
+
+Output: `number` (string, zero-padded to its final width).
+
+How it avoids repeats: the generated number is checked against (and, if
+`save` is true, added to) a persistent list in `automation/var/state.sqlite3`
+(`SequenceStorePort`, implemented by the same `SqliteStateStore` used for
+polling snapshots and the execution log). If a draw at the current width
+collides 5 times in a row, the width grows by one digit and the attempt
+count resets - repeating until a free number is found. At realistic digit
+counts this resolves in at most a handful of draws; growing the width by
+one digit multiplies the available space by 10, so it converges fast even
+once a list is fairly full.
+
+`forget_random_number` removes a number from that list again - e.g. because
+whatever was using it (a card, a ticket) was deleted, and the number should
+become available to generate again:
+
+```yaml
+params:
+  list_name: "tickets"
+  number: "0042"   # typically {"$ref": "<step_id>.number"} from an earlier
+                    # generate_random_number step, or any other module's output
+```
+
+Matching is by exact text, including leading zeros - not by numeric value.
+Removing a number that was never saved (or already removed) is a no-op, not
+an error.
 
 ## Calendar lookup
 
