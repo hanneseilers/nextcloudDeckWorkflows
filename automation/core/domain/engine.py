@@ -39,12 +39,17 @@ class WorkflowEngine:
         return results
 
     def _run(self, workflow: Workflow, event: DeckEvent, deck: DeckGatewayPort) -> ExecutionResult:
-        context = ActionContext(event=event, deck=deck, modules=self._actions)
+        # Shared with ActionContext.variables (same dict object, not a copy) so
+        # a SetVariableAction's writes show up immediately both via
+        # {"$ref": "vars.<name>"} and in context.variables for $placeholder
+        # substitution in free text (send_email, add_comment).
+        variables: dict[str, Any] = {}
+        context = ActionContext(event=event, deck=deck, modules=self._actions, variables=variables)
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         # Seeded before any step runs: lets every step's params reference the
         # triggering card's raw Nextcloud fields directly via {"$ref": "card.<field>"}
         # (e.g. "card.title", "card.duedate") without needing a lookup module.
-        outputs_by_step: dict[str, dict[str, Any]] = {"card": dict(event.card)}
+        outputs_by_step: dict[str, dict[str, Any]] = {"card": dict(event.card), "vars": variables}
 
         for index, step in enumerate(workflow.actions):
             step_key = step.id or str(index)

@@ -27,11 +27,18 @@ class ActionContext:
     MoveCardAction when it runs, so later actions in the same chain (e.g.
     set_due_date after move_card) address the card's actual current stack
     instead of the one it was in when the event was detected.
+
+    `variables` is the workflow run's shared global-variable store, written to
+    by SetVariableAction under a workflow-chosen name and shared with the
+    engine (see WorkflowEngine._run, which exposes the same dict as
+    outputs_by_step["vars"] for {"$ref": "vars.<name>"}) and with any action
+    that substitutes $placeholders in free text (send_email, add_comment).
     """
 
     event: DeckEvent
     deck: DeckGatewayPort
     modules: "ActionModulePort"
+    variables: dict[str, Any] = field(default_factory=dict)
     current_stack_id: int = field(init=False)
 
     def __post_init__(self) -> None:

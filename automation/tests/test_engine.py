@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from automation import actions_registry
+from automation.actions_registry.set_variable import SetVariableAction
 from automation.adapters.actions.loader import ModuleLoader
 from automation.core.domain.engine import WorkflowEngine
 from automation.core.domain.models import ActionStep, DeckEvent, EventType, Trigger, Workflow
@@ -229,3 +230,24 @@ def test_card_fields_are_available_as_a_ref_source_without_any_step():
 
     assert results[0].success
     assert consumer.received == {"title": "Buy milk", "due": "2026-01-05T10:00:00+00:00"}
+
+
+def test_set_variable_is_readable_by_later_steps_via_vars_ref():
+    consumer = ConsumerAction()
+    workflow = make_workflow(
+        actions=(
+            ActionStep(module="set_variable", id="greet", params={"name": "greeting", "value": "hi"}),
+            ActionStep(module="consumer", params={"text": {"$ref": "vars.greeting"}}),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"set_variable": SetVariableAction(), "consumer": consumer}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert consumer.received == {"text": "hi"}
+

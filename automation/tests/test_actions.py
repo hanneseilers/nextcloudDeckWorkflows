@@ -7,6 +7,7 @@ from automation.actions_registry.move_card import MoveCardAction
 from automation.actions_registry.set_description import SetDescriptionAction
 from automation.actions_registry.set_due_date import SetDueDateAction
 from automation.actions_registry.set_title import SetTitleAction
+from automation.actions_registry.set_variable import SetVariableAction
 from automation.actions_registry.unassign_user import UnassignUserAction
 from automation.core.domain.models import DeckEvent, EventType
 from automation.core.ports.action_module import ActionContext
@@ -78,3 +79,11 @@ def test_add_comment_is_recorded():
     AddCommentAction().execute(make_context(deck), {"message": "hello"})
 
     assert ("add_comment", 100, "hello") in deck.calls
+
+
+def test_set_variable_writes_into_the_shared_context_variables():
+    context = make_context(make_deck())
+    output = SetVariableAction().execute(context, {"name": "greeting", "value": "hi"})
+
+    assert context.variables == {"greeting": "hi"}
+    assert output == {"name": "greeting", "value": "hi"}
