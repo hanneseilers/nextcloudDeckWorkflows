@@ -81,6 +81,16 @@ def test_add_comment_is_recorded():
     assert ("add_comment", 100, "hello") in deck.calls
 
 
+def test_add_comment_substitutes_global_variables():
+    deck = make_deck()
+    context = make_context(deck)
+    context.variables["name"] = "Alice"
+
+    AddCommentAction().execute(context, {"message": "Hello $name"})
+
+    assert ("add_comment", 100, "Hello Alice") in deck.calls
+
+
 def test_set_variable_writes_into_the_shared_context_variables():
     context = make_context(make_deck())
     output = SetVariableAction().execute(context, {"name": "greeting", "value": "hi"})

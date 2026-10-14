@@ -64,10 +64,11 @@ class SendEmailAction(WorkflowAction):
     Server settings come from config/smtp.yaml (module-specific, gitignored -
     copy config/smtp.example.yaml). The subject/body are either given directly
     or loaded from a template file in config/email_templates/<name>.txt. Either
-    way, $placeholder values from params['template_data'] are substituted with
-    string.Template.safe_substitute - unresolved placeholders are left as-is
-    instead of raising, so a template ahead of its data never breaks the send.
-    Exact placeholder names are defined per template/workflow, not by this code.
+    way, $placeholder values are substituted with string.Template.safe_substitute
+    from context.variables (global, set via set_variable) merged with
+    params['template_data'] (template_data wins on a name clash) - unresolved
+    placeholders are left as-is instead of raising, so a template ahead of its
+    data never breaks the send.
 
     params:
       to: str - recipient address
@@ -82,7 +83,7 @@ class SendEmailAction(WorkflowAction):
         return {"to": "", "subject": "", "body": "", "template": None, "template_data": {}}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        template_data = params.get("template_data", {})
+        template_data = {**context.variables, **params.get("template_data", {})}
 
         if params.get("template"):
             subject, body = _load_template(params["template"])

@@ -74,6 +74,33 @@ def test_unresolved_placeholders_are_left_as_is(tmp_path, monkeypatch, smtp_clie
     assert sent.get_content().strip() == "See $unset_placeholder"
 
 
+def test_global_variables_are_available_as_placeholders(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    context.variables["name"] = "Bob"
+
+    SendEmailAction().execute(
+        context,
+        {"to": "alice@example.com", "subject": "Hi $name", "body": "Hi $name"},
+    )
+
+    sent = smtp_client.send_message.call_args[0][0]
+    assert sent["Subject"] == "Hi Bob"
+    assert sent.get_content().strip() == "Hi Bob"
+
+
+def test_template_data_wins_over_a_same_named_global_variable(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    context.variables["name"] = "Bob"
+
+    SendEmailAction().execute(
+        context,
+        {"to": "alice@example.com", "subject": "Hi $name", "body": "Hi $name", "template_data": {"name": "Alice"}},
+    )
+
+    sent = smtp_client.send_message.call_args[0][0]
+    assert sent["Subject"] == "Hi Alice"
+
+
 def test_send_email_from_a_template(tmp_path, monkeypatch, smtp_client, context):
     write_smtp_config(tmp_path, monkeypatch)
     templates_dir = tmp_path / "email_templates"
