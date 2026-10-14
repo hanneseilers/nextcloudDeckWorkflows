@@ -68,15 +68,13 @@ $eventTypes = [
 </label>
 
 <label>Board (Deck)
-    <select id="board" disabled required>
-        <option value="">– zuerst Instanz wählen –</option>
-    </select>
+    <span id="board-field" class="muted">– zuerst Instanz wählen –</span>
+    <input type="hidden" id="board">
 </label>
 
 <label>Spalte (optional - leer/"Alle Spalten" lässt den Workflow auf jede Spalte reagieren)
-    <select id="stack" disabled>
-        <option value="">– zuerst Board wählen –</option>
-    </select>
+    <span id="stack-field" class="muted">– zuerst Board wählen –</span>
+    <input type="hidden" id="stack">
 </label>
 </fieldset>
 

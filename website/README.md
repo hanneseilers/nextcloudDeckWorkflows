@@ -36,6 +36,20 @@ depth, not a substitute for protecting the site itself.
   including the `{"$ref": "<step_id>.<field>"}` output-to-input mapping
   convention from `automation/core/domain/engine.py`.
 
+## Typeahead pickers
+
+Anywhere a field refers to real Nextcloud data by id - board, column
+("Spalte"/stack), a user (`assign_user`/`unassign_user`'s `user_id`), a
+calendar (`calendar_lookup`'s `calendar_id`) - the UI is a type-to-filter
+field with a clickable dropdown (`renderTypeahead()` in
+`assets/builder.js`), not a plain `<select>` or a raw id text box. Board/
+stack/calendar lists are small and already fetched for the current
+instance/board, so typing filters them client-side; user search instead
+queries `api_users.php` per keystroke (debounced, ≥3 characters), since the
+Nextcloud user list can be large. `instance` and `event` stay plain
+`<select>`s - both are small, fixed, locally-known lists, not Nextcloud
+data that needs looking up.
+
 ## Scope of this iteration
 
 - **index.php**: list workflows, enable/disable, delete.

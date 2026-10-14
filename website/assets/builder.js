@@ -86,64 +86,90 @@
     return data;
   }
 
-  function fillSelect(select, items, placeholder) {
-    select.innerHTML = '';
-    const empty = document.createElement('option');
-    empty.value = '';
-    empty.textContent = placeholder;
-    select.appendChild(empty);
-    items.forEach((item) => {
-      const option = document.createElement('option');
-      option.value = String(item.id);
-      option.textContent = item.title + ' (#' + item.id + ')';
-      select.appendChild(option);
-    });
-  }
-
   const instanceEl = document.getElementById('instance');
+  // Hidden inputs hold the actual value (a board/stack id); the visible
+  // typeahead widgets are mounted into -field next to them and only ever
+  // write into these, same split as getValue/setValue below for the
+  // user/calendar search fields.
   const boardEl = document.getElementById('board');
   const stackEl = document.getElementById('stack');
+  const boardFieldEl = document.getElementById('board-field');
+  const stackFieldEl = document.getElementById('stack-field');
+
+  function mountBoardField(boards) {
+    boardEl.value = '';
+    boardFieldEl.innerHTML = '';
+    boardFieldEl.appendChild(
+      renderTypeahead({
+        value: '',
+        placeholder: 'Board-Name eingeben',
+        setValue: (value) => {
+          boardEl.value = value;
+        },
+        loadOptions: (query) => filterByTitle(boards, query),
+        onPick: async (item) => {
+          hideError();
+          mountStackField([], '– lädt –');
+          try {
+            const data = await fetchJSON(
+              'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(item.id)
+            );
+            mountStackField(data.stacks);
+          } catch (e) {
+            showError(e.message);
+          }
+        },
+      })
+    );
+  }
+
+  function mountStackField(stacks, placeholder) {
+    stackEl.value = '';
+    stackFieldEl.innerHTML = '';
+    if (placeholder) {
+      stackFieldEl.appendChild(document.createTextNode(placeholder));
+      stackFieldEl.className = 'muted';
+      return;
+    }
+    stackFieldEl.className = '';
+    const allColumns = { id: '', title: 'Alle Spalten' };
+    stackFieldEl.appendChild(
+      renderTypeahead({
+        value: '',
+        placeholder: 'Spaltenname eingeben (leer = alle Spalten)',
+        setValue: (value) => {
+          stackEl.value = value;
+        },
+        loadOptions: (query) => filterByTitle([allColumns, ...stacks], query),
+      })
+    );
+  }
+
+  // Shared substring match (case-insensitive) for the already-fetched,
+  // small lists (boards/stacks/calendars) - unlike user search, these don't
+  // need a server round-trip per keystroke.
+  function filterByTitle(items, query) {
+    const q = query.trim().toLowerCase();
+    return items
+      .filter((item) => item.title.toLowerCase().includes(q))
+      .map((item) => ({ id: String(item.id), label: item.title }));
+  }
 
   instanceEl.addEventListener('change', async () => {
     hideError();
-    fillSelect(boardEl, [], '– lädt –');
-    fillSelect(stackEl, [], '– zuerst Board wählen –');
-    boardEl.disabled = true;
-    stackEl.disabled = true;
+    calendarsCache = null; // a different instance has different calendars
+    mountStackField([], '– zuerst Board wählen –');
+    boardFieldEl.innerHTML = '';
+    boardFieldEl.className = 'muted';
+    boardFieldEl.textContent = '– lädt –';
+    boardEl.value = '';
     if (!instanceEl.value) {
+      boardFieldEl.textContent = '– zuerst Instanz wählen –';
       return;
     }
     try {
       const data = await fetchJSON('api_boards.php?instance=' + encodeURIComponent(instanceEl.value));
-      fillSelect(boardEl, data.boards, '– wählen –');
-      boardEl.disabled = false;
-    } catch (e) {
-      showError(e.message);
-    }
-  });
-
-  boardEl.addEventListener('change', async () => {
-    hideError();
-    stackEl.innerHTML = '';
-    const anyOpt = document.createElement('option');
-    anyOpt.value = '';
-    anyOpt.textContent = 'Alle Spalten';
-    stackEl.appendChild(anyOpt);
-    stackEl.disabled = true;
-    if (!boardEl.value) {
-      return;
-    }
-    try {
-      const data = await fetchJSON(
-        'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardEl.value)
-      );
-      data.stacks.forEach((item) => {
-        const option = document.createElement('option');
-        option.value = String(item.id);
-        option.textContent = item.title + ' (#' + item.id + ')';
-        stackEl.appendChild(option);
-      });
-      stackEl.disabled = false;
+      mountBoardField(data.boards);
     } catch (e) {
       showError(e.message);
     }
@@ -247,78 +273,153 @@
     return input;
   }
 
-  // assign_user/unassign_user's user_id is the one field across all shipped
-  // modules that benefits from search-by-name instead of typing a raw id -
-  // handled as a single special case rather than a general field-type system
-  // that nothing else currently needs.
-  function isUserIdField(moduleName, key) {
-    return (moduleName === 'assign_user' || moduleName === 'unassign_user') && key === 'user_id';
-  }
-
-  function renderUserSearchField(getValue, setValue) {
+  // Generic "type a name, pick from a dropdown" field - every place that
+  // references real Nextcloud data by id (a user, a board, a stack, a
+  // calendar) uses this same widget instead of asking someone to know and
+  // type the underlying id directly.
+  //
+  // config:
+  //   value        - initial text
+  //   setValue(v)  - called on every keystroke *and* on picking a result,
+  //                  so pasting a known id works even if nothing is ever
+  //                  picked from the dropdown
+  //   placeholder
+  //   loadOptions(query) -> [{id, label}] | Promise<[{id, label}]>
+  //   minChars     - don't call loadOptions below this length (default 0)
+  //   debounceMs   - delay before calling loadOptions (default 0 - used
+  //                  for the already-fetched, small lists; user search sets
+  //                  this since it hits the network per keystroke)
+  //   onPick(item) - optional, called only when a result is actually
+  //                  clicked (e.g. to cascade-load a board's stacks)
+  function renderTypeahead(config) {
     const wrapper = document.createElement('div');
-    wrapper.className = 'user-search';
+    wrapper.className = 'typeahead';
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.placeholder = 'Name eingeben (ab 3 Zeichen) oder User-Id direkt eintragen';
-    input.value = getValue() || '';
+    input.placeholder = config.placeholder || '';
+    input.value = config.value || '';
 
     const resultsEl = document.createElement('div');
-    resultsEl.className = 'user-search-results';
+    resultsEl.className = 'typeahead-results';
     resultsEl.hidden = true;
 
     let debounceTimer = null;
 
-    function showResults(users) {
+    function showResults(items) {
       resultsEl.innerHTML = '';
-      if (users.length === 0) {
+      if (items.length === 0) {
         resultsEl.hidden = true;
         return;
       }
-      users.forEach((user) => {
-        const item = document.createElement('div');
-        item.className = 'user-search-result';
-        item.textContent = user.label + ' (' + user.id + ')';
-        item.addEventListener('click', () => {
-          setValue(user.id);
-          input.value = user.id;
+      items.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'typeahead-result';
+        row.textContent = item.id === item.label ? item.label : item.label + ' (' + item.id + ')';
+        row.addEventListener('click', () => {
+          config.setValue(item.id);
+          input.value = item.label;
           resultsEl.hidden = true;
+          if (config.onPick) {
+            config.onPick(item);
+          }
         });
-        resultsEl.appendChild(item);
+        resultsEl.appendChild(row);
       });
       resultsEl.hidden = false;
     }
 
-    input.addEventListener('input', () => {
-      // Typing directly always sets the literal value too, so pasting a
-      // known user id works without ever touching the search results.
-      setValue(input.value);
-      resultsEl.hidden = true;
+    function runQuery() {
+      const query = input.value.trim();
+      if (query.length < (config.minChars || 0)) {
+        resultsEl.hidden = true;
+        return;
+      }
+      Promise.resolve(config.loadOptions(query)).then(showResults).catch(() => {
+        // Non-fatal: the field still works as a plain text input even if
+        // the lookup itself fails (unreachable instance, etc.).
+      });
+    }
 
+    input.addEventListener('input', () => {
+      config.setValue(input.value);
+      resultsEl.hidden = true;
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
-      const query = input.value.trim();
-      if (query.length < 3 || !instanceEl.value) {
-        return;
+      if (config.debounceMs) {
+        debounceTimer = setTimeout(runQuery, config.debounceMs);
+      } else {
+        runQuery();
       }
-      debounceTimer = setTimeout(async () => {
-        try {
-          const data = await fetchJSON(
-            'api_users.php?instance=' + encodeURIComponent(instanceEl.value) + '&query=' + encodeURIComponent(query)
-          );
-          showResults(data.users || []);
-        } catch (e) {
-          // Non-fatal: the field still works as a plain text input even if
-          // the search itself fails (unreachable instance, etc.).
-        }
-      }, 300);
+    });
+
+    // Shows the current matches as soon as the field is focused - the
+    // "Vorauswahl" (preselection) is visible without typing anything first,
+    // for an already-fetched list (boards/stacks/calendars: minChars 0).
+    input.addEventListener('focus', () => {
+      if (resultsEl.hidden) {
+        runQuery();
+      }
     });
 
     wrapper.appendChild(input);
     wrapper.appendChild(resultsEl);
     return wrapper;
+  }
+
+  // assign_user/unassign_user's user_id and calendar_lookup's calendar_id
+  // are the module param fields that benefit from search-by-name instead of
+  // typing a raw id/CalDAV path - handled as hardcoded special cases rather
+  // than a general field-type system that nothing else currently needs.
+  function isUserIdField(moduleName, key) {
+    return (moduleName === 'assign_user' || moduleName === 'unassign_user') && key === 'user_id';
+  }
+
+  function isCalendarIdField(moduleName, key) {
+    return moduleName === 'calendar_lookup' && key === 'calendar_id';
+  }
+
+  function renderUserSearchField(getValue, setValue) {
+    return renderTypeahead({
+      value: getValue() || '',
+      setValue,
+      placeholder: 'Name eingeben (ab 3 Zeichen) oder User-Id direkt eintragen',
+      minChars: 3,
+      debounceMs: 300,
+      loadOptions: async (query) => {
+        if (!instanceEl.value) {
+          return [];
+        }
+        const data = await fetchJSON(
+          'api_users.php?instance=' + encodeURIComponent(instanceEl.value) + '&query=' + encodeURIComponent(query)
+        );
+        return (data.users || []).map((user) => ({ id: user.id, label: user.label }));
+      },
+    });
+  }
+
+  // Calendars are a short, per-instance list (like boards/stacks) - fetched
+  // once and cached here, then filtered client-side as the user types,
+  // instead of a server round-trip per keystroke like the user search above.
+  let calendarsCache = null;
+
+  function renderCalendarSearchField(getValue, setValue) {
+    return renderTypeahead({
+      value: getValue() || '',
+      setValue,
+      placeholder: 'Kalendername eingeben oder CalDAV-Pfad direkt eintragen',
+      loadOptions: async (query) => {
+        if (!instanceEl.value) {
+          return [];
+        }
+        if (!calendarsCache) {
+          const data = await fetchJSON('api_calendars.php?instance=' + encodeURIComponent(instanceEl.value));
+          calendarsCache = data.calendars || [];
+        }
+        return filterByTitle(calendarsCache, query);
+      },
+    });
   }
 
   // Renders the literal-vs-ref editor for any {source, value, refStep,
@@ -402,6 +503,15 @@
           }
         )
       );
+    } else if (opts.isCalendarId) {
+      wrapper.appendChild(
+        renderCalendarSearchField(
+          () => entry.value,
+          (value) => {
+            entry.value = value;
+          }
+        )
+      );
     } else {
       const input = renderValueInput(opts.defaultValue !== undefined ? opts.defaultValue : '', entry.value);
       const isCheckbox = input.type === 'checkbox';
@@ -447,6 +557,7 @@
       renderValueOrRefEditor(step.params[key], {
         defaultValue,
         isUserId: isUserIdField(step.module, key),
+        isCalendarId: isCalendarIdField(step.module, key),
       })
     );
 
@@ -679,10 +790,29 @@
     });
   }
 
-  function collectPayload() {
-    if (!instanceEl.value || !boardEl.value) {
-      throw new Error('Bitte Instanz und Board auswählen.');
+  // A board/stack id only ever becomes valid by picking a suggestion from
+  // the typeahead (see renderTypeahead's onPick/setValue) - typing text
+  // that was never picked leaves it as non-numeric, which this catches
+  // with a clear message instead of silently sending NaN to save.php.
+  function parseId(value, label) {
+    if (value.trim() === '') {
+      return null;
     }
+    if (!/^\d+$/.test(value.trim())) {
+      throw new Error(label + " '" + value + "' ist kein gültiges Board/Spalte - bitte aus der Liste auswählen.");
+    }
+    return Number(value);
+  }
+
+  function collectPayload() {
+    if (!instanceEl.value) {
+      throw new Error('Bitte Instanz auswählen.');
+    }
+    const boardId = parseId(boardEl.value, 'Board');
+    if (boardId === null) {
+      throw new Error('Bitte ein Board aus der Liste auswählen.');
+    }
+    const stackId = parseId(stackEl.value, 'Spalte');
     if (!nameEl.value.trim() || !idEl.value.trim()) {
       throw new Error('Bitte Name und Id des Workflows angeben.');
     }
@@ -695,8 +825,8 @@
 
     return {
       instance: instanceEl.value,
-      board_id: Number(boardEl.value),
-      stack_id: stackEl.value === '' ? null : Number(stackEl.value),
+      board_id: boardId,
+      stack_id: stackId,
       event: document.getElementById('event-type').value,
       name: nameEl.value.trim(),
       id: idEl.value.trim(),
