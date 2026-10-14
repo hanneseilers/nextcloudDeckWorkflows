@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS schedule_state (
     last_fired_at TEXT NOT NULL
 );
 
+-- Presence of a row means "already notified for the current, still
+-- unbroken consecutive-failure streak" - see main.py::_process_failure_notifications.
+CREATE TABLE IF NOT EXISTS failure_notifications (
+    workflow_id TEXT PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS test_runs (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
@@ -251,4 +257,36 @@ class SqliteStateStore:
                 "ON CONFLICT(workflow_id) DO UPDATE SET last_fired_at = excluded.last_fired_at",
                 (workflow_id, when_iso),
             )
+            conn.commit()
+
+    # -- failure notifications ----------------------------------------------------
+
+    def recent_run_outcomes(self, workflow_id: str, limit: int) -> list[bool]:
+        """Newest-run-first list of whether each of this workflow's most
+        recent runs (grouped by run_id - MIN(success) is 0/False if any
+        action in that run failed) fully succeeded."""
+
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT MIN(success) FROM execution_log WHERE workflow_id = ? AND run_id IS NOT NULL "
+                "GROUP BY run_id ORDER BY MAX(id) DESC LIMIT ?",
+                (workflow_id, limit),
+            ).fetchall()
+        return [bool(row[0]) for row in rows]
+
+    def has_notified_failure_streak(self, workflow_id: str) -> bool:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM failure_notifications WHERE workflow_id = ?", (workflow_id,)
+            ).fetchone()
+        return row is not None
+
+    def mark_notified_failure_streak(self, workflow_id: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute("INSERT OR IGNORE INTO failure_notifications (workflow_id) VALUES (?)", (workflow_id,))
+            conn.commit()
+
+    def clear_notified_failure_streak(self, workflow_id: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute("DELETE FROM failure_notifications WHERE workflow_id = ?", (workflow_id,))
             conn.commit()

@@ -320,6 +320,31 @@ then the body) referenced via `params.template`. `$placeholder` values from
 an unresolved placeholder is left as-is rather than raising). See
 `config/email_templates/example.txt`.
 
+## Failure notifications
+
+Optional: email an admin address once a workflow has failed `threshold`
+times in a row, via `error_notifications` in `config/settings.yaml`
+(disabled unless this section is present - see
+`config/settings.example.yaml`):
+
+```yaml
+error_notifications:
+  enabled: true
+  threshold: 3
+  to: "admin@example.com"
+```
+
+Uses the same `config/smtp.yaml` as `send_email` - set that up too.
+Checked once per `main.py` invocation (`_process_failure_notifications`),
+against the `threshold` most recent runs of each enabled workflow
+(`SqliteStateStore.recent_run_outcomes`, one entry per run - a run counts
+as failed if *any* of its actions failed). Notifies exactly once per
+failure streak - a `failure_notifications` row marks "already notified for
+the current, still-unbroken streak", cleared the moment a run succeeds, so
+a workflow that keeps flapping doesn't spam an email on every single tick,
+but does get a fresh notification if it recovers and then fails that many
+times again.
+
 ## Adding a new action module
 
 Create `automation/actions_registry/<name>.py`:

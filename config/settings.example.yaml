@@ -8,3 +8,11 @@ log_level: INFO
 # workflow), up to this many seconds. Keep comfortably below your cron
 # interval so runs don't overlap.
 max_run_seconds: 240
+# Optional: email `to` once a workflow has failed `threshold` times in a
+# row (and again each time it recovers and then fails that many times
+# again) - uses config/smtp.yaml, so that must be set up too. Omit this
+# whole section to disable it entirely (the default).
+# error_notifications:
+#   enabled: true
+#   threshold: 3
+#   to: "admin@example.com"

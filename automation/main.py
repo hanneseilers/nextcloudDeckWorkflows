@@ -24,6 +24,7 @@ from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
 from automation.adapters.nextcloud.event_source import PollingEventSource
 from automation.adapters.null_deck_gateway import NullDeckGateway
 from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
+from automation.adapters.smtp_config import load_smtp_config, send_email as smtp_send
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
 from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
@@ -107,7 +108,7 @@ def run(settings: Settings) -> None:
 
         if not any_triggered:
             logger.info("Fixed point reached after %d iteration(s) - run complete", iteration)
-            return
+            break
 
         if time.monotonic() >= deadline:
             logger.warning(
@@ -115,7 +116,9 @@ def run(settings: Settings) -> None:
                 "anything still pending will be picked up on the next run",
                 settings.max_run_seconds, iteration,
             )
-            return
+            break
+
+    _process_failure_notifications(settings, workflows, state_store)
 
 
 def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:
@@ -242,6 +245,51 @@ def _process_schedules(
             state_store.set_last_fired(workflow.id, now.isoformat())
         except Exception:
             logger.exception("Schedule check failed for workflow '%s'", workflow.id)
+
+
+def _process_failure_notifications(
+    settings: Settings, workflows: YamlWorkflowRepository, state_store: SqliteStateStore
+) -> None:
+    """Emails settings.error_notifications.to once a workflow has failed
+    `threshold` times in a row - and, after it recovers, once more if it
+    later fails that many times again. A "streak" is tracked per workflow
+    (failure_notifications table) so this notifies exactly once per streak,
+    not on every single tick while the workflow stays broken.
+    """
+
+    config = settings.error_notifications
+    if config is None or not config.enabled:
+        return
+
+    for workflow in workflows.list_enabled():
+        try:
+            outcomes = state_store.recent_run_outcomes(workflow.id, limit=config.threshold)
+            consecutive_failures = 0
+            for success in outcomes:
+                if success:
+                    break
+                consecutive_failures += 1
+
+            if consecutive_failures < config.threshold:
+                state_store.clear_notified_failure_streak(workflow.id)
+                continue
+
+            if state_store.has_notified_failure_streak(workflow.id):
+                continue
+
+            smtp_send(
+                load_smtp_config(),
+                to=config.to,
+                subject=f"Workflow '{workflow.name}' schlägt wiederholt fehl",
+                body=(
+                    f"Der Workflow '{workflow.name}' (Id: {workflow.id}) ist seit mindestens "
+                    f"{consecutive_failures} Lauf/Läufen in Folge fehlgeschlagen.\n\n"
+                    "Details siehe Ausführungs-Historie in der Website."
+                ),
+            )
+            state_store.mark_notified_failure_streak(workflow.id)
+        except Exception:
+            logger.exception("Failure-notification check failed for workflow '%s'", workflow.id)
 
 
 def _modules_snapshot() -> dict[str, Any]:

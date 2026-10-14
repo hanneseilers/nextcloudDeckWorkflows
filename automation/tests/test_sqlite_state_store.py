@@ -227,3 +227,40 @@ def test_record_returns_the_run_id_it_generated(tmp_path):
     with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
         stored = conn.execute("SELECT run_id FROM execution_log").fetchone()
     assert stored[0] == run_id
+
+
+def _record_run(store: SqliteStateStore, workflow_id: str, success: bool) -> None:
+    event = DeckEvent(instance="inst", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+    store.record(ExecutionResult(
+        workflow_id=workflow_id, event=event,
+        action_results=[ActionResult(module="a", success=success, error=None if success else "boom")],
+    ))
+
+
+def test_recent_run_outcomes_is_newest_first(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    _record_run(store, "wf-1", success=True)
+    _record_run(store, "wf-1", success=False)
+    _record_run(store, "wf-1", success=False)
+
+    assert store.recent_run_outcomes("wf-1", limit=10) == [False, False, True]
+
+
+def test_recent_run_outcomes_respects_the_limit(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    for _ in range(5):
+        _record_run(store, "wf-1", success=False)
+
+    assert len(store.recent_run_outcomes("wf-1", limit=2)) == 2
+
+
+def test_failure_streak_notification_flag_roundtrip(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    assert store.has_notified_failure_streak("wf-1") is False
+
+    store.mark_notified_failure_streak("wf-1")
+    assert store.has_notified_failure_streak("wf-1") is True
+
+    store.clear_notified_failure_streak("wf-1")
+    assert store.has_notified_failure_streak("wf-1") is False
