@@ -55,6 +55,34 @@ def test_migrating_from_a_schema_without_the_extra_column_does_not_crash(tmp_pat
     assert store.load("inst", 1) == {100: {"stack_id": 10, "last_modified": 5}}
 
 
+def test_migrating_from_a_schema_without_run_id_or_module_does_not_crash(tmp_path):
+    db_path = tmp_path / "state.sqlite3"
+    # Simulate a pre-existing database from before these two columns existed.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE execution_log (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "workflow_id TEXT NOT NULL, event_type TEXT NOT NULL, card_id INTEGER NOT NULL, "
+            "success INTEGER NOT NULL, error TEXT, created_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO execution_log (workflow_id, event_type, card_id, success, error, created_at) "
+            "VALUES ('wf-old', 'card_created', 1, 1, NULL, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.commit()
+
+    store = SqliteStateStore(db_path)  # must not raise
+
+    event = DeckEvent(instance="inst", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+    store.record(ExecutionResult(
+        workflow_id="wf-new", event=event, action_results=[ActionResult(module="a", success=True)],
+    ))
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT workflow_id, module, run_id FROM execution_log ORDER BY id").fetchall()
+    assert rows[0] == ("wf-old", None, None)  # pre-existing row untouched
+    assert rows[1][0] == "wf-new" and rows[1][1] == "a" and rows[1][2]
+
+
 def test_record_writes_one_row_per_action_result(tmp_path):
     store = SqliteStateStore(tmp_path / "state.sqlite3")
     event = DeckEvent(instance="inst", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
@@ -70,8 +98,39 @@ def test_record_writes_one_row_per_action_result(tmp_path):
     store.record(result)
 
     with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
-        rows = conn.execute("SELECT workflow_id, success, error FROM execution_log ORDER BY id").fetchall()
-    assert rows == [("wf-1", 1, None), ("wf-1", 0, "boom")]
+        rows = conn.execute(
+            "SELECT workflow_id, module, success, error FROM execution_log ORDER BY id"
+        ).fetchall()
+    assert rows == [("wf-1", "a", 1, None), ("wf-1", "b", 0, "boom")]
+
+
+def test_record_gives_every_row_of_one_run_the_same_run_id(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    event = DeckEvent(instance="inst", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+    result = ExecutionResult(
+        workflow_id="wf-1",
+        event=event,
+        action_results=[ActionResult(module="a", success=True), ActionResult(module="b", success=True)],
+    )
+
+    store.record(result)
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        run_ids = conn.execute("SELECT run_id FROM execution_log ORDER BY id").fetchall()
+    assert run_ids[0] == run_ids[1]
+    assert run_ids[0][0]  # non-empty
+
+
+def test_record_gives_two_separate_calls_different_run_ids(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    event = DeckEvent(instance="inst", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+
+    store.record(ExecutionResult(workflow_id="wf-1", event=event, action_results=[ActionResult(module="a", success=True)]))
+    store.record(ExecutionResult(workflow_id="wf-1", event=event, action_results=[ActionResult(module="a", success=True)]))
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        run_ids = conn.execute("SELECT run_id FROM execution_log ORDER BY id").fetchall()
+    assert run_ids[0] != run_ids[1]
 
 
 def test_add_number_then_contains_number_finds_it(tmp_path):
