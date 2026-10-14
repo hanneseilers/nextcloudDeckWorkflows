@@ -9,6 +9,9 @@ Workflow automation for the [Nextcloud Deck](https://apps.nextcloud.com/apps/dec
 - **workflows/** — Storage for the workflow definitions created via the website.
 - **config/** — YAML configuration files (Nextcloud connections, credentials, general settings).
 
+Want to add your own capability beyond the modules shipped here (e.g. a
+new action a workflow can use)? See [MODULE_GUIDE.md](MODULE_GUIDE.md).
+
 All configuration and workflow data is stored as YAML files, requiring no database.
 
 ## Requirements
