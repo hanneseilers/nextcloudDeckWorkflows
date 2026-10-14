@@ -54,6 +54,26 @@ class NextcloudApi
     }
 
     /**
+     * Every card across every stack of a board, for the "Testlauf" card
+     * picker - the stacks endpoint already embeds each stack's cards (same
+     * response DeckGatewayPort.list_cards() filters by stack on the Python
+     * side), just not kept by listStacks() above.
+     *
+     * @return array<int, array{id: int, title: string}>
+     */
+    public function listCards(int $boardId): array
+    {
+        $stacks = $this->get(self::DECK_API . '/boards/' . $boardId . '/stacks') ?? [];
+        $cards = [];
+        foreach ($stacks as $stack) {
+            foreach ($stack['cards'] ?? [] as $card) {
+                $cards[] = ['id' => (int) $card['id'], 'title' => (string) $card['title']];
+            }
+        }
+        return $cards;
+    }
+
+    /**
      * Searches Nextcloud users by (partial) name, for the assign_user/
      * unassign_user user-id picker. Returns at most one entry per user id,
      * exact matches first.

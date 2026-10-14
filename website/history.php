@@ -5,11 +5,17 @@ require __DIR__ . '/vendor/autoload.php';
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ExecutionLog;
+use NextcloudDeckWorkflows\TestRunStore;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
 $workflows = new WorkflowRepository($config->workflowsDir());
 $executionLog = new ExecutionLog($config->stateDbPath());
+
+$pendingTestRun = null;
+if (isset($_GET['test_run_id'])) {
+    $pendingTestRun = (new TestRunStore($config->stateDbPath()))->get((string) $_GET['test_run_id']);
+}
 
 $workflowFilter = isset($_GET['workflow_id']) ? (string) $_GET['workflow_id'] : null;
 $runs = $executionLog->recentRuns(100, $workflowFilter !== '' ? $workflowFilter : null);
@@ -38,6 +44,15 @@ function h(string $value): string
     <h1>Ausführungs-Historie</h1>
     <a href="index.php">&larr; Übersicht</a>
 </header>
+
+<?php if ($pendingTestRun !== null && $pendingTestRun['status'] === 'pending'): ?>
+    <p class="notice">Testlauf angefragt - wird beim nächsten Lauf von
+    <code>python -m automation.main</code> verarbeitet (Cron oder manuell). Seite danach neu laden.</p>
+<?php elseif ($pendingTestRun !== null && $pendingTestRun['status'] === 'error'): ?>
+    <p class="notice error">Testlauf fehlgeschlagen: <?= h((string) $pendingTestRun['error']) ?></p>
+<?php elseif ($pendingTestRun !== null && $pendingTestRun['status'] === 'done'): ?>
+    <p class="notice">Testlauf abgeschlossen - Ergebnis in der Liste unten.</p>
+<?php endif; ?>
 
 <?php if (!$executionLog->isAvailable()): ?>
     <p class="notice">Noch keine <code>automation/var/state.sqlite3</code> gefunden - sie entsteht

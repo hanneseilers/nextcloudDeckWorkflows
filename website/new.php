@@ -97,6 +97,7 @@ function h(string $value): string
 </form>
 
 <script id="modules-data" type="application/json"><?= $modules->rawModulesJson() ?></script>
+<script src="assets/typeahead.js"></script>
 <script src="assets/builder.js"></script>
 <?php endif; ?>
 

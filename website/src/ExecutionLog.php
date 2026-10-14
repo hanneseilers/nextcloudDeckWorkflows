@@ -38,6 +38,7 @@ class ExecutionLog
 
         $pdo = new \PDO('sqlite:' . $this->dbPath);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $pdo->exec('PRAGMA busy_timeout = 5000');
 
         // Rows, not runs, carry workflow_id/event_type/card_id - but LIMIT
         // has to apply to *runs*, since a run can span several action rows.
