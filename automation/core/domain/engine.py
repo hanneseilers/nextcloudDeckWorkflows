@@ -75,6 +75,26 @@ class WorkflowEngine:
             results.append(result)
         return results
 
+    def run_single(
+        self,
+        workflow: Workflow,
+        event: DeckEvent,
+        deck: DeckGatewayPort,
+        calendar: Optional[CalendarGatewayPort] = None,
+    ) -> tuple[ExecutionResult, str]:
+        """Runs exactly this workflow against this event, regardless of
+        whether workflow.matches(event) or even workflow.enabled - used by
+        main.py's test-run processing to let someone try a specific workflow
+        against a real, chosen card on demand. Still goes through the normal
+        action chain and is still recorded to the execution log exactly like
+        a real trigger (so it shows up in the website's history view too),
+        returning the run id for the caller to link back to it.
+        """
+
+        result = self._run(workflow, event, deck, calendar)
+        run_id = self._execution_log.record(result)
+        return result, run_id
+
     def _run(
         self,
         workflow: Workflow,

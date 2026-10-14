@@ -13,7 +13,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from automation import actions_registry
 from automation.adapters.actions.loader import ModuleLoader
@@ -25,6 +25,7 @@ from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
 from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
+from automation.core.domain.models import DeckEvent
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ def run(settings: Settings) -> None:
     engine = WorkflowEngine(
         workflows=workflows, actions=action_loader, execution_log=state_store, sequence_store=state_store
     )
+
+    _process_test_runs(settings, workflows, state_store, engine)
 
     boards_by_instance: dict[str, set[int]] = {}
     for workflow in workflows.list_enabled():
@@ -140,6 +143,63 @@ def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:
 
     target.event_source.commit(target.instance_name, target.board_id)
     return len(events) > 0
+
+
+def _process_test_runs(
+    settings: Settings,
+    workflows: YamlWorkflowRepository,
+    state_store: SqliteStateStore,
+    engine: WorkflowEngine,
+) -> None:
+    """Processes "Testlauf" requests the website queued (see
+    SqliteStateStore.enqueue_test_run) - runs a specific, user-chosen
+    workflow against a specific, user-chosen real card right now, regardless
+    of whether that workflow's trigger would otherwise match, or whether the
+    workflow is even enabled. Every failure mode (unknown workflow, instance,
+    or card) is recorded back onto the request as a clear error instead of
+    raising, so the website always has something to show.
+    """
+
+    for pending in state_store.pending_test_runs():
+        test_run_id, workflow_id, card_id = pending["id"], pending["workflow_id"], pending["card_id"]
+        try:
+            workflow = workflows.get(workflow_id)
+            if workflow is None:
+                raise RuntimeError(f"Workflow '{workflow_id}' nicht gefunden")
+
+            instance = settings.instances.get(workflow.instance)
+            if instance is None:
+                raise RuntimeError(f"Nextcloud-Instanz '{workflow.instance}' nicht konfiguriert")
+
+            client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
+            deck = NextcloudDeckGateway(client)
+            calendar = NextcloudCalendarGateway(client, instance.username)
+
+            card, stack_id = _find_card(deck, workflow.board_id, card_id)
+            if card is None:
+                raise RuntimeError(f"Karte {card_id} nicht auf Board {workflow.board_id} gefunden")
+
+            event = DeckEvent(
+                instance=workflow.instance,
+                board_id=workflow.board_id,
+                event_type=workflow.trigger.event_type,
+                card_id=card_id,
+                stack_id=stack_id,
+                card=card,
+            )
+            _, run_id = engine.run_single(workflow, event, deck, calendar)
+            state_store.complete_test_run(test_run_id, run_id=run_id)
+        except Exception as exc:
+            logger.exception("Test-run %s (workflow '%s') failed", test_run_id, workflow_id)
+            state_store.complete_test_run(test_run_id, error=str(exc))
+
+
+def _find_card(deck: NextcloudDeckGateway, board_id: int, card_id: int) -> tuple[Optional[dict], Optional[int]]:
+    for stack in deck.list_stacks(board_id):
+        for card in stack.get("cards", []):
+            if card.get("id") == card_id:
+                return card, stack["id"]
+    return None, None
 
 
 def _modules_snapshot() -> dict[str, Any]:

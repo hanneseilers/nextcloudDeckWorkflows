@@ -172,3 +172,58 @@ def test_remove_number_that_was_never_added_does_not_raise(tmp_path):
     store = SqliteStateStore(tmp_path / "state.sqlite3")
 
     store.remove_number("tickets", "does-not-exist")  # no-op, no exception
+
+
+def test_enqueue_test_run_shows_up_as_pending(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    test_run_id = store.enqueue_test_run("wf-1", 42)
+
+    pending = store.pending_test_runs()
+    assert pending == [{"id": test_run_id, "workflow_id": "wf-1", "card_id": 42}]
+
+
+def test_complete_test_run_with_a_run_id_marks_it_done(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    test_run_id = store.enqueue_test_run("wf-1", 42)
+
+    store.complete_test_run(test_run_id, run_id="run-abc")
+
+    assert store.pending_test_runs() == []
+    fetched = store.get_test_run(test_run_id)
+    assert fetched["status"] == "done"
+    assert fetched["run_id"] == "run-abc"
+    assert fetched["error"] is None
+    assert fetched["completed_at"] is not None
+
+
+def test_complete_test_run_with_an_error_marks_it_error(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    test_run_id = store.enqueue_test_run("wf-1", 42)
+
+    store.complete_test_run(test_run_id, error="Karte nicht gefunden")
+
+    fetched = store.get_test_run(test_run_id)
+    assert fetched["status"] == "error"
+    assert fetched["error"] == "Karte nicht gefunden"
+    assert fetched["run_id"] is None
+
+
+def test_get_test_run_for_an_unknown_id_returns_none(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    assert store.get_test_run("does-not-exist") is None
+
+
+def test_record_returns_the_run_id_it_generated(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    event = DeckEvent(instance="inst", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+
+    run_id = store.record(ExecutionResult(
+        workflow_id="wf-1", event=event, action_results=[ActionResult(module="a", success=True)],
+    ))
+
+    assert run_id
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        stored = conn.execute("SELECT run_id FROM execution_log").fetchone()
+    assert stored[0] == run_id

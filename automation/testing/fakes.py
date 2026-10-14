@@ -125,8 +125,9 @@ class InMemoryExecutionLog:
     def __init__(self) -> None:
         self.results: list[ExecutionResult] = []
 
-    def record(self, result: ExecutionResult) -> None:
+    def record(self, result: ExecutionResult) -> str:
         self.results.append(result)
+        return f"fake-run-{len(self.results)}"
 
 
 class InMemorySequenceStore:

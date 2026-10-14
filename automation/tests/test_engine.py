@@ -449,3 +449,25 @@ def test_sequence_store_is_threaded_into_action_context_via_the_constructor():
     assert len(saved_numbers) == 1
     assert len(next(iter(saved_numbers))) == 4
 
+
+def test_run_single_runs_a_workflow_even_if_disabled_and_event_does_not_match():
+    """run_single is what main.py's test-run processing uses - a manual
+    "try this workflow against this card" request should work regardless of
+    whether the workflow is enabled or whether its own trigger matches."""
+
+    action = RecordingAction()
+    workflow = make_workflow(enabled=False, trigger=Trigger(event_type=EventType.CARD_MOVED, stack_id=99))
+    execution_log = InMemoryExecutionLog()
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"recording": action}),
+        execution_log=execution_log,
+    )
+
+    result, run_id = engine.run_single(workflow, make_event(event_type=EventType.CARD_CREATED), deck=InMemoryDeckGateway())
+
+    assert result.success
+    assert len(action.calls) == 1
+    assert run_id
+    assert execution_log.results == [result]
+

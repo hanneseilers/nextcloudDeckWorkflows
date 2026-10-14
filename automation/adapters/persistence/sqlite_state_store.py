@@ -6,7 +6,7 @@ import uuid
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from automation.core.domain.models import ExecutionResult
 
@@ -35,6 +35,17 @@ CREATE TABLE IF NOT EXISTS used_numbers (
     value TEXT NOT NULL,
     created_at TEXT NOT NULL,
     PRIMARY KEY (list_name, value)
+);
+
+CREATE TABLE IF NOT EXISTS test_runs (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    card_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    run_id TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
 );
 """
 
@@ -119,7 +130,7 @@ class SqliteStateStore:
 
     # -- ExecutionLogPort -------------------------------------------------------
 
-    def record(self, result: ExecutionResult) -> None:
+    def record(self, result: ExecutionResult) -> str:
         # One id and one timestamp for the whole run (not recomputed per
         # action_result) - the website's history view groups rows back into
         # "one run" by run_id, which only works if every row of that run
@@ -144,6 +155,7 @@ class SqliteStateStore:
                     ),
                 )
             conn.commit()
+        return run_id
 
     # -- SequenceStorePort ------------------------------------------------------
 
@@ -168,3 +180,52 @@ class SqliteStateStore:
                 "DELETE FROM used_numbers WHERE list_name = ? AND value = ?", (list_name, value)
             )
             conn.commit()
+
+    # -- TestRunQueuePort ---------------------------------------------------------
+    # Backs the website's "Testlauf" button: the website (a separate PHP
+    # process, which never executes Python itself) writes a pending request
+    # here; main.py's run() picks it up on its next invocation (manual or
+    # cron) and records the real result back - the same "write a request,
+    # the background process picks it up" shape workflows/*.yaml already
+    # uses, just for a one-off run instead of a standing definition.
+
+    def enqueue_test_run(self, workflow_id: str, card_id: int) -> str:
+        test_run_id = uuid.uuid4().hex
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "INSERT INTO test_runs (id, workflow_id, card_id, status, created_at) "
+                "VALUES (?, ?, ?, 'pending', ?)",
+                (test_run_id, workflow_id, card_id, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+        return test_run_id
+
+    def pending_test_runs(self) -> list[dict[str, Any]]:
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT id, workflow_id, card_id FROM test_runs WHERE status = 'pending' ORDER BY created_at"
+            ).fetchall()
+        return [{"id": row[0], "workflow_id": row[1], "card_id": row[2]} for row in rows]
+
+    def complete_test_run(
+        self, test_run_id: str, *, run_id: Optional[str] = None, error: Optional[str] = None
+    ) -> None:
+        status = "error" if error else "done"
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "UPDATE test_runs SET status = ?, run_id = ?, error = ?, completed_at = ? WHERE id = ?",
+                (status, run_id, error, datetime.now(timezone.utc).isoformat(), test_run_id),
+            )
+            conn.commit()
+
+    def get_test_run(self, test_run_id: str) -> Optional[dict[str, Any]]:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT id, workflow_id, card_id, status, run_id, error, created_at, completed_at "
+                "FROM test_runs WHERE id = ?",
+                (test_run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        keys = ("id", "workflow_id", "card_id", "status", "run_id", "error", "created_at", "completed_at")
+        return dict(zip(keys, row))
