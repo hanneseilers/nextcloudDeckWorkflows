@@ -1,28 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from automation.adapters.actions.simple_card_action import make_simple_card_action
 
-from automation.adapters.actions.base import WorkflowAction
-from automation.core.ports.action_module import ActionContext
-
-
-class SetDescriptionAction(WorkflowAction):
-    """Replaces the content/description of the triggering card.
+SetDescriptionAction = make_simple_card_action(
+    action_name="set_description",
+    param_name="description",
+    default_value="",
+    deck_method="set_description",
+    doc="""Replaces the content/description of the triggering card.
 
     params:
       description: str - the new card description (Markdown, as used by Deck)
-    """
-
-    ACTION_NAME: ClassVar[str] = "set_description"
-
-    def default_input(self) -> dict[str, Any]:
-        return {"description": ""}
-
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        context.deck.set_description(
-            board_id=context.event.board_id,
-            stack_id=context.current_stack_id,
-            card_id=context.event.card_id,
-            description=params["description"],
-        )
-        return {}
+    """,
+)
