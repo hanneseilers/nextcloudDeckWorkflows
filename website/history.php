@@ -20,11 +20,16 @@ if (isset($_GET['test_run_id'])) {
 $workflowFilter = isset($_GET['workflow_id']) ? (string) $_GET['workflow_id'] : null;
 $runs = $executionLog->recentRuns(100, $workflowFilter !== '' ? $workflowFilter : null);
 
-// Workflow names are looked up once per page view, not per row - ids no
-// longer in workflows/ (deleted since) just fall back to showing the id.
+// Workflow names/trigger kind are looked up once per page view, not per
+// row - ids no longer in workflows/ (deleted since) just fall back to
+// showing the id and the stored event type.
 $workflowNames = [];
+$scheduleWorkflowIds = [];
 foreach ($workflows->listAll() as $workflow) {
     $workflowNames[$workflow['id']] = $workflow['name'] ?? $workflow['id'];
+    if (isset($workflow['trigger']['schedule'])) {
+        $scheduleWorkflowIds[$workflow['id']] = true;
+    }
 }
 
 function h(string $value): string
@@ -93,8 +98,8 @@ function h(string $value): string
             <?= h($workflowNames[$run['workflow_id']] ?? $run['workflow_id']) ?>
         </a>
     </td>
-    <td><?= h(EventTypes::label($run['event_type'])) ?></td>
-    <td><?= (int) $run['card_id'] ?></td>
+    <td><?= isset($scheduleWorkflowIds[$run['workflow_id']]) ? 'Zeitplan' : h(EventTypes::label($run['event_type'])) ?></td>
+    <td><?= isset($scheduleWorkflowIds[$run['workflow_id']]) ? '–' : (int) $run['card_id'] ?></td>
     <td><?= $run['success'] ? 'Erfolg' : 'Fehler' ?></td>
     <td>
         <ul class="run-actions">

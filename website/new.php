@@ -70,7 +70,7 @@ function h(string $value): string
     <input type="hidden" id="board">
 </label>
 
-<label>Spalte (optional - leer/"Alle Spalten" lässt den Workflow auf jede Spalte reagieren)
+<label id="stack-label">Spalte (optional - leer/"Alle Spalten" lässt den Workflow auf jede Spalte reagieren)
     <span id="stack-field" class="muted">– zuerst Board wählen –</span>
     <input type="hidden" id="stack">
 </label>
@@ -78,6 +78,14 @@ function h(string $value): string
 
 <fieldset>
 <legend>Wann?</legend>
+<label>Trigger-Art
+    <select id="trigger-kind">
+        <option value="event">Nextcloud-Event</option>
+        <option value="schedule">Zeitplan (zeitbasiert)</option>
+    </select>
+</label>
+
+<div id="event-trigger-fields">
 <label>Event
     <select id="event-type" required>
         <?php foreach ($eventTypes as $value => $label): ?>
@@ -85,6 +93,23 @@ function h(string $value): string
         <?php endforeach; ?>
     </select>
 </label>
+</div>
+
+<div id="schedule-trigger-fields" hidden>
+<p class="muted">Läuft unabhängig von Karten-Events zur angegebenen Zeit - nutze dafür
+Module ohne Kartenbezug (z. B. <code>send_email</code>, <code>log_action</code>,
+<code>generate_random_number</code>, <code>calculate</code>).</p>
+<label>Uhrzeit
+    <input type="time" id="schedule-time">
+</label>
+<label>Wochentage (keine Auswahl = jeden Tag)
+    <span class="weekday-checkboxes">
+        <?php foreach (['1' => 'Mo', '2' => 'Di', '3' => 'Mi', '4' => 'Do', '5' => 'Fr', '6' => 'Sa', '7' => 'So'] as $iso => $label): ?>
+        <label><input type="checkbox" class="schedule-weekday" value="<?= $iso ?>"> <?= $label ?></label>
+        <?php endforeach; ?>
+    </span>
+</label>
+</div>
 </fieldset>
 
 <fieldset>

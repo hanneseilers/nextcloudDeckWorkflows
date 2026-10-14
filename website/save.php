@@ -49,23 +49,43 @@ if ($config->instance($instanceName) === null) {
     $errors[] = "Unbekannte Nextcloud-Instanz '$instanceName'.";
 }
 
-$event = (string) ($payload['event'] ?? '');
-if (!in_array($event, $knownEvents, true)) {
-    $errors[] = "Unbekanntes Event '$event'.";
-}
-
 $boardId = filter_var($payload['board_id'] ?? null, FILTER_VALIDATE_INT);
 if ($boardId === false || $boardId === null || $boardId <= 0) {
     $errors[] = 'Bitte ein Board auswählen.';
 }
 
-// Optional: an empty/missing stack_id means "any column on this board",
-// matching Trigger.stack_id = None on the Python side.
+// Exactly one of the two trigger shapes - event (+ optional stack_id) or
+// schedule (time + optional weekdays) - matching Trigger on the Python side.
+$event = null;
 $stackId = null;
-if (($payload['stack_id'] ?? null) !== null && $payload['stack_id'] !== '') {
-    $stackId = filter_var($payload['stack_id'], FILTER_VALIDATE_INT);
-    if ($stackId === false || $stackId <= 0) {
-        $errors[] = "Ungültige Spalten-Id '" . h((string) $payload['stack_id']) . "'.";
+$schedule = null;
+
+if (is_array($payload['schedule'] ?? null)) {
+    $time = (string) ($payload['schedule']['time'] ?? '');
+    if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time)) {
+        $errors[] = "Ungültige Uhrzeit '$time' (erwartet HH:MM).";
+    }
+    $weekdays = array_values(array_filter(
+        array_map('intval', is_array($payload['schedule']['weekdays'] ?? null) ? $payload['schedule']['weekdays'] : []),
+        static fn (int $day) => $day >= 1 && $day <= 7
+    ));
+    $schedule = ['time' => $time];
+    if ($weekdays !== []) {
+        $schedule['weekdays'] = $weekdays;
+    }
+} else {
+    $event = (string) ($payload['event'] ?? '');
+    if (!in_array($event, $knownEvents, true)) {
+        $errors[] = "Unbekanntes Event '$event'.";
+    }
+
+    // Optional: an empty/missing stack_id means "any column on this board",
+    // matching Trigger.stack_id = None on the Python side.
+    if (($payload['stack_id'] ?? null) !== null && $payload['stack_id'] !== '') {
+        $stackId = filter_var($payload['stack_id'], FILTER_VALIDATE_INT);
+        if ($stackId === false || $stackId <= 0) {
+            $errors[] = "Ungültige Spalten-Id '" . h((string) $payload['stack_id']) . "'.";
+        }
     }
 }
 
@@ -155,9 +175,13 @@ if (!empty($errors)) {
     fail($errors);
 }
 
-$trigger = ['event' => $event];
-if ($stackId !== null) {
-    $trigger['stack_id'] = $stackId;
+if ($schedule !== null) {
+    $trigger = ['schedule' => $schedule];
+} else {
+    $trigger = ['event' => $event];
+    if ($stackId !== null) {
+        $trigger['stack_id'] = $stackId;
+    }
 }
 
 $workflow = [

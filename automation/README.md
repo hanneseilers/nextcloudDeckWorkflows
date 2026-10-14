@@ -44,6 +44,35 @@ the last snapshot (`adapters/nextcloud/event_source.py`):
 A `Trigger`'s `stack_id` is optional - omitted (or "all columns" in the
 website) means the workflow reacts to that event on any column of the board.
 
+## Time-based (schedule) triggers
+
+A workflow can run on a schedule instead of a Deck event - "every day at
+09:00" or "every Monday at 09:00" - via `Trigger.schedule`
+(`ScheduleTrigger`) instead of `event_type`:
+
+```yaml
+trigger:
+  schedule:
+    time: "09:00"          # HH:MM, server-local time (same as a cron expression)
+    weekdays: [1, 2, 3, 4, 5]   # optional, ISO weekdays 1=Mon..7=Sun; omitted = every day
+```
+
+Checked once per `main.py` invocation (`_process_schedules`, independent of
+the Deck-event polling below) via `core/domain/schedule.should_fire()`:
+fires once the scheduled time for "today" has passed and hasn't already
+fired for that slot (tracked in `state.sqlite3`'s `schedule_state` table) -
+comparing against the last-fired timestamp rather than requiring an
+exact-minute match, so a delayed or missed cron tick still fires on the
+next one, and it never fires twice for the same slot.
+
+A schedule-triggered run has no real triggering card, so `context.deck` is
+a `NullDeckGateway` that raises a clear error if an action actually tries
+to use it - stick to card-independent actions (`send_email`, `log_action`,
+`generate_random_number`, `calculate`, `format_text`, ...). The website
+still asks for an instance/board for a schedule-triggered workflow (same
+`Workflow` shape either way), but nothing reads it unless an action calls
+`context.deck` against it, so it only matters if you use one.
+
 ## Modules calling modules
 
 An action can call another action module directly through `context.modules` (the

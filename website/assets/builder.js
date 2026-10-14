@@ -221,6 +221,25 @@
     idManuallyEdited = true;
   });
 
+  // -- event vs. schedule trigger toggle --------------------------------------
+
+  const triggerKindEl = document.getElementById('trigger-kind');
+  const eventTriggerFieldsEl = document.getElementById('event-trigger-fields');
+  const scheduleTriggerFieldsEl = document.getElementById('schedule-trigger-fields');
+  const stackLabelEl = document.getElementById('stack-label');
+  const scheduleTimeEl = document.getElementById('schedule-time');
+  const weekdayCheckboxes = Array.from(document.querySelectorAll('.schedule-weekday'));
+
+  function applyTriggerKind() {
+    const isSchedule = triggerKindEl.value === 'schedule';
+    eventTriggerFieldsEl.hidden = isSchedule;
+    scheduleTriggerFieldsEl.hidden = !isSchedule;
+    stackLabelEl.hidden = isSchedule; // "Spalte" only makes sense for an event trigger
+  }
+
+  triggerKindEl.addEventListener('change', applyTriggerKind);
+  applyTriggerKind();
+
   // -- step tree: data helpers -----------------------------------------------
 
   function defaultParamsFor(moduleName) {
@@ -763,7 +782,6 @@
     if (boardId === null) {
       throw new Error('Bitte ein Board aus der Liste auswählen.');
     }
-    const stackId = parseId(stackEl.value, 'Spalte');
     if (!nameEl.value.trim() || !idEl.value.trim()) {
       throw new Error('Bitte Name und Id des Workflows angeben.');
     }
@@ -774,16 +792,29 @@
       throw new Error('Ein JSON-Feld enthält ungültiges JSON - bitte prüfen.');
     }
 
-    return {
+    const payload = {
       mode: isEditMode ? 'edit' : 'create',
       instance: instanceEl.value,
       board_id: boardId,
-      stack_id: stackId,
-      event: document.getElementById('event-type').value,
       name: nameEl.value.trim(),
       id: idEl.value.trim(),
       steps: collectSteps(state.steps, new Set()),
     };
+
+    if (triggerKindEl.value === 'schedule') {
+      if (!scheduleTimeEl.value) {
+        throw new Error('Bitte eine Uhrzeit für den Zeitplan angeben.');
+      }
+      payload.schedule = {
+        time: scheduleTimeEl.value,
+        weekdays: weekdayCheckboxes.filter((cb) => cb.checked).map((cb) => Number(cb.value)),
+      };
+    } else {
+      payload.stack_id = parseId(stackEl.value, 'Spalte');
+      payload.event = document.getElementById('event-type').value;
+    }
+
+    return payload;
   }
 
   document.getElementById('workflow-form').addEventListener('submit', (event) => {
@@ -842,11 +873,27 @@
     nameEl.value = existing.name;
     idEl.value = existing.id;
     idManuallyEdited = true; // the id is fixed in edit mode - never auto-slugify over it
-    document.getElementById('event-type').value = existing.trigger.event;
+
+    const schedule = existing.trigger.schedule;
+    if (schedule) {
+      triggerKindEl.value = 'schedule';
+      scheduleTimeEl.value = schedule.time;
+      (schedule.weekdays || []).forEach((iso) => {
+        const cb = weekdayCheckboxes.find((c) => Number(c.value) === iso);
+        if (cb) {
+          cb.checked = true;
+        }
+      });
+    } else {
+      triggerKindEl.value = 'event';
+      document.getElementById('event-type').value = existing.trigger.event;
+    }
+    applyTriggerKind();
+
     state.steps = (existing.actions || []).map(toInternalStep);
     render();
 
-    loadBoardsFor(existing.board_id, existing.trigger.stack_id ?? null);
+    loadBoardsFor(existing.board_id, schedule ? null : existing.trigger.stack_id ?? null);
   }
 
   const existingDataEl = document.getElementById('existing-workflow-data');

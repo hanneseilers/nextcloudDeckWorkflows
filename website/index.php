@@ -4,6 +4,7 @@ require __DIR__ . '/vendor/autoload.php';
 
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Csrf;
+use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
@@ -65,8 +66,15 @@ function h(string $value): string
 <?php foreach ($workflowList as $workflow): ?>
 <?php
     $trigger = $workflow['trigger'] ?? [];
-    $triggerLabel = h((string) ($trigger['event'] ?? '?'))
-        . (isset($trigger['stack_id']) ? ' (Spalte ' . h((string) $trigger['stack_id']) . ')' : '');
+    if (isset($trigger['schedule'])) {
+        $weekdayNames = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+        $weekdays = $trigger['schedule']['weekdays'] ?? [];
+        $triggerLabel = 'Zeitplan ' . h((string) ($trigger['schedule']['time'] ?? '?'))
+            . ($weekdays !== [] ? ' (' . h(implode(',', array_map(fn ($d) => $weekdayNames[$d] ?? $d, $weekdays))) . ')' : ' (täglich)');
+    } else {
+        $triggerLabel = h(EventTypes::label((string) ($trigger['event'] ?? '?')))
+            . (isset($trigger['stack_id']) ? ' (Spalte ' . h((string) $trigger['stack_id']) . ')' : '');
+    }
     $stepCount = count($workflow['actions'] ?? []);
     $enabled = (bool) ($workflow['enabled'] ?? true);
 ?>
