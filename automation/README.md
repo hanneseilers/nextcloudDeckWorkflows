@@ -15,7 +15,10 @@ or any date, plus/minus N days - e.g. to compute a due date); `slice_text`
 value out of a dict/list by path - like `$ref` but also walks into lists by
 index, e.g. "events.0.title"); `generate_random_number`/`forget_random_number`
 (a unique random number generator with a persistent "already generated"
-list, see "Random numbers" below); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
+list, see "Random numbers" below); `format_text` ($placeholder substitution
+from explicit values/`$ref`s into one string, for modules that don't do
+their own substitution); `calculate` (add/subtract/multiply/divide two
+numbers); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
