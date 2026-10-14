@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable, Protocol
+from typing import Any, ClassVar, Iterable, Optional, Protocol
 
 from automation.core.domain.models import DeckEvent
+from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
 
 
@@ -33,12 +34,18 @@ class ActionContext:
     engine (see WorkflowEngine._run, which exposes the same dict as
     outputs_by_step["vars"] for {"$ref": "vars.<name>"}) and with any action
     that substitutes $placeholders in free text (send_email, add_comment).
+
+    `calendar` is the CalDAV connection for this event's Nextcloud instance -
+    None where it wasn't set up (dry-run, most tests), in which case
+    calendar_lookup raises a clear error rather than crashing with an
+    AttributeError, caught like any other action's error.
     """
 
     event: DeckEvent
     deck: DeckGatewayPort
     modules: "ActionModulePort"
     variables: dict[str, Any] = field(default_factory=dict)
+    calendar: Optional[CalendarGatewayPort] = None
     current_stack_id: int = field(init=False)
 
     def __post_init__(self) -> None:

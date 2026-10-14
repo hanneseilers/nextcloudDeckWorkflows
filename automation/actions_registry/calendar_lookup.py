@@ -7,31 +7,38 @@ from automation.core.ports.action_module import ActionContext
 
 
 class CalendarLookupAction(WorkflowAction):
-    """Reference/demo module: shows the shape of a data-lookup module other
-    actions can call via `context.modules.get("calendar_lookup")` to fetch data
-    before continuing (multi-stage actions) - not wired into any other action yet.
+    """Searches a Nextcloud calendar for the next future occurrence of an
+    event whose title contains `title_contains` - recurring events included
+    (the series' next actual occurrence is found, not just its own start
+    date). See automation/adapters/nextcloud/calendar_gateway.py for how.
 
-    This is not a real Nextcloud Calendar (CalDAV) integration - it just echoes
-    the appointment data given to it via params, structured the way a real
-    lookup would return it, so a future caller has something concrete to build
-    against. Swap in real CalDAV access here once that adapter exists.
+    params:
+      calendar_id: str - a calendar's CalDAV path, as returned by
+        context.calendar.list_calendars() (the website's calendar picker
+        uses the same call)
+      title_contains: str - substring match against the event's title,
+        case-insensitive; empty matches any event
 
-    params / return value:
-      summary, start, end, location - all optional, passed through as given
+    output:
+      title, start, end, location - the matching occurrence, or all null if
+        nothing matched
     """
 
     ACTION_NAME: ClassVar[str] = "calendar_lookup"
 
     def default_input(self) -> dict[str, Any]:
-        return {"summary": "", "start": None, "end": None, "location": ""}
+        return {"calendar_id": "", "title_contains": ""}
 
     def default_output(self) -> dict[str, Any]:
-        return {"summary": "", "start": None, "end": None, "location": ""}
+        return {"title": None, "start": None, "end": None, "location": None}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "summary": params.get("summary", ""),
-            "start": params.get("start"),
-            "end": params.get("end"),
-            "location": params.get("location", ""),
-        }
+        if context.calendar is None:
+            raise RuntimeError(
+                "calendar_lookup: no Nextcloud Calendar connection available for this instance"
+            )
+
+        result = context.calendar.find_next_occurrence(
+            params["calendar_id"], params.get("title_contains", "")
+        )
+        return result if result is not None else self.default_output()

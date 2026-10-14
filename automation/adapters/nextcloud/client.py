@@ -31,6 +31,26 @@ class NextcloudClient:
     def delete(self, path: str) -> Any:
         return self._request("DELETE", path)
 
+    def request_xml(self, method: str, path: str, body: str = "", depth: Optional[int] = None) -> str:
+        """For CalDAV (PROPFIND/REPORT with an XML body, XML response) - the
+        Deck/OCS API above is JSON-only, CalDAV is XML-only, so this returns
+        raw response text instead of calling .json()."""
+
+        headers = {"Content-Type": "application/xml; charset=utf-8"}
+        if depth is not None:
+            headers["Depth"] = str(depth)
+        response = requests.request(
+            method,
+            f"{self._base_url}{path}",
+            auth=self._auth,
+            headers=headers,
+            timeout=self._timeout,
+            data=body.encode("utf-8"),
+        )
+        if not response.ok:
+            raise NextcloudApiError(f"{method} {path} failed: {response.status_code} {response.text}")
+        return response.text
+
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         url = f"{self._base_url}{path}"
         response = requests.request(

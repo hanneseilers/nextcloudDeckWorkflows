@@ -15,6 +15,7 @@ from automation.core.domain.models import (
     WorkflowStep,
 )
 from automation.core.ports.action_module import ActionContext, ActionModulePort
+from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
 from automation.core.ports.execution_log import ExecutionLogPort
 from automation.core.ports.workflow_repository import WorkflowRepositoryPort
@@ -38,23 +39,36 @@ class WorkflowEngine:
         self._actions = actions
         self._execution_log = execution_log
 
-    def handle(self, event: DeckEvent, deck: DeckGatewayPort) -> list[ExecutionResult]:
+    def handle(
+        self,
+        event: DeckEvent,
+        deck: DeckGatewayPort,
+        calendar: Optional[CalendarGatewayPort] = None,
+    ) -> list[ExecutionResult]:
         results = []
         for workflow in self._workflows.list_enabled():
             if not workflow.matches(event):
                 continue
-            result = self._run(workflow, event, deck)
+            result = self._run(workflow, event, deck, calendar)
             self._execution_log.record(result)
             results.append(result)
         return results
 
-    def _run(self, workflow: Workflow, event: DeckEvent, deck: DeckGatewayPort) -> ExecutionResult:
+    def _run(
+        self,
+        workflow: Workflow,
+        event: DeckEvent,
+        deck: DeckGatewayPort,
+        calendar: Optional[CalendarGatewayPort],
+    ) -> ExecutionResult:
         # Shared with ActionContext.variables (same dict object, not a copy) so
         # a SetVariableAction's writes show up immediately both via
         # {"$ref": "vars.<name>"} and in context.variables for $placeholder
         # substitution in free text (send_email, add_comment).
         variables: dict[str, Any] = {}
-        context = ActionContext(event=event, deck=deck, modules=self._actions, variables=variables)
+        context = ActionContext(
+            event=event, deck=deck, modules=self._actions, variables=variables, calendar=calendar
+        )
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         # Seeded before any step runs: lets every step's params reference the
         # triggering card's raw Nextcloud fields directly via {"$ref": "card.<field>"}

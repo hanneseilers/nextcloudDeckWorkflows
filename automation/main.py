@@ -16,6 +16,7 @@ from typing import Any
 
 from automation import actions_registry
 from automation.adapters.actions.loader import ModuleLoader
+from automation.adapters.nextcloud.calendar_gateway import NextcloudCalendarGateway
 from automation.adapters.nextcloud.client import NextcloudClient
 from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
 from automation.adapters.nextcloud.event_source import PollingEventSource
@@ -45,7 +46,7 @@ def run(settings: Settings) -> None:
 
     # Built once, polled repeatedly below - a board's deck/event_source don't
     # change between iterations of the fixed-point loop.
-    targets: list[tuple[str, int, NextcloudDeckGateway, PollingEventSource]] = []
+    targets: list[tuple[str, int, NextcloudDeckGateway, PollingEventSource, NextcloudCalendarGateway]] = []
     for instance_name, board_ids in boards_by_instance.items():
         instance = settings.instances.get(instance_name)
         if instance is None:
@@ -57,8 +58,11 @@ def run(settings: Settings) -> None:
         client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
         deck = NextcloudDeckGateway(client)
         event_source = PollingEventSource(deck, state_store)
+        # Same Nextcloud account/client as `deck` above - CalDAV needs no
+        # separate credentials or config/nextcloud.yaml entry.
+        calendar = NextcloudCalendarGateway(client, instance.username)
         for board_id in board_ids:
-            targets.append((instance_name, board_id, deck, event_source))
+            targets.append((instance_name, board_id, deck, event_source, calendar))
 
     # A workflow's own actions (move a card, change its due date, ...) can be
     # exactly what triggers another workflow - so keep re-polling and
@@ -73,8 +77,8 @@ def run(settings: Settings) -> None:
     while True:
         iteration += 1
         any_triggered = False
-        for instance_name, board_id, deck, event_source in targets:
-            if _process_board(engine, event_source, deck, instance_name, board_id):
+        for instance_name, board_id, deck, event_source, calendar in targets:
+            if _process_board(engine, event_source, deck, calendar, instance_name, board_id):
                 any_triggered = True
 
         if not any_triggered:
@@ -94,6 +98,7 @@ def _process_board(
     engine: WorkflowEngine,
     event_source: PollingEventSource,
     deck: NextcloudDeckGateway,
+    calendar: NextcloudCalendarGateway,
     instance_name: str,
     board_id: int,
 ) -> bool:
@@ -120,7 +125,7 @@ def _process_board(
             "Detected %s on card %s (instance=%s board=%s)",
             event.event_type.value, event.card_id, instance_name, board_id,
         )
-        engine.handle(event, deck)
+        engine.handle(event, deck, calendar)
 
     event_source.commit(instance_name, board_id)
     return len(events) > 0
