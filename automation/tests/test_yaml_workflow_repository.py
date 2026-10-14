@@ -9,6 +9,7 @@ from automation.core.domain.models import (
     Condition,
     EventType,
     IfStep,
+    ScheduleTrigger,
     Trigger,
     Workflow,
 )
@@ -109,6 +110,37 @@ def test_list_enabled_reflects_a_file_changed_after_the_first_call(tmp_path):
     ))
 
     assert {wf.id for wf in repo.list_enabled()} == set()
+
+
+def test_roundtrip_with_a_schedule_trigger(tmp_path):
+    repo = YamlWorkflowRepository(tmp_path)
+    workflow = Workflow(
+        id="daily-digest", name="Daily digest", instance="prod", board_id=1,
+        trigger=Trigger(schedule=ScheduleTrigger(time="09:00", weekdays=(1, 2, 3, 4, 5))),
+        actions=(ActionStep(module="log_action", params={"message": "good morning"}),),
+    )
+
+    repo.save(workflow)
+    loaded = repo.get("daily-digest")
+
+    assert loaded == workflow
+    assert loaded.trigger.event_type is None
+    assert loaded.trigger.schedule == ScheduleTrigger(time="09:00", weekdays=(1, 2, 3, 4, 5))
+
+
+def test_roundtrip_with_a_schedule_trigger_and_no_weekdays(tmp_path):
+    repo = YamlWorkflowRepository(tmp_path)
+    workflow = Workflow(
+        id="daily", name="Daily", instance="prod", board_id=1,
+        trigger=Trigger(schedule=ScheduleTrigger(time="18:00")),
+        actions=(ActionStep(module="log_action", params={"message": "evening"}),),
+    )
+
+    repo.save(workflow)
+    loaded = repo.get("daily")
+
+    assert loaded == workflow
+    assert loaded.trigger.schedule.weekdays is None
 
 
 def test_roundtrip_with_a_nested_if_else(tmp_path):

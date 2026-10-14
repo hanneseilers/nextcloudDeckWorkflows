@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS used_numbers (
     PRIMARY KEY (list_name, value)
 );
 
+CREATE TABLE IF NOT EXISTS schedule_state (
+    workflow_id TEXT PRIMARY KEY,
+    last_fired_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS test_runs (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
@@ -229,3 +234,21 @@ class SqliteStateStore:
             return None
         keys = ("id", "workflow_id", "card_id", "status", "run_id", "error", "created_at", "completed_at")
         return dict(zip(keys, row))
+
+    # -- ScheduleStatePort --------------------------------------------------------
+
+    def get_last_fired(self, workflow_id: str) -> Optional[str]:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT last_fired_at FROM schedule_state WHERE workflow_id = ?", (workflow_id,)
+            ).fetchone()
+        return row[0] if row else None
+
+    def set_last_fired(self, workflow_id: str, when_iso: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "INSERT INTO schedule_state (workflow_id, last_fired_at) VALUES (?, ?) "
+                "ON CONFLICT(workflow_id) DO UPDATE SET last_fired_at = excluded.last_fired_at",
+                (workflow_id, when_iso),
+            )
+            conn.commit()

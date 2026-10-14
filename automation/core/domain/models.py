@@ -36,9 +36,29 @@ class DeckEvent:
 
 
 @dataclass(frozen=True)
+class ScheduleTrigger:
+    """A time-based trigger, independent of any Deck event - "every day at
+    09:00" or "every Monday at 09:00". Interpreted in the server's local
+    time, same as a cron expression would be.
+
+    `weekdays` is ISO weekday numbers (1=Monday..7=Sunday); None/empty means
+    every day. A workflow using this should stick to actions that don't need
+    a real triggering card (send_email, log_action, generate_random_number,
+    calculate, ...) - see main.py::_process_schedules, which runs it against
+    a synthetic, card-less event.
+    """
+
+    time: str  # "HH:MM"
+    weekdays: Optional[tuple[int, ...]] = None
+
+
+@dataclass(frozen=True)
 class Trigger:
-    event_type: EventType
+    # Exactly one of event_type or schedule is set - see
+    # YamlWorkflowRepository._parse for which YAML shape produces which.
+    event_type: Optional[EventType] = None
     stack_id: Optional[int] = None
+    schedule: Optional[ScheduleTrigger] = None
 
 
 @dataclass(frozen=True)
@@ -108,7 +128,9 @@ class Workflow:
     enabled: bool = True
 
     def matches(self, event: DeckEvent) -> bool:
-        if not self.enabled:
+        if not self.enabled or self.trigger.event_type is None:
+            # A schedule-triggered workflow (event_type is None) never fires
+            # off a Deck event - see main.py::_process_schedules instead.
             return False
         if self.instance != event.instance or self.board_id != event.board_id:
             return False

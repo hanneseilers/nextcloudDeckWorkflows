@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,11 +22,13 @@ from automation.adapters.nextcloud.calendar_gateway import NextcloudCalendarGate
 from automation.adapters.nextcloud.client import NextcloudClient
 from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
 from automation.adapters.nextcloud.event_source import PollingEventSource
+from automation.adapters.null_deck_gateway import NullDeckGateway
 from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
 from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
-from automation.core.domain.models import DeckEvent
+from automation.core.domain.models import DeckEvent, EventType
+from automation.core.domain.schedule import should_fire
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,7 @@ def run(settings: Settings) -> None:
     )
 
     _process_test_runs(settings, workflows, state_store, engine)
+    _process_schedules(workflows, state_store, engine)
 
     boards_by_instance: dict[str, set[int]] = {}
     for workflow in workflows.list_enabled():
@@ -200,6 +204,44 @@ def _find_card(deck: NextcloudDeckGateway, board_id: int, card_id: int) -> tuple
             if card.get("id") == card_id:
                 return card, stack["id"]
     return None, None
+
+
+def _process_schedules(
+    workflows: YamlWorkflowRepository, state_store: SqliteStateStore, engine: WorkflowEngine
+) -> None:
+    """Runs every enabled, schedule-triggered workflow whose time has come
+    (see core/domain/schedule.should_fire) - independent of the Deck-event
+    polling above. Uses a synthetic, card-less event and a NullDeckGateway,
+    so a schedule-triggered workflow should stick to card-independent
+    actions; one that doesn't gets a clear error instead of silently doing
+    nothing, recorded like any other failed action.
+    """
+
+    now = datetime.now()
+    deck = NullDeckGateway()
+    for workflow in workflows.list_enabled():
+        schedule = workflow.trigger.schedule
+        if schedule is None:
+            continue
+
+        try:
+            last_fired_raw = state_store.get_last_fired(workflow.id)
+            last_fired = datetime.fromisoformat(last_fired_raw) if last_fired_raw else None
+            if not should_fire(schedule, now, last_fired):
+                continue
+
+            event = DeckEvent(
+                instance=workflow.instance,
+                board_id=workflow.board_id,
+                event_type=EventType.CARD_UPDATED,  # never checked - run_single bypasses matches()
+                card_id=0,
+                stack_id=0,
+            )
+            logger.info("Schedule fired for workflow '%s'", workflow.id)
+            engine.run_single(workflow, event, deck)
+            state_store.set_last_fired(workflow.id, now.isoformat())
+        except Exception:
+            logger.exception("Schedule check failed for workflow '%s'", workflow.id)
 
 
 def _modules_snapshot() -> dict[str, Any]:

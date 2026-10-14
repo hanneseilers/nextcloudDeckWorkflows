@@ -12,6 +12,7 @@ from automation.core.domain.models import (
     Condition,
     EventType,
     IfStep,
+    ScheduleTrigger,
     Trigger,
     Workflow,
     WorkflowStep,
@@ -87,10 +88,18 @@ class YamlWorkflowRepository:
     @staticmethod
     def _parse(data: dict) -> Workflow:
         trigger_data = data["trigger"]
-        trigger = Trigger(
-            event_type=EventType(trigger_data["event"]),
-            stack_id=trigger_data.get("stack_id"),
-        )
+        if "schedule" in trigger_data:
+            schedule_data = trigger_data["schedule"]
+            weekdays = schedule_data.get("weekdays")
+            trigger = Trigger(schedule=ScheduleTrigger(
+                time=schedule_data["time"],
+                weekdays=tuple(weekdays) if weekdays else None,
+            ))
+        else:
+            trigger = Trigger(
+                event_type=EventType(trigger_data["event"]),
+                stack_id=trigger_data.get("stack_id"),
+            )
         actions = _parse_steps(data.get("actions", []))
         return Workflow(
             id=data["id"],
@@ -104,9 +113,15 @@ class YamlWorkflowRepository:
 
     @staticmethod
     def _to_dict(workflow: Workflow) -> dict:
-        trigger: dict = {"event": workflow.trigger.event_type.value}
-        if workflow.trigger.stack_id is not None:
-            trigger["stack_id"] = workflow.trigger.stack_id
+        if workflow.trigger.schedule is not None:
+            schedule: dict = {"time": workflow.trigger.schedule.time}
+            if workflow.trigger.schedule.weekdays:
+                schedule["weekdays"] = list(workflow.trigger.schedule.weekdays)
+            trigger: dict = {"schedule": schedule}
+        else:
+            trigger = {"event": workflow.trigger.event_type.value}
+            if workflow.trigger.stack_id is not None:
+                trigger["stack_id"] = workflow.trigger.stack_id
         return {
             "id": workflow.id,
             "name": workflow.name,

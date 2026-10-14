@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import datetime, timedelta
 
 from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
 from automation.config.settings import NextcloudInstanceConfig, Settings
-from automation.core.domain.models import ActionStep, EventType, Trigger, Workflow
+from automation.core.domain.models import ActionStep, EventType, ScheduleTrigger, Trigger, Workflow
 from automation.main import run
 
 
@@ -191,3 +192,79 @@ def test_run_marks_a_test_run_for_an_unknown_card_as_error(tmp_path, monkeypatch
     fetched = state_store.get_test_run(test_run_id)
     assert fetched["status"] == "error"
     assert "999999" in fetched["error"]
+
+
+def test_run_fires_a_due_schedule_triggered_workflow_exactly_once(tmp_path, monkeypatch):
+    # The workflow's board_id still makes run() poll that board for Deck
+    # events too (trigger type isn't filtered there) - fake the Deck API so
+    # that poll doesn't make a real network call.
+    monkeypatch.setattr("requests.Session.request", fake_requests_for({"stack_id": 10}))
+    # Already in the past "today" by the time run() checks it, regardless of
+    # when this test actually executes.
+    scheduled_time = (datetime.now() - timedelta(minutes=1)).strftime("%H:%M")
+
+    workflows_dir = tmp_path / "workflows"
+    workflows = YamlWorkflowRepository(workflows_dir)
+    workflows.save(Workflow(
+        id="daily-digest", name="Daily digest", instance="prod", board_id=1,
+        trigger=Trigger(schedule=ScheduleTrigger(time=scheduled_time)),
+        actions=(ActionStep(module="log_action", params={"message": "good morning"}),),
+    ))
+
+    settings = Settings(
+        workflows_dir=workflows_dir,
+        state_db_path=tmp_path / "state.sqlite3",
+        log_level="INFO",
+        instances=make_instances(),
+        max_run_seconds=5.0,
+    )
+
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        rows = conn.execute(
+            "SELECT workflow_id, module, success FROM execution_log WHERE workflow_id = 'daily-digest'"
+        ).fetchall()
+    assert rows == [("daily-digest", "log_action", 1)]
+
+    # A second run() within the same scheduled slot must NOT fire it again.
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM execution_log WHERE workflow_id = 'daily-digest'"
+        ).fetchone()[0]
+    assert count == 1
+
+
+def test_run_records_a_clear_error_when_a_schedule_triggered_workflow_uses_a_card_action(tmp_path, monkeypatch):
+    # The workflow's board_id still makes run() poll that board for Deck
+    # events too (trigger type isn't filtered there) - fake the Deck API so
+    # that poll doesn't make a real network call.
+    monkeypatch.setattr("requests.Session.request", fake_requests_for({"stack_id": 10}))
+    scheduled_time = (datetime.now() - timedelta(minutes=1)).strftime("%H:%M")
+
+    workflows_dir = tmp_path / "workflows"
+    workflows = YamlWorkflowRepository(workflows_dir)
+    workflows.save(Workflow(
+        id="bad-schedule", name="Bad schedule", instance="prod", board_id=1,
+        trigger=Trigger(schedule=ScheduleTrigger(time=scheduled_time)),
+        actions=(ActionStep(module="set_title", params={"title": "x"}),),
+    ))
+
+    settings = Settings(
+        workflows_dir=workflows_dir,
+        state_db_path=tmp_path / "state.sqlite3",
+        log_level="INFO",
+        instances=make_instances(),
+        max_run_seconds=5.0,
+    )
+
+    run(settings)  # must not raise/crash the whole run
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        rows = conn.execute(
+            "SELECT success, error FROM execution_log WHERE workflow_id = 'bad-schedule'"
+        ).fetchall()
+    assert rows[0][0] == 0
+    assert "schedule-triggered" in rows[0][1]
