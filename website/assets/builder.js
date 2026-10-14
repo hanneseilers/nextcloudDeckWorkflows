@@ -290,9 +290,14 @@
     row.appendChild(sourceSelect);
 
     if (step.params[key].source === 'ref') {
-      // "card" (the triggering card's raw fields) is always selectable, in
-      // addition to any earlier step in this workflow.
-      const refSources = [{ id: 'card', module: null }, ...state.steps.slice(0, index)];
+      // "card" (the triggering card's raw fields) and "vars" (global
+      // variables set via set_variable) are always selectable, in addition
+      // to any earlier step in this workflow.
+      const refSources = [
+        { id: 'card', module: null },
+        { id: 'vars', module: null },
+        ...state.steps.slice(0, index),
+      ];
       const refSelect = document.createElement('select');
       const emptyOpt = document.createElement('option');
       emptyOpt.value = '';
@@ -325,6 +330,14 @@
       let fieldOptions;
       if (step.params[key].refStep === 'card') {
         fieldOptions = CARD_FIELDS;
+      } else if (step.params[key].refStep === 'vars') {
+        // Variable names are chosen freely per workflow, so suggest whatever
+        // earlier set_variable steps were given as a literal "name" so far.
+        fieldOptions = state.steps
+          .slice(0, index)
+          .filter((s) => s.module === 'set_variable' && s.params.name && s.params.name.source === 'literal')
+          .map((s) => s.params.name.value)
+          .filter((name) => !!name);
       } else {
         const refStepObj = refSources.find((s) => s.id === step.params[key].refStep);
         const refModule = refStepObj ? modulesByName[refStepObj.module] : null;

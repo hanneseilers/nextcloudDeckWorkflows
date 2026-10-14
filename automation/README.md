@@ -9,7 +9,7 @@ Cron-driven workflow engine, built as a hexagonal (ports & adapters) architectur
 - `adapters/nextcloud/` — talks to the Nextcloud/Deck REST API; detects events by polling and diffing board state against the last snapshot (no webhooks needed).
 - `adapters/persistence/` — `YamlWorkflowRepository` (workflow definitions as YAML in `workflows/`) and `SqliteStateStore` (snapshot + execution log, `automation/var/state.sqlite3`).
 - `adapters/actions/` — dynamically loads action modules from `actions_registry/`.
-- `actions_registry/` — one file per action capability. Drop in a new file that subclasses `WorkflowAction` to add a capability; no other code needs to change. Ships with standard card-editing actions: `set_title`, `set_description`, `set_due_date`, `move_card`, `add_label`, `assign_user`, `unassign_user`, `add_comment`; plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (data-lookup reference module, not wired to anything yet); plus `log_action` as a no-op reference/smoke-test action.
+- `actions_registry/` — one file per action capability. Drop in a new file that subclasses `WorkflowAction` to add a capability; no other code needs to change. Ships with standard card-editing actions: `set_title`, `set_description`, `set_due_date`, `move_card`, `add_label`, `assign_user`, `unassign_user`, `add_comment`; `set_variable` (global workflow variables, see below); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (data-lookup reference module, not wired to anything yet); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
@@ -70,6 +70,13 @@ holds the triggering card's raw Nextcloud fields, e.g. `{$ref: card.title}` or
 `{$ref: card.duedate}` - whatever the Deck API returned for that card
 (`title`, `description`, `duedate`, `labels`, `assignedUsers`, ...). Don't give
 one of your own steps the id `card` - it would shadow this.
+
+`vars` is a second reserved step id: the workflow's global variables, set via
+the `set_variable` action (`{"name": "due_in_three_days", "value": {$ref: ...}}`)
+under whatever name you choose. Read one back structurally with
+`{$ref: vars.<name>}`, or - in actions that substitute text placeholders
+(`send_email`, `add_comment`) - directly as `$<name>` in the text itself, with
+no `$ref`/`template_data` wiring needed there at all.
 
 This is the workflow-level counterpart to modules calling modules above: the
 *workflow* wires one step's output into another step's input declaratively;
