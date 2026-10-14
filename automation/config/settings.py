@@ -31,6 +31,20 @@ class ErrorNotificationConfig:
 
 
 @dataclass(frozen=True)
+class WebhookConfig:
+    """If enabled, main.py only polls a board on every single invocation
+    until it's been pinged at least once; after that, a board with no
+    recent webhook ping is only polled every `fallback_poll_minutes` (a
+    board that *was* pinged since its last poll is always polled right
+    away). See core/domain/webhook_gate.should_poll_now and
+    website/webhook.php, which is what records a ping."""
+
+    enabled: bool
+    secret: str
+    fallback_poll_minutes: float = 15.0
+
+
+@dataclass(frozen=True)
 class Settings:
     workflows_dir: Path
     state_db_path: Path
@@ -41,6 +55,7 @@ class Settings:
     # loop in main.py. Keep comfortably below the cron interval.
     max_run_seconds: float = 240.0
     error_notifications: Optional[ErrorNotificationConfig] = None
+    webhooks: Optional[WebhookConfig] = None
 
 
 def load_settings(config_dir: Optional[Path] = None) -> Settings:
@@ -68,6 +83,15 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
             to=raw_notifications["to"],
         )
 
+    webhooks = None
+    raw_webhooks = general.get("webhooks")
+    if raw_webhooks:
+        webhooks = WebhookConfig(
+            enabled=bool(raw_webhooks.get("enabled", True)),
+            secret=raw_webhooks["secret"],
+            fallback_poll_minutes=float(raw_webhooks.get("fallback_poll_minutes", 15.0)),
+        )
+
     return Settings(
         workflows_dir=REPO_ROOT / general.get("workflows_dir", "workflows"),
         state_db_path=REPO_ROOT / general.get("state_db_path", "automation/var/state.sqlite3"),
@@ -75,6 +99,7 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
         instances=instances,
         max_run_seconds=float(general.get("max_run_seconds", 240.0)),
         error_notifications=error_notifications,
+        webhooks=webhooks,
     )
 
 

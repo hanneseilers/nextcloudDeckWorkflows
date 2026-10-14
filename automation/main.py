@@ -30,6 +30,7 @@ from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
 from automation.core.domain.models import DeckEvent, EventType
 from automation.core.domain.schedule import should_fire
+from automation.core.domain.webhook_gate import should_poll_now
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,8 @@ def run(settings: Settings) -> None:
         for board_id in board_ids:
             targets.append(BoardTarget(instance_name, board_id, deck, event_source, calendar))
 
+    targets = _apply_webhook_gate(settings, state_store, targets)
+
     # A workflow's own actions (move a card, change its due date, ...) can be
     # exactly what triggers another workflow - so keep re-polling and
     # re-running for as long as the previous pass found at least one event,
@@ -127,6 +130,41 @@ def run(settings: Settings) -> None:
     # so it must be unambiguous rather than "whatever this server's local
     # timezone happens to be".
     state_store.set_heartbeat(datetime.now(timezone.utc).isoformat())
+
+
+def _apply_webhook_gate(
+    settings: Settings, state_store: SqliteStateStore, targets: list[BoardTarget]
+) -> list[BoardTarget]:
+    """Without settings.webhooks configured, every board is polled on
+    every invocation (unchanged default behavior). Once configured, a
+    board is only skipped this run if it's been polled before, has no
+    fresh webhook ping, and isn't yet due for its fallback poll - see
+    core/domain/webhook_gate.should_poll_now. A board that's included
+    records a fresh last_polled_at right away (not just on success) so
+    the gate reflects "we decided to check this board now", independent
+    of whether the actual poll succeeds.
+    """
+
+    if settings.webhooks is None or not settings.webhooks.enabled:
+        return targets
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    kept = []
+    for target in targets:
+        last_ping_raw, last_polled_raw = state_store.get_board_activity(target.instance_name, target.board_id)
+        last_ping = datetime.fromisoformat(last_ping_raw) if last_ping_raw else None
+        last_polled = datetime.fromisoformat(last_polled_raw) if last_polled_raw else None
+
+        if should_poll_now(settings.webhooks.fallback_poll_minutes, now, last_ping, last_polled):
+            state_store.record_poll(target.instance_name, target.board_id, now_iso)
+            kept.append(target)
+        else:
+            logger.debug(
+                "Skipping board %s on instance '%s' this run - no fresh webhook ping, "
+                "not yet due for fallback poll", target.board_id, target.instance_name,
+            )
+    return kept
 
 
 def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:

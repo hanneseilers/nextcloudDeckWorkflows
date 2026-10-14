@@ -56,6 +56,17 @@ CREATE TABLE IF NOT EXISTS heartbeat (
     last_run_at TEXT NOT NULL
 );
 
+-- One row per board ever seen by the webhook/polling-gate logic (see
+-- core/domain/webhook_gate.py) - last_ping_at is written by
+-- website/webhook.php, last_polled_at by main.py itself.
+CREATE TABLE IF NOT EXISTS board_activity (
+    instance TEXT NOT NULL,
+    board_id INTEGER NOT NULL,
+    last_ping_at TEXT,
+    last_polled_at TEXT,
+    PRIMARY KEY (instance, board_id)
+);
+
 CREATE TABLE IF NOT EXISTS test_runs (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
@@ -309,3 +320,45 @@ class SqliteStateStore:
                 (when_iso,),
             )
             conn.commit()
+
+    # -- webhooks / polling gate ---------------------------------------------
+
+    def get_board_activity(self, instance: str, board_id: int) -> tuple[Optional[str], Optional[str]]:
+        """Returns (last_ping_at, last_polled_at), either possibly None."""
+
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT last_ping_at, last_polled_at FROM board_activity WHERE instance = ? AND board_id = ?",
+                (instance, board_id),
+            ).fetchone()
+        return (row[0], row[1]) if row else (None, None)
+
+    def record_webhook_ping(self, instance: str, board_id: int, when_iso: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "INSERT INTO board_activity (instance, board_id, last_ping_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(instance, board_id) DO UPDATE SET last_ping_at = excluded.last_ping_at",
+                (instance, board_id, when_iso),
+            )
+            conn.commit()
+
+    def record_poll(self, instance: str, board_id: int, when_iso: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "INSERT INTO board_activity (instance, board_id, last_polled_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(instance, board_id) DO UPDATE SET last_polled_at = excluded.last_polled_at",
+                (instance, board_id, when_iso),
+            )
+            conn.commit()
+
+    def recent_webhook_pings(self, limit: int = 50) -> list[dict[str, Any]]:
+        """For the website's observability page - lets an admin confirm
+        Nextcloud's webhook configuration is actually reaching us."""
+
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT instance, board_id, last_ping_at FROM board_activity "
+                "WHERE last_ping_at IS NOT NULL ORDER BY last_ping_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"instance": row[0], "board_id": row[1], "last_ping_at": row[2]} for row in rows]

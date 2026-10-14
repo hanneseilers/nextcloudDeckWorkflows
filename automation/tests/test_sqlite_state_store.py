@@ -285,3 +285,38 @@ def test_set_heartbeat_overwrites_the_previous_value(tmp_path):
     with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
         rows = conn.execute("SELECT last_run_at FROM heartbeat").fetchall()
     assert rows == [("2026-01-02T09:00:00+00:00",)]
+
+
+def test_get_board_activity_defaults_to_both_none(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    assert store.get_board_activity("inst", 1) == (None, None)
+
+
+def test_record_webhook_ping_and_poll_are_independent(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    store.record_webhook_ping("inst", 1, "2026-01-05T09:00:00+00:00")
+    assert store.get_board_activity("inst", 1) == ("2026-01-05T09:00:00+00:00", None)
+
+    store.record_poll("inst", 1, "2026-01-05T09:05:00+00:00")
+    assert store.get_board_activity("inst", 1) == ("2026-01-05T09:00:00+00:00", "2026-01-05T09:05:00+00:00")
+
+
+def test_board_activity_is_independent_per_board(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    store.record_webhook_ping("inst", 1, "2026-01-05T09:00:00+00:00")
+
+    assert store.get_board_activity("inst", 2) == (None, None)
+    assert store.get_board_activity("other-inst", 1) == (None, None)
+
+
+def test_recent_webhook_pings_only_includes_boards_with_a_ping(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    store.record_poll("inst", 1, "2026-01-05T09:00:00+00:00")  # polled, never pinged
+    store.record_webhook_ping("inst", 2, "2026-01-05T09:05:00+00:00")
+
+    pings = store.recent_webhook_pings()
+
+    assert pings == [{"instance": "inst", "board_id": 2, "last_ping_at": "2026-01-05T09:05:00+00:00"}]

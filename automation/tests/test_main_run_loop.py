@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
-from automation.config.settings import NextcloudInstanceConfig, Settings
+from automation.config.settings import NextcloudInstanceConfig, Settings, WebhookConfig
 from automation.core.domain.models import ActionStep, EventType, ScheduleTrigger, Trigger, Workflow
 from automation.main import run
 
@@ -284,3 +284,110 @@ def test_run_sets_a_heartbeat_on_successful_completion(tmp_path):
     with sqlite3.connect(settings.state_db_path) as conn:
         row = conn.execute("SELECT last_run_at FROM heartbeat WHERE id = 1").fetchone()
     assert row is not None and row[0]
+
+
+def test_webhooks_disabled_by_default_polls_every_run(tmp_path, monkeypatch):
+    """Baseline: with no webhooks configured at all, behavior is exactly
+    what it always was - every board is polled every single run()."""
+
+    state = {"stack_id": 10}
+    monkeypatch.setattr("requests.Session.request", fake_requests_for(state))
+
+    workflows_dir = tmp_path / "workflows"
+    workflows = YamlWorkflowRepository(workflows_dir)
+    workflows.save(Workflow(
+        id="wf-1", name="WF1", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED, stack_id=10),
+        actions=(ActionStep(module="log_action", params={"message": "hi"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3",
+        log_level="INFO", instances=make_instances(), max_run_seconds=5.0,
+    )
+
+    run(settings)
+    with sqlite3.connect(settings.state_db_path) as conn:
+        first_count = conn.execute("SELECT COUNT(*) FROM execution_log").fetchone()[0]
+    assert first_count == 1  # card_created fired
+
+    # A brand new card on the next poll must be detected immediately -
+    # nothing gates polling without webhooks configured.
+    state["stack_id"] = 10
+    run(settings)
+
+
+def test_webhooks_enabled_skips_polling_until_pinged_or_fallback_due(tmp_path, monkeypatch):
+    state = {"stack_id": 10}
+    monkeypatch.setattr("requests.Session.request", fake_requests_for(state))
+
+    workflows_dir = tmp_path / "workflows"
+    workflows = YamlWorkflowRepository(workflows_dir)
+    workflows.save(Workflow(
+        id="wf-1", name="WF1", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_MOVED, stack_id=20),
+        actions=(ActionStep(module="log_action", params={"message": "moved"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3",
+        log_level="INFO", instances=make_instances(), max_run_seconds=5.0,
+        webhooks=WebhookConfig(enabled=True, secret="x", fallback_poll_minutes=15.0),
+    )
+
+    run(settings)  # first run always polls (never polled before) - establishes the baseline snapshot
+
+    state_store = SqliteStateStore(settings.state_db_path)
+    _, last_polled_after_first_run = state_store.get_board_activity("prod", 1)
+    assert last_polled_after_first_run is not None
+
+    # Move the card "externally" (simulating a real change on Nextcloud) and
+    # run again right away, with no webhook ping and well within the
+    # fallback window - must NOT poll, so the move stays undetected for now.
+    state["stack_id"] = 20
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        count_before_ping = conn.execute("SELECT COUNT(*) FROM execution_log WHERE workflow_id = 'wf-1'").fetchone()[0]
+    assert count_before_ping == 0
+
+    # A webhook ping for this board arrives - the *next* run must poll
+    # immediately and detect the already-happened move.
+    state_store.record_webhook_ping("prod", 1, datetime.now(timezone.utc).isoformat())
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        count_after_ping = conn.execute("SELECT COUNT(*) FROM execution_log WHERE workflow_id = 'wf-1'").fetchone()[0]
+    assert count_after_ping == 1
+
+
+def test_webhooks_enabled_still_polls_once_the_fallback_interval_elapses(tmp_path, monkeypatch):
+    state = {"stack_id": 10}
+    monkeypatch.setattr("requests.Session.request", fake_requests_for(state))
+
+    workflows_dir = tmp_path / "workflows"
+    workflows = YamlWorkflowRepository(workflows_dir)
+    workflows.save(Workflow(
+        id="wf-1", name="WF1", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_MOVED, stack_id=20),
+        actions=(ActionStep(module="log_action", params={"message": "moved"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3",
+        log_level="INFO", instances=make_instances(), max_run_seconds=5.0,
+        webhooks=WebhookConfig(enabled=True, secret="x", fallback_poll_minutes=15.0),
+    )
+    run(settings)  # establishes the baseline
+
+    state_store = SqliteStateStore(settings.state_db_path)
+    # Back-date the last poll past the fallback window, as if a long time
+    # had passed with no webhook ping ever arriving.
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=16)).isoformat()
+    with sqlite3.connect(settings.state_db_path) as conn:
+        conn.execute("UPDATE board_activity SET last_polled_at = ? WHERE instance = 'prod' AND board_id = 1", (stale,))
+        conn.commit()
+
+    state["stack_id"] = 20
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM execution_log WHERE workflow_id = 'wf-1'").fetchone()[0]
+    assert count == 1  # fallback kicked in - polled and detected the move even with no ping
