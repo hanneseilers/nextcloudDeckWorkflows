@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+from dataclasses import dataclass
 from typing import Any, Iterator, Optional
 
 from automation.core.domain.models import (
@@ -21,6 +22,20 @@ from automation.core.ports.execution_log import ExecutionLogPort
 from automation.core.ports.workflow_repository import WorkflowRepositoryPort
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _RunState:
+    """Bundles everything shared across one workflow run's recursive step
+    walk but that doesn't change per step/branch - threading it as one
+    object keeps _run_steps/_run_action_step's signatures from growing a
+    parameter every time another cross-cutting concern (if/else, the
+    fallback-id counter) is added."""
+
+    outputs_by_step: dict[str, dict[str, Any]]
+    result: ExecutionResult
+    workflow_id: str
+    fallback_ids: Iterator[int]
 
 
 class WorkflowEngine:
@@ -77,60 +92,51 @@ class WorkflowEngine:
         # One counter shared across the whole (possibly nested) run, so two
         # id-less steps in different if/else branches never collide on the
         # same fallback key - see _run_steps.
-        fallback_ids = itertools.count()
+        state = _RunState(
+            outputs_by_step=outputs_by_step,
+            result=result,
+            workflow_id=workflow.id,
+            fallback_ids=itertools.count(),
+        )
 
-        self._run_steps(workflow.actions, context, outputs_by_step, result, workflow.id, fallback_ids)
+        self._run_steps(workflow.actions, context, state)
         return result
 
-    def _run_steps(
-        self,
-        steps: tuple[WorkflowStep, ...],
-        context: ActionContext,
-        outputs_by_step: dict[str, dict[str, Any]],
-        result: ExecutionResult,
-        workflow_id: str,
-        fallback_ids: Iterator[int],
-    ) -> None:
+    def _run_steps(self, steps: tuple[WorkflowStep, ...], context: ActionContext, state: _RunState) -> None:
         for step in steps:
             if isinstance(step, IfStep):
-                left = _resolve_params(step.condition.left, outputs_by_step)
-                right = _resolve_params(step.condition.right, outputs_by_step)
+                left = _resolve_params(step.condition.left, state.outputs_by_step)
+                right = _resolve_params(step.condition.right, state.outputs_by_step)
                 try:
                     branch_is_then = _evaluate_condition(step.condition.op, left, right)
                 except Exception:
                     # A bad/unevaluable condition takes the else branch rather
                     # than aborting the workflow - same "degrade, don't crash"
                     # stance as everything else here.
-                    logger.exception("Could not evaluate if-condition in workflow '%s'", workflow_id)
+                    logger.exception("Could not evaluate if-condition in workflow '%s'", state.workflow_id)
                     branch_is_then = False
                 branch = step.then_steps if branch_is_then else step.else_steps
-                self._run_steps(branch, context, outputs_by_step, result, workflow_id, fallback_ids)
+                self._run_steps(branch, context, state)
                 continue
 
-            self._run_action_step(step, context, outputs_by_step, result, workflow_id, fallback_ids)
+            self._run_action_step(step, context, state)
 
-    def _run_action_step(
-        self,
-        step: ActionStep,
-        context: ActionContext,
-        outputs_by_step: dict[str, dict[str, Any]],
-        result: ExecutionResult,
-        workflow_id: str,
-        fallback_ids: Iterator[int],
-    ) -> None:
-        step_key = step.id or str(next(fallback_ids))
+    def _run_action_step(self, step: ActionStep, context: ActionContext, state: _RunState) -> None:
+        step_key = step.id or str(next(state.fallback_ids))
         try:
             action = self._actions.get(step.module)
-            params = _resolve_params(step.params, outputs_by_step)
+            params = _resolve_params(step.params, state.outputs_by_step)
             output = action.execute(context, params) or {}
-            outputs_by_step[step_key] = output
-            result.action_results.append(ActionResult(module=step.module, success=True))
+            state.outputs_by_step[step_key] = output
+            state.result.action_results.append(ActionResult(module=step.module, success=True))
         except Exception as exc:
             # Action modules are dynamically loaded, third-party-ish plugin code: one
             # failing step must not abort the rest of the workflow run or the whole
             # cron invocation, so failures are isolated and recorded instead of raised.
-            logger.exception("Action '%s' failed for workflow '%s'", step.module, workflow_id)
-            result.action_results.append(ActionResult(module=step.module, success=False, error=str(exc)))
+            logger.exception("Action '%s' failed for workflow '%s'", step.module, state.workflow_id)
+            state.result.action_results.append(
+                ActionResult(module=step.module, success=False, error=str(exc))
+            )
 
 
 def _resolve_params(params: Any, outputs_by_step: dict[str, dict[str, Any]]) -> Any:
