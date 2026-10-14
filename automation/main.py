@@ -119,6 +119,10 @@ def run(settings: Settings) -> None:
             break
 
     _process_failure_notifications(settings, workflows, state_store)
+    # Only reached if everything above completed without an unhandled
+    # exception - the website's health check reads this to tell "cron is
+    # actually still running" from "it crashed/stopped being invoked".
+    state_store.set_heartbeat(datetime.now().isoformat())
 
 
 def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:

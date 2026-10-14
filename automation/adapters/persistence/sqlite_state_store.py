@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS failure_notifications (
     workflow_id TEXT PRIMARY KEY
 );
 
+-- Single row (id=1): when main.py's run() last completed without an
+-- unhandled exception - the website's health check reads this to answer
+-- "is the cron job actually still running".
+CREATE TABLE IF NOT EXISTS heartbeat (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_run_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS test_runs (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
@@ -289,4 +297,15 @@ class SqliteStateStore:
     def clear_notified_failure_streak(self, workflow_id: str) -> None:
         with closing(self._connect()) as conn:
             conn.execute("DELETE FROM failure_notifications WHERE workflow_id = ?", (workflow_id,))
+            conn.commit()
+
+    # -- heartbeat ------------------------------------------------------------
+
+    def set_heartbeat(self, when_iso: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "INSERT INTO heartbeat (id, last_run_at) VALUES (1, ?) "
+                "ON CONFLICT(id) DO UPDATE SET last_run_at = excluded.last_run_at",
+                (when_iso,),
+            )
             conn.commit()

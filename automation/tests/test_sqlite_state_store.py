@@ -264,3 +264,24 @@ def test_failure_streak_notification_flag_roundtrip(tmp_path):
 
     store.clear_notified_failure_streak("wf-1")
     assert store.has_notified_failure_streak("wf-1") is False
+
+
+def test_set_heartbeat_is_readable_back_via_a_plain_query(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    store.set_heartbeat("2026-01-01T09:00:00+00:00")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        row = conn.execute("SELECT last_run_at FROM heartbeat WHERE id = 1").fetchone()
+    assert row[0] == "2026-01-01T09:00:00+00:00"
+
+
+def test_set_heartbeat_overwrites_the_previous_value(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    store.set_heartbeat("2026-01-01T09:00:00+00:00")
+
+    store.set_heartbeat("2026-01-02T09:00:00+00:00")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        rows = conn.execute("SELECT last_run_at FROM heartbeat").fetchall()
+    assert rows == [("2026-01-02T09:00:00+00:00",)]

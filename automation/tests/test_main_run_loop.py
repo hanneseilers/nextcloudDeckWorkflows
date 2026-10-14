@@ -268,3 +268,19 @@ def test_run_records_a_clear_error_when_a_schedule_triggered_workflow_uses_a_car
         ).fetchall()
     assert rows[0][0] == 0
     assert "schedule-triggered" in rows[0][1]
+
+
+def test_run_sets_a_heartbeat_on_successful_completion(tmp_path):
+    settings = Settings(
+        workflows_dir=tmp_path / "workflows",
+        state_db_path=tmp_path / "state.sqlite3",
+        log_level="INFO",
+        instances=make_instances(),
+        max_run_seconds=5.0,
+    )
+
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        row = conn.execute("SELECT last_run_at FROM heartbeat WHERE id = 1").fetchone()
+    assert row is not None and row[0]
