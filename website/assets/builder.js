@@ -96,8 +96,33 @@
   const boardFieldEl = document.getElementById('board-field');
   const stackFieldEl = document.getElementById('stack-field');
 
+  // Shows a plain "– loading –"/"– pick X first –" text in place of a
+  // mounted typeahead - used both for the initial disabled state and while
+  // loadAndMount() below is waiting on a request.
+  function showPlaceholder(el, text) {
+    el.innerHTML = '';
+    el.className = 'muted';
+    el.textContent = text;
+  }
+
+  // Shared by every instance->board->stack step: show a loading placeholder,
+  // fetch, then either mount the real field from the response or show the
+  // error banner - the one pattern the instance-change and board-pick
+  // handlers below both followed independently before.
+  async function loadAndMount(url, targetEl, loadingText, onData) {
+    hideError();
+    showPlaceholder(targetEl, loadingText);
+    try {
+      const data = await fetchJSON(url);
+      onData(data);
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
   function mountBoardField(boards) {
     boardEl.value = '';
+    boardFieldEl.className = '';
     boardFieldEl.innerHTML = '';
     boardFieldEl.appendChild(
       renderTypeahead({
@@ -107,31 +132,23 @@
           boardEl.value = value;
         },
         loadOptions: (query) => filterByTitle(boards, query),
-        onPick: async (item) => {
-          hideError();
-          mountStackField([], '– lädt –');
-          try {
-            const data = await fetchJSON(
-              'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(item.id)
-            );
-            mountStackField(data.stacks);
-          } catch (e) {
-            showError(e.message);
-          }
+        onPick: (item) => {
+          stackEl.value = '';
+          loadAndMount(
+            'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(item.id),
+            stackFieldEl,
+            '– lädt –',
+            (data) => mountStackField(data.stacks)
+          );
         },
       })
     );
   }
 
-  function mountStackField(stacks, placeholder) {
+  function mountStackField(stacks) {
     stackEl.value = '';
-    stackFieldEl.innerHTML = '';
-    if (placeholder) {
-      stackFieldEl.appendChild(document.createTextNode(placeholder));
-      stackFieldEl.className = 'muted';
-      return;
-    }
     stackFieldEl.className = '';
+    stackFieldEl.innerHTML = '';
     const allColumns = { id: '', title: 'Alle Spalten' };
     stackFieldEl.appendChild(
       renderTypeahead({
@@ -155,24 +172,21 @@
       .map((item) => ({ id: String(item.id), label: item.title }));
   }
 
-  instanceEl.addEventListener('change', async () => {
-    hideError();
+  instanceEl.addEventListener('change', () => {
     calendarsCache = null; // a different instance has different calendars
-    mountStackField([], '– zuerst Board wählen –');
-    boardFieldEl.innerHTML = '';
-    boardFieldEl.className = 'muted';
-    boardFieldEl.textContent = '– lädt –';
     boardEl.value = '';
+    stackEl.value = '';
+    showPlaceholder(stackFieldEl, '– zuerst Board wählen –');
     if (!instanceEl.value) {
-      boardFieldEl.textContent = '– zuerst Instanz wählen –';
+      showPlaceholder(boardFieldEl, '– zuerst Instanz wählen –');
       return;
     }
-    try {
-      const data = await fetchJSON('api_boards.php?instance=' + encodeURIComponent(instanceEl.value));
-      mountBoardField(data.boards);
-    } catch (e) {
-      showError(e.message);
-    }
+    loadAndMount(
+      'api_boards.php?instance=' + encodeURIComponent(instanceEl.value),
+      boardFieldEl,
+      '– lädt –',
+      (data) => mountBoardField(data.boards)
+    );
   });
 
   // -- workflow id suggestion from name -----------------------------------
@@ -427,6 +441,92 @@
   // side's input type comes from the module's declared default value) and an
   // if-condition's operands (always a plain text literal, no module/type to
   // derive from).
+  // Appends the ref-picker UI (source-step select + output-field input with
+  // its datalist of known field names) to `wrapper` for an entry whose
+  // source is "ref".
+  function appendRefOperandFields(wrapper, entry) {
+    const refSources = [{ id: 'card' }, { id: 'vars' }, ...collectAllSteps(state.steps)];
+    const refSelect = document.createElement('select');
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = '– Quelle wählen –';
+    refSelect.appendChild(emptyOpt);
+    refSources.forEach((source) => {
+      const option = document.createElement('option');
+      option.value = source.id;
+      option.textContent = source.module ? source.id + ' (' + source.module + ')' : source.id;
+      option.selected = source.id === entry.refStep;
+      refSelect.appendChild(option);
+    });
+    refSelect.addEventListener('change', () => {
+      entry.refStep = refSelect.value;
+    });
+    wrapper.appendChild(refSelect);
+
+    const listId = 'ref-fields-' + Math.random().toString(36).slice(2);
+    const fieldInput = document.createElement('input');
+    fieldInput.type = 'text';
+    fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
+    fieldInput.value = entry.refField || '';
+    fieldInput.setAttribute('list', listId);
+    fieldInput.addEventListener('input', () => {
+      entry.refField = fieldInput.value;
+    });
+    wrapper.appendChild(fieldInput);
+
+    const datalist = document.createElement('datalist');
+    datalist.id = listId;
+    let fieldOptions;
+    if (entry.refStep === 'card') {
+      fieldOptions = CARD_FIELDS;
+    } else if (entry.refStep === 'vars') {
+      fieldOptions = collectVariableNames(state.steps);
+    } else {
+      const refStepObj = refSources.find((s) => s.id === entry.refStep);
+      const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
+      fieldOptions = Object.keys((refModule && refModule.output) || {});
+    }
+    fieldOptions.forEach((field) => {
+      const option = document.createElement('option');
+      option.value = field;
+      datalist.appendChild(option);
+    });
+    wrapper.appendChild(datalist);
+  }
+
+  // Appends the literal-value input (type derived from the module's default,
+  // or a plain text field for an if-condition operand) to `wrapper`.
+  function appendLiteralOperandField(wrapper, entry, opts) {
+    const input = renderValueInput(opts.defaultValue !== undefined ? opts.defaultValue : '', entry.value);
+    const isCheckbox = input.type === 'checkbox';
+    const isTextarea = input.tagName === 'TEXTAREA';
+    input.addEventListener('input', () => {
+      if (isCheckbox) {
+        entry.value = input.checked;
+      } else if (isTextarea) {
+        // Object/array field: keep the textarea's raw JSON text parsed into a
+        // real value. On invalid JSON, flag it and keep the last good value -
+        // collectPayload() refuses to submit while any field is flagged.
+        try {
+          entry.value = input.value.trim() === '' ? opts.defaultValue : JSON.parse(input.value);
+          input.classList.remove('invalid');
+        } catch (e) {
+          input.classList.add('invalid');
+        }
+      } else if (input.type === 'number') {
+        entry.value = input.value === '' ? opts.defaultValue : Number(input.value);
+      } else if (input.dataset.valueType === 'nullable-string' && input.value === '') {
+        entry.value = null;
+      } else {
+        entry.value = input.value;
+      }
+    });
+    wrapper.appendChild(input);
+  }
+
+  // Renders the literal-vs-ref editor for any {source, value, refStep,
+  // refField} entry (see the module docstring at the top of this file) -
+  // just a dispatcher over the three appendX helpers above.
   function renderValueOrRefEditor(entry, options) {
     const opts = options || {};
     const wrapper = document.createElement('span');
@@ -447,53 +547,7 @@
     wrapper.appendChild(sourceSelect);
 
     if (entry.source === 'ref') {
-      const refSources = [{ id: 'card' }, { id: 'vars' }, ...collectAllSteps(state.steps)];
-      const refSelect = document.createElement('select');
-      const emptyOpt = document.createElement('option');
-      emptyOpt.value = '';
-      emptyOpt.textContent = '– Quelle wählen –';
-      refSelect.appendChild(emptyOpt);
-      refSources.forEach((source) => {
-        const option = document.createElement('option');
-        option.value = source.id;
-        option.textContent = source.module ? source.id + ' (' + source.module + ')' : source.id;
-        option.selected = source.id === entry.refStep;
-        refSelect.appendChild(option);
-      });
-      refSelect.addEventListener('change', () => {
-        entry.refStep = refSelect.value;
-      });
-      wrapper.appendChild(refSelect);
-
-      const listId = 'ref-fields-' + Math.random().toString(36).slice(2);
-      const fieldInput = document.createElement('input');
-      fieldInput.type = 'text';
-      fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
-      fieldInput.value = entry.refField || '';
-      fieldInput.setAttribute('list', listId);
-      fieldInput.addEventListener('input', () => {
-        entry.refField = fieldInput.value;
-      });
-      wrapper.appendChild(fieldInput);
-
-      const datalist = document.createElement('datalist');
-      datalist.id = listId;
-      let fieldOptions;
-      if (entry.refStep === 'card') {
-        fieldOptions = CARD_FIELDS;
-      } else if (entry.refStep === 'vars') {
-        fieldOptions = collectVariableNames(state.steps);
-      } else {
-        const refStepObj = refSources.find((s) => s.id === entry.refStep);
-        const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
-        fieldOptions = Object.keys((refModule && refModule.output) || {});
-      }
-      fieldOptions.forEach((field) => {
-        const option = document.createElement('option');
-        option.value = field;
-        datalist.appendChild(option);
-      });
-      wrapper.appendChild(datalist);
+      appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
       wrapper.appendChild(
         renderUserSearchField(
@@ -513,31 +567,7 @@
         )
       );
     } else {
-      const input = renderValueInput(opts.defaultValue !== undefined ? opts.defaultValue : '', entry.value);
-      const isCheckbox = input.type === 'checkbox';
-      const isTextarea = input.tagName === 'TEXTAREA';
-      input.addEventListener('input', () => {
-        if (isCheckbox) {
-          entry.value = input.checked;
-        } else if (isTextarea) {
-          // Object/array field: keep the textarea's raw JSON text parsed into a
-          // real value. On invalid JSON, flag it and keep the last good value -
-          // collectPayload() refuses to submit while any field is flagged.
-          try {
-            entry.value = input.value.trim() === '' ? opts.defaultValue : JSON.parse(input.value);
-            input.classList.remove('invalid');
-          } catch (e) {
-            input.classList.add('invalid');
-          }
-        } else if (input.type === 'number') {
-          entry.value = input.value === '' ? opts.defaultValue : Number(input.value);
-        } else if (input.dataset.valueType === 'nullable-string' && input.value === '') {
-          entry.value = null;
-        } else {
-          entry.value = input.value;
-        }
-      });
-      wrapper.appendChild(input);
+      appendLiteralOperandField(wrapper, entry, opts);
     }
 
     return wrapper;
