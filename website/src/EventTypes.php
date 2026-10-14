@@ -24,6 +24,7 @@ class EventTypes
             'card_assigned' => 'Neue Person zugewiesen',
             'card_due_date_changed' => 'Fälligkeitsdatum geändert',
             'card_description_changed' => 'Beschreibung geändert',
+            'card_label_changed' => 'Label geändert',
             'card_updated' => 'Karte geändert (beliebiges Feld)',
             'card_deleted' => 'Karte gelöscht',
         ];

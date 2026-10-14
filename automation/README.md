@@ -30,6 +30,9 @@ the last snapshot (`adapters/nextcloud/event_source.py`):
   removal).
 - `card_due_date_changed`, `card_description_changed` - that specific field's
   value differs from the last poll.
+- `card_label_changed` - the card's set of labels differs from the last poll,
+  either a label added or removed (unlike `card_assigned`, which only fires
+  on an addition).
 - `card_updated` - fires on *any* change to the card, including the specific
   ones above - it's a superset, not an alternative to them. A workflow can
   watch either the specific event it cares about, or `card_updated` to catch

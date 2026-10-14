@@ -146,6 +146,48 @@ def test_unassigning_everyone_does_not_fire_card_assigned():
     assert EventType.CARD_UPDATED in {e.event_type for e in events}
 
 
+def test_adding_a_label_fires_card_label_changed():
+    deck = InMemoryDeckGateway({1: [{"id": 10, "cards": [{"id": 100, "lastModified": 1, "labels": []}]}]})
+    source = PollingEventSource(deck, InMemorySnapshotStore())
+    poll_and_commit(source, "inst", 1)
+
+    deck.stacks[1][0]["cards"][0]["labels"] = [{"id": 5, "title": "Dringend"}]
+    deck.stacks[1][0]["cards"][0]["lastModified"] = 2
+
+    events = poll_and_commit(source, "inst", 1)
+
+    assert EventType.CARD_LABEL_CHANGED in {e.event_type for e in events}
+
+
+def test_removing_a_label_also_fires_card_label_changed():
+    deck = InMemoryDeckGateway(
+        {1: [{"id": 10, "cards": [{"id": 100, "lastModified": 1, "labels": [{"id": 5, "title": "Dringend"}]}]}]}
+    )
+    source = PollingEventSource(deck, InMemorySnapshotStore())
+    poll_and_commit(source, "inst", 1)
+
+    deck.stacks[1][0]["cards"][0]["labels"] = []
+    deck.stacks[1][0]["cards"][0]["lastModified"] = 2
+
+    events = poll_and_commit(source, "inst", 1)
+
+    assert EventType.CARD_LABEL_CHANGED in {e.event_type for e in events}
+
+
+def test_unchanged_labels_do_not_fire_card_label_changed():
+    deck = InMemoryDeckGateway(
+        {1: [{"id": 10, "cards": [{"id": 100, "lastModified": 1, "labels": [{"id": 5, "title": "Dringend"}]}]}]}
+    )
+    source = PollingEventSource(deck, InMemorySnapshotStore())
+    poll_and_commit(source, "inst", 1)
+
+    deck.stacks[1][0]["cards"][0]["lastModified"] = 2  # some other field changes, labels don't
+
+    events = poll_and_commit(source, "inst", 1)
+
+    assert EventType.CARD_LABEL_CHANGED not in {e.event_type for e in events}
+
+
 def test_deleted_card_is_detected():
     deck = InMemoryDeckGateway({1: [{"id": 10, "cards": [{"id": 100, "lastModified": 1}]}]})
     source = PollingEventSource(deck, InMemorySnapshotStore())

@@ -4,6 +4,7 @@ require __DIR__ . '/vendor/autoload.php';
 
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Csrf;
+use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
@@ -41,10 +42,7 @@ $modules = ModuleRegistry::fromRepoRoot();
 $workflows = new WorkflowRepository($config->workflowsDir());
 
 $errors = [];
-$knownEvents = [
-    'card_created', 'card_moved', 'card_assigned',
-    'card_due_date_changed', 'card_description_changed', 'card_updated', 'card_deleted',
-];
+$knownEvents = array_keys(EventTypes::labels());
 
 $instanceName = (string) ($payload['instance'] ?? '');
 if ($config->instance($instanceName) === null) {

@@ -30,6 +30,19 @@ def _assignee_ids(card: dict[str, Any]) -> set[str]:
     return ids
 
 
+def _label_ids(card: dict[str, Any]) -> set[str]:
+    """Best-effort extraction of label ids from a Deck card's `labels` - not
+    verified against a live Nextcloud instance, same reasoning as
+    _assignee_ids above: degrades to "no CARD_LABEL_CHANGED event" rather
+    than crashing the poll if the shape doesn't match."""
+
+    ids: set[str] = set()
+    for entry in card.get("labels") or []:
+        if isinstance(entry, dict) and entry.get("id") is not None:
+            ids.add(str(entry["id"]))
+    return ids
+
+
 class PollingEventSource:
     """Implements EventSourcePort by diffing the current board state against the
     snapshot from the previous run. Needed because a shared-webspace cron job has no
@@ -67,6 +80,7 @@ class PollingEventSource:
                 "duedate": state["duedate"],
                 "description": state["description"],
                 "assignee_ids": sorted(state["assignee_ids"]),
+                "label_ids": sorted(state["label_ids"]),
             }
             for card_id, state in current.items()
         })
@@ -81,6 +95,7 @@ class PollingEventSource:
                     "duedate": card.get("duedate"),
                     "description": card.get("description"),
                     "assignee_ids": _assignee_ids(card),
+                    "label_ids": _label_ids(card),
                     "card": card,
                 }
         return snapshot
@@ -144,6 +159,18 @@ class PollingEventSource:
                     instance=instance,
                     board_id=board_id,
                     event_type=EventType.CARD_DESCRIPTION_CHANGED,
+                    card_id=card_id,
+                    stack_id=state["stack_id"],
+                    card=state["card"],
+                )
+
+            if set(state["label_ids"]) != set(prev_state.get("label_ids") or []):
+                # Unlike CARD_ASSIGNED (additions only), this fires on either
+                # a label being added or removed - "geändert" covers both.
+                yield DeckEvent(
+                    instance=instance,
+                    board_id=board_id,
+                    event_type=EventType.CARD_LABEL_CHANGED,
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
