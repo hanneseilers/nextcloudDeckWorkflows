@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,9 @@ def run(settings: Settings) -> None:
     for workflow in workflows.list_enabled():
         boards_by_instance.setdefault(workflow.instance, set()).add(workflow.board_id)
 
+    # Built once, polled repeatedly below - a board's deck/event_source don't
+    # change between iterations of the fixed-point loop.
+    targets: list[tuple[str, int, NextcloudDeckGateway, PollingEventSource]] = []
     for instance_name, board_ids in boards_by_instance.items():
         instance = settings.instances.get(instance_name)
         if instance is None:
@@ -53,9 +57,37 @@ def run(settings: Settings) -> None:
         client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
         deck = NextcloudDeckGateway(client)
         event_source = PollingEventSource(deck, state_store)
-
         for board_id in board_ids:
-            _process_board(engine, event_source, deck, instance_name, board_id)
+            targets.append((instance_name, board_id, deck, event_source))
+
+    # A workflow's own actions (move a card, change its due date, ...) can be
+    # exactly what triggers another workflow - so keep re-polling and
+    # re-running for as long as the previous pass found at least one event,
+    # bounded by max_run_seconds. A run that hits the bound simply stops; the
+    # per-board commit-after-handling below (see PollingEventSource) means
+    # nothing already-committed gets reprocessed, and anything still pending
+    # gets picked up again on the very next cron invocation - no separate
+    # "which iteration were we on" state needs to survive a crash.
+    deadline = time.monotonic() + settings.max_run_seconds
+    iteration = 0
+    while True:
+        iteration += 1
+        any_triggered = False
+        for instance_name, board_id, deck, event_source in targets:
+            if _process_board(engine, event_source, deck, instance_name, board_id):
+                any_triggered = True
+
+        if not any_triggered:
+            logger.info("Fixed point reached after %d iteration(s) - run complete", iteration)
+            return
+
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "max_run_seconds (%s) exceeded after %d iteration(s) - stopping; "
+                "anything still pending will be picked up on the next run",
+                settings.max_run_seconds, iteration,
+            )
+            return
 
 
 def _process_board(
@@ -64,9 +96,16 @@ def _process_board(
     deck: NextcloudDeckGateway,
     instance_name: str,
     board_id: int,
-) -> None:
+) -> bool:
     """One instance being unreachable or one board having disappeared must not stop
-    the rest of the run - polling errors here are logged and this board is skipped."""
+    the rest of the run - polling errors here are logged and this board is skipped.
+
+    Only commits the new snapshot after every detected event has been fully
+    handled (not inside poll() itself) - if the process dies partway through
+    handling, the next run re-detects and reruns the same events rather than
+    silently losing them. Returns whether at least one event was handled, so
+    the caller's fixed-point loop knows whether to poll again.
+    """
 
     try:
         events = event_source.poll(instance_name, board_id)
@@ -74,7 +113,7 @@ def _process_board(
         logger.exception(
             "Skipping board %s on instance '%s': could not poll for events", board_id, instance_name
         )
-        return
+        return False
 
     for event in events:
         logger.info(
@@ -82,6 +121,9 @@ def _process_board(
             event.event_type.value, event.card_id, instance_name, board_id,
         )
         engine.handle(event, deck)
+
+    event_source.commit(instance_name, board_id)
+    return len(events) > 0
 
 
 def _modules_snapshot() -> dict[str, Any]:
@@ -143,13 +185,16 @@ def run_dry_run() -> None:
     event_source = PollingEventSource(deck, snapshots)
 
     event_source.poll("dry-run", 1)  # establish the baseline snapshot (empty stack)
+    event_source.commit("dry-run", 1)
     logger.info("Dry-run: adding a card to stack 10 to trigger 'card_created'")
     deck.stacks[1][0]["cards"].append({"id": 100, "lastModified": 1})
 
-    for event in event_source.poll("dry-run", 1):
+    events = event_source.poll("dry-run", 1)
+    for event in events:
         results = engine.handle(event, deck)
         for result in results:
             logger.info("Executed workflow '%s' -> success=%s", result.workflow_id, result.success)
+    event_source.commit("dry-run", 1)
 
 
 def main() -> None:

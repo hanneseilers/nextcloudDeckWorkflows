@@ -2,3 +2,9 @@
 workflows_dir: workflows
 state_db_path: automation/var/state.sqlite3
 log_level: INFO
+# One run of `python -m automation.main` keeps re-polling and re-running
+# workflows for as long as the previous pass triggered at least one of them
+# (so a workflow's own actions - e.g. moving a card - can trigger another
+# workflow), up to this many seconds. Keep comfortably below your cron
+# interval so runs don't overlap.
+max_run_seconds: 240

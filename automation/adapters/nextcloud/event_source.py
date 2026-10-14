@@ -34,16 +34,32 @@ class PollingEventSource:
     """Implements EventSourcePort by diffing the current board state against the
     snapshot from the previous run. Needed because a shared-webspace cron job has no
     way to receive a live push/webhook from Nextcloud.
+
+    `poll()` does NOT persist the new snapshot by itself - call `commit()`
+    once the caller has fully handled every event `poll()` returned. If the
+    process dies in between (e.g. SIGKILL), the snapshot stays at its old
+    value, so the next run detects the exact same events again and reruns
+    their workflows - "at least once" rather than silently losing events.
+    A board whose events were never committed is held in `_pending` until
+    `commit()` (or a fresh `poll()` for that board) replaces it.
     """
 
     def __init__(self, deck: DeckGatewayPort, snapshots: SnapshotStorePort) -> None:
         self._deck = deck
         self._snapshots = snapshots
+        self._pending: dict[tuple[str, int], dict[int, dict[str, Any]]] = {}
 
     def poll(self, instance: str, board_id: int) -> list[DeckEvent]:
         current = self._fetch_current(board_id)
         previous = self._snapshots.load(instance, board_id)
         events = list(self._diff(instance, board_id, previous, current))
+        self._pending[(instance, board_id)] = current
+        return events
+
+    def commit(self, instance: str, board_id: int) -> None:
+        current = self._pending.pop((instance, board_id), None)
+        if current is None:
+            return
         self._snapshots.save(instance, board_id, {
             card_id: {
                 "stack_id": state["stack_id"],
@@ -54,7 +70,6 @@ class PollingEventSource:
             }
             for card_id, state in current.items()
         })
-        return events
 
     def _fetch_current(self, board_id: int) -> dict[int, dict[str, Any]]:
         snapshot: dict[int, dict[str, Any]] = {}

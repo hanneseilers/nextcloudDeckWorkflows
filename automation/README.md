@@ -151,6 +151,27 @@ instead of propagating:
   actions still run (`WorkflowEngine`, already true for nested module calls too)
 - missing/invalid config → logged, the run ends cleanly instead of raising (`main.py::main`)
 
+## Re-running until nothing triggers
+
+One workflow's own actions (move a card, change its due date, assign someone)
+can be exactly what another workflow is watching for. So a single
+`python -m automation.main` invocation doesn't poll just once: `run()` keeps
+polling every configured board and re-running matching workflows for as long
+as the *previous* pass triggered at least one of them, up to `max_run_seconds`
+(`config/settings.yaml`, default 240s - keep it comfortably below your cron
+interval). Once a pass detects nothing new, or the time limit is hit, the run
+ends; a limit hit just means "pick this up again next time", not an error.
+
+This only works safely because `PollingEventSource.poll()` no longer saves
+its new snapshot by itself - `main.py` calls `commit()` only after every
+event from that poll has been fully handled. If the process dies in between
+(SIGKILL included), the snapshot stays at its old value, so the next run (or
+the next loop iteration) detects the exact same events again and reruns their
+workflows - "at least once", not "exactly once": a rare crash mid-run can mean
+a workflow's actions run twice (e.g. a duplicate email) but never that an
+event is silently dropped. No separate "which iteration were we on" state
+needs to survive a crash - the snapshot itself *is* that state.
+
 ## Running
 
 ```bash

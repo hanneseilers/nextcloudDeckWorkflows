@@ -25,6 +25,10 @@ class Settings:
     state_db_path: Path
     log_level: str
     instances: dict[str, NextcloudInstanceConfig]
+    # Upper bound (seconds) for how long one `main.py` run is allowed to keep
+    # re-polling and re-running workflows in a row - see run()'s fixed-point
+    # loop in main.py. Keep comfortably below the cron interval.
+    max_run_seconds: float = 240.0
 
 
 def load_settings(config_dir: Optional[Path] = None) -> Settings:
@@ -48,6 +52,7 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
         state_db_path=REPO_ROOT / general.get("state_db_path", "automation/var/state.sqlite3"),
         log_level=general.get("log_level", "INFO"),
         instances=instances,
+        max_run_seconds=float(general.get("max_run_seconds", 240.0)),
     )
 
 
