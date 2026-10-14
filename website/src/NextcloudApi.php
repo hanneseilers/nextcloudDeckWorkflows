@@ -11,6 +11,10 @@ namespace NextcloudDeckWorkflows;
 class NextcloudApi
 {
     private const DECK_API = '/index.php/apps/deck/api/v1.1';
+    // The "sharees" endpoint backs Nextcloud's own share-with-a-user
+    // autocomplete, so - unlike the admin-only user-provisioning API - it
+    // works for any authenticated user/app password, which is what we have.
+    private const SHAREES_API = '/ocs/v2.php/apps/files_sharing/api/v1/sharees';
 
     private string $baseUrl;
     private string $username;
@@ -43,9 +47,60 @@ class NextcloudApi
         );
     }
 
+    /**
+     * Searches Nextcloud users by (partial) name, for the assign_user/
+     * unassign_user user-id picker. Returns at most one entry per user id,
+     * exact matches first.
+     *
+     * @return array<int, array{id: string, label: string}>
+     */
+    public function searchUsers(string $query): array
+    {
+        $response = $this->request(self::SHAREES_API, [
+            'format' => 'json',
+            'search' => $query,
+            'itemType' => 'file',
+            'shareType' => 0, // users only, not groups/circles/etc.
+        ]);
+        return self::mapShareesResponse(is_array($response) ? $response : []);
+    }
+
+    /**
+     * Pulled out as a pure function (no network, no $this) so it can be unit
+     * tested directly against a sample OCS response.
+     *
+     * @return array<int, array{id: string, label: string}>
+     */
+    private static function mapShareesResponse(array $response): array
+    {
+        $data = $response['ocs']['data'] ?? [];
+
+        $users = [];
+        foreach ([$data['exact']['users'] ?? [], $data['users'] ?? []] as $group) {
+            foreach ($group as $entry) {
+                $id = (string) ($entry['value']['shareWith'] ?? '');
+                if ($id !== '' && !isset($users[$id])) {
+                    $users[$id] = ['id' => $id, 'label' => (string) ($entry['label'] ?? $id)];
+                }
+            }
+        }
+        return array_values($users);
+    }
+
     private function get(string $path): ?array
     {
-        $handle = curl_init($this->baseUrl . $path);
+        $data = $this->request($path);
+        return is_array($data) ? $data : null;
+    }
+
+    private function request(string $path, array $query = []): mixed
+    {
+        $url = $this->baseUrl . $path;
+        if ($query !== []) {
+            $url .= '?' . http_build_query($query);
+        }
+
+        $handle = curl_init($url);
         curl_setopt_array($handle, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => ['OCS-APIRequest: true', 'Accept: application/json'],
