@@ -19,6 +19,7 @@ from automation.core.ports.action_module import ActionContext, ActionModulePort
 from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
 from automation.core.ports.execution_log import ExecutionLogPort
+from automation.core.ports.sequence_store import SequenceStorePort
 from automation.core.ports.workflow_repository import WorkflowRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -49,10 +50,15 @@ class WorkflowEngine:
         workflows: WorkflowRepositoryPort,
         actions: ActionModulePort,
         execution_log: ExecutionLogPort,
+        sequence_store: Optional[SequenceStorePort] = None,
     ) -> None:
         self._workflows = workflows
         self._actions = actions
         self._execution_log = execution_log
+        # Unlike `calendar` (passed per handle() call - it varies per Nextcloud
+        # instance), the sequence store is the same one store for this
+        # engine's whole lifetime, so it's a constructor dependency instead.
+        self._sequence_store = sequence_store
 
     def handle(
         self,
@@ -82,7 +88,12 @@ class WorkflowEngine:
         # substitution in free text (send_email, add_comment).
         variables: dict[str, Any] = {}
         context = ActionContext(
-            event=event, deck=deck, modules=self._actions, variables=variables, calendar=calendar
+            event=event,
+            deck=deck,
+            modules=self._actions,
+            variables=variables,
+            calendar=calendar,
+            sequence_store=self._sequence_store,
         )
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         # Seeded before any step runs: lets every step's params reference the

@@ -53,7 +53,9 @@ def run(settings: Settings) -> None:
     workflows = YamlWorkflowRepository(settings.workflows_dir)
     state_store = SqliteStateStore(settings.state_db_path)
     action_loader = ModuleLoader(actions_registry)
-    engine = WorkflowEngine(workflows=workflows, actions=action_loader, execution_log=state_store)
+    engine = WorkflowEngine(
+        workflows=workflows, actions=action_loader, execution_log=state_store, sequence_store=state_store
+    )
 
     boards_by_instance: dict[str, set[int]] = {}
     for workflow in workflows.list_enabled():

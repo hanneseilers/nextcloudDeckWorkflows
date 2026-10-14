@@ -129,6 +129,22 @@ class InMemoryExecutionLog:
         self.results.append(result)
 
 
+class InMemorySequenceStore:
+    """Fake SequenceStorePort - a plain set per list_name."""
+
+    def __init__(self) -> None:
+        self._lists: dict[str, set[str]] = {}
+
+    def contains_number(self, list_name: str, value: str) -> bool:
+        return value in self._lists.get(list_name, set())
+
+    def add_number(self, list_name: str, value: str) -> None:
+        self._lists.setdefault(list_name, set()).add(value)
+
+    def remove_number(self, list_name: str, value: str) -> None:
+        self._lists.get(list_name, set()).discard(value)
+
+
 class InMemoryActionRegistry:
     def __init__(self, actions: dict[str, Any]) -> None:
         self._actions = actions

@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Iterable, Optional, Protocol
 from automation.core.domain.models import DeckEvent
 from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
+from automation.core.ports.sequence_store import SequenceStorePort
 
 
 class UnknownActionError(KeyError):
@@ -39,6 +40,12 @@ class ActionContext:
     None where it wasn't set up (dry-run, most tests), in which case
     calendar_lookup raises a clear error rather than crashing with an
     AttributeError, caught like any other action's error.
+
+    `sequence_store` backs generate_random_number/forget_random_number's
+    "already generated" lists - one store shared across all instances/boards
+    (unlike `calendar`, nothing here is Nextcloud-instance-specific). None in
+    the same situations as `calendar` (dry-run, most tests), where those two
+    actions raise a clear error instead of crashing.
     """
 
     event: DeckEvent
@@ -46,6 +53,7 @@ class ActionContext:
     modules: "ActionModulePort"
     variables: dict[str, Any] = field(default_factory=dict)
     calendar: Optional[CalendarGatewayPort] = None
+    sequence_store: Optional[SequenceStorePort] = None
     current_stack_id: int = field(init=False)
 
     def __post_init__(self) -> None:

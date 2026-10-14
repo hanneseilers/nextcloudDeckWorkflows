@@ -28,6 +28,13 @@ CREATE TABLE IF NOT EXISTS execution_log (
     error TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS used_numbers (
+    list_name TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (list_name, value)
+);
 """
 
 # Added after the fact (see _SCHEMA above) via ALTER TABLE so an existing
@@ -37,10 +44,11 @@ _EXTRA_COLUMN = "extra"
 
 
 class SqliteStateStore:
-    """Implements SnapshotStorePort (board diffing state) and ExecutionLogPort
-    (workflow run history). SQLite instead of YAML because this is machine-written,
-    frequently updated runtime data with no need for manual editing - unlike the
-    workflow definitions themselves.
+    """Implements SnapshotStorePort (board diffing state), ExecutionLogPort
+    (workflow run history) and SequenceStorePort (generate_random_number's
+    "already generated" lists). SQLite instead of YAML because this is
+    machine-written, frequently updated runtime data with no need for manual
+    editing - unlike the workflow definitions themselves.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -113,4 +121,28 @@ class SqliteStateStore:
                         datetime.now(timezone.utc).isoformat(),
                     ),
                 )
+            conn.commit()
+
+    # -- SequenceStorePort ------------------------------------------------------
+
+    def contains_number(self, list_name: str, value: str) -> bool:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM used_numbers WHERE list_name = ? AND value = ?", (list_name, value)
+            ).fetchone()
+        return row is not None
+
+    def add_number(self, list_name: str, value: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO used_numbers (list_name, value, created_at) VALUES (?, ?, ?)",
+                (list_name, value, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+
+    def remove_number(self, list_name: str, value: str) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "DELETE FROM used_numbers WHERE list_name = ? AND value = ?", (list_name, value)
+            )
             conn.commit()

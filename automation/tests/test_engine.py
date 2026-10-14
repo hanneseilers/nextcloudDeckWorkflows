@@ -420,3 +420,32 @@ def test_unid_steps_in_different_branches_do_not_collide_on_fallback_keys():
     assert results[0].success
     assert results[0].action_results[0].success
 
+
+def test_sequence_store_is_threaded_into_action_context_via_the_constructor():
+    """generate_random_number is a real, registered action (not a test
+    double) - this exercises the actual constructor-level wiring main.py
+    relies on (sequence_store is passed once, unlike `calendar` which is
+    passed per handle() call)."""
+
+    from automation.testing.fakes import InMemorySequenceStore
+
+    sequence_store = InMemorySequenceStore()
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([
+            make_workflow(actions=(ActionStep(id="num", module="generate_random_number", params={
+                "list_name": "default", "min_digits": 4, "save": True,
+            }),))
+        ]),
+        actions=ModuleLoader(actions_registry),
+        execution_log=InMemoryExecutionLog(),
+        sequence_store=sequence_store,
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert results[0].action_results[0].success
+    saved_numbers = sequence_store._lists["default"]
+    assert len(saved_numbers) == 1
+    assert len(next(iter(saved_numbers))) == 4
+
