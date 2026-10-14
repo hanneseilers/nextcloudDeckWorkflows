@@ -345,6 +345,15 @@ a workflow that keeps flapping doesn't spam an email on every single tick,
 but does get a fresh notification if it recovers and then fails that many
 times again.
 
+## Health check & statistics
+
+`website/health.php` shows whether `main.py` is still running (via the
+heartbeat above - stale after 15 minutes, a fixed default) and simple
+run statistics for the last 24 hours, overall and per workflow.
+`health.php?format=json` returns the same data as JSON with an HTTP status
+code (200 healthy, 503 not) an external uptime monitor can check directly
+without parsing HTML.
+
 ## Adding a new action module
 
 Create `automation/actions_registry/<name>.py`:

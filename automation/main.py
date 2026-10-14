@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -121,8 +121,12 @@ def run(settings: Settings) -> None:
     _process_failure_notifications(settings, workflows, state_store)
     # Only reached if everything above completed without an unhandled
     # exception - the website's health check reads this to tell "cron is
-    # actually still running" from "it crashed/stopped being invoked".
-    state_store.set_heartbeat(datetime.now().isoformat())
+    # actually still running" from "it crashed/stopped being invoked". UTC,
+    # unlike _process_schedules' deliberately-local `now` below - this one is
+    # only ever compared against itself (by PHP, a separate runtime/process),
+    # so it must be unambiguous rather than "whatever this server's local
+    # timezone happens to be".
+    state_store.set_heartbeat(datetime.now(timezone.utc).isoformat())
 
 
 def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:

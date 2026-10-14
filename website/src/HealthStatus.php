@@ -1,0 +1,115 @@
+<?php
+
+namespace NextcloudDeckWorkflows;
+
+/**
+ * Reads automation/var/state.sqlite3's heartbeat (written by main.py's
+ * run() on every successful completion) and simple aggregate statistics
+ * from execution_log - for the website's health.php.
+ */
+class HealthStatus
+{
+    // How stale the heartbeat may be before being considered unhealthy -
+    // deliberately a fixed, generous default rather than a new config
+    // setting: this only needs to catch "cron stopped running entirely",
+    // not fine-tune against a specific cron interval.
+    private const STALE_AFTER_MINUTES = 15;
+
+    public function __construct(private readonly string $dbPath)
+    {
+    }
+
+    public function isAvailable(): bool
+    {
+        return is_file($this->dbPath);
+    }
+
+    /** The raw ISO timestamp main.py last finished a run, or null if never/unknown. */
+    public function lastRunAt(): ?string
+    {
+        if (!$this->isAvailable()) {
+            return null;
+        }
+        try {
+            $row = $this->connect()->query('SELECT last_run_at FROM heartbeat WHERE id = 1')->fetch(\PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            return null; // e.g. heartbeat table doesn't exist yet (automation/main.py never ran)
+        }
+        return $row ? $row['last_run_at'] : null;
+    }
+
+    public function minutesSinceLastRun(): ?float
+    {
+        $lastRunAt = $this->lastRunAt();
+        if ($lastRunAt === null) {
+            return null;
+        }
+        try {
+            $last = new \DateTimeImmutable($lastRunAt);
+        } catch (\Exception $e) {
+            return null;
+        }
+        // Explicit UTC "now", independent of this PHP installation's default
+        // timezone - $lastRunAt already carries its own UTC offset (written
+        // by Python as datetime.now(timezone.utc).isoformat()), so only this
+        // side needs pinning down.
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $seconds = $now->getTimestamp() - $last->getTimestamp();
+        return $seconds / 60;
+    }
+
+    /** True if we have a heartbeat and it's recent enough. */
+    public function isHealthy(): bool
+    {
+        $minutes = $this->minutesSinceLastRun();
+        return $minutes !== null && $minutes <= self::STALE_AFTER_MINUTES;
+    }
+
+    /**
+     * Aggregate run counts since `$sinceIso`, overall and per workflow - one
+     * run (grouped by run_id) counts as failed if any of its actions failed.
+     *
+     * @return array{total: int, successful: int, failed: int, per_workflow: array<string, array{total: int, failed: int}>}
+     */
+    public function stats(string $sinceIso): array
+    {
+        $empty = ['total' => 0, 'successful' => 0, 'failed' => 0, 'per_workflow' => []];
+        if (!$this->isAvailable()) {
+            return $empty;
+        }
+
+        try {
+            $stmt = $this->connect()->prepare(
+                'SELECT workflow_id, MIN(success) AS run_success FROM execution_log '
+                . 'WHERE created_at >= :since AND run_id IS NOT NULL GROUP BY run_id'
+            );
+            $stmt->execute([':since' => $sinceIso]);
+            $runs = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            return $empty;
+        }
+
+        $result = $empty;
+        foreach ($runs as $run) {
+            $succeeded = (bool) $run['run_success'];
+            $result['total']++;
+            $result[$succeeded ? 'successful' : 'failed']++;
+
+            $workflowId = $run['workflow_id'];
+            $result['per_workflow'][$workflowId] ??= ['total' => 0, 'failed' => 0];
+            $result['per_workflow'][$workflowId]['total']++;
+            if (!$succeeded) {
+                $result['per_workflow'][$workflowId]['failed']++;
+            }
+        }
+        return $result;
+    }
+
+    private function connect(): \PDO
+    {
+        $pdo = new \PDO('sqlite:' . $this->dbPath);
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $pdo->exec('PRAGMA busy_timeout = 5000');
+        return $pdo;
+    }
+}
