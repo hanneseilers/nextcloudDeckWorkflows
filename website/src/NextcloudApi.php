@@ -15,6 +15,12 @@ class NextcloudApi
     // autocomplete, so - unlike the admin-only user-provisioning API - it
     // works for any authenticated user/app password, which is what we have.
     private const SHAREES_API = '/ocs/v2.php/apps/files_sharing/api/v1/sharees';
+    // Same CalDAV calendar-home convention automation/adapters/nextcloud/
+    // calendar_gateway.py uses - a calendar's "id" the calendar_lookup action
+    // takes is its CalDAV href from here, unchanged.
+    private const CALDAV_CALENDARS = '/remote.php/dav/calendars/';
+    private const DAV_NS = 'DAV:';
+    private const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
 
     private string $baseUrl;
     private string $username;
@@ -87,6 +93,63 @@ class NextcloudApi
         return array_values($users);
     }
 
+    /**
+     * Lists the calendars in the signed-in user's CalDAV calendar-home, for
+     * the calendar_lookup action's calendar_id picker. "id" is the raw
+     * CalDAV href - calendar_lookup (automation side) takes the exact same
+     * string, so no translation happens in either direction.
+     *
+     * @return array<int, array{id: string, title: string}>
+     */
+    public function listCalendars(): array
+    {
+        $basePath = self::CALDAV_CALENDARS . rawurlencode($this->username) . '/';
+        $body = '<?xml version="1.0" encoding="utf-8"?>'
+            . '<d:propfind xmlns:d="DAV:">'
+            . '<d:prop><d:displayname/><d:resourcetype/></d:prop>'
+            . '</d:propfind>';
+        $xml = $this->requestXml('PROPFIND', $basePath, $body, 1);
+        return self::mapPropfindCalendars($xml, $basePath);
+    }
+
+    /**
+     * Pulled out as a pure function (no network, no $this) so it can be unit
+     * tested directly against a sample PROPFIND response, same as
+     * mapShareesResponse() above.
+     *
+     * @return array<int, array{id: string, title: string}>
+     */
+    private static function mapPropfindCalendars(string $xml, string $basePath): array
+    {
+        $doc = new \DOMDocument();
+        if (!@$doc->loadXML($xml)) {
+            return []; // malformed response must not break the picker - just show no calendars
+        }
+        $xpath = new \DOMXPath($doc);
+        $xpath->registerNamespace('d', self::DAV_NS);
+        $xpath->registerNamespace('c', self::CALDAV_NS);
+
+        $calendars = [];
+        $responses = $xpath->query('//d:response');
+        if ($responses === false) {
+            return [];
+        }
+        foreach ($responses as $response) {
+            $href = (string) $xpath->evaluate('string(d:href)', $response);
+            if (rtrim($href, '/') === rtrim($basePath, '/')) {
+                continue; // the calendar-home collection itself, not a calendar in it
+            }
+            $isCalendar = $xpath->query('.//d:propstat/d:prop/d:resourcetype/c:calendar', $response);
+            if ($isCalendar === false || $isCalendar->length === 0) {
+                continue;
+            }
+            $displayname = trim((string) $xpath->evaluate('string(.//d:propstat/d:prop/d:displayname)', $response));
+            $title = $displayname !== '' ? $displayname : basename(rtrim($href, '/'));
+            $calendars[] = ['id' => $href, 'title' => $title];
+        }
+        return $calendars;
+    }
+
     private function get(string $path): ?array
     {
         $data = $this->request($path);
@@ -124,5 +187,30 @@ class NextcloudApi
             throw new \RuntimeException("Nextcloud request to $path returned an unexpected response");
         }
         return $data;
+    }
+
+    private function requestXml(string $method, string $path, string $body, int $depth): string
+    {
+        $handle = curl_init($this->baseUrl . $path);
+        curl_setopt_array($handle, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/xml; charset=utf-8', 'Depth: ' . $depth],
+            CURLOPT_POSTFIELDS => $body,
+            CURLOPT_USERPWD => $this->username . ':' . $this->appPassword,
+            CURLOPT_TIMEOUT => 15,
+        ]);
+        $responseBody = curl_exec($handle);
+        $error = curl_error($handle);
+        $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+        curl_close($handle);
+
+        if ($responseBody === false) {
+            throw new \RuntimeException("Nextcloud CalDAV request to $path failed: $error");
+        }
+        if ($status < 200 || $status >= 300) {
+            throw new \RuntimeException("Nextcloud CalDAV request to $path failed: HTTP $status");
+        }
+        return $responseBody;
     }
 }
