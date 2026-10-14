@@ -11,7 +11,9 @@ Cron-driven workflow engine, built as a hexagonal (ports & adapters) architectur
 - `adapters/actions/` — dynamically loads action modules from `actions_registry/`.
 - `actions_registry/` — one file per action capability. Drop in a new file that subclasses `WorkflowAction` to add a capability; no other code needs to change. Ships with standard card-editing actions: `set_title`, `set_description`, `set_due_date`, `move_card`, `add_label`, `assign_user`, `unassign_user`, `add_comment`; `set_variable` (global workflow variables, see below); `date_offset` (today,
 or any date, plus/minus N days - e.g. to compute a due date); `slice_text`
-(extract the text between two delimiter strings); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (data-lookup reference module, not wired to anything yet); plus `log_action` as a no-op reference/smoke-test action.
+(extract the text between two delimiter strings); `extract_field` (pull a
+value out of a dict/list by path - like `$ref` but also walks into lists by
+index, e.g. "events.0.title"); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (data-lookup reference module, not wired to anything yet); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
