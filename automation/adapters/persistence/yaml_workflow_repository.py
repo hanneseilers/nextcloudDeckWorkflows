@@ -27,6 +27,8 @@ class YamlWorkflowRepository:
     def __init__(self, directory: Path) -> None:
         self._directory = Path(directory)
         self._directory.mkdir(parents=True, exist_ok=True)
+        self._cache: Optional[list[Workflow]] = None
+        self._cache_signature: Optional[tuple] = None
 
     def list_enabled(self) -> list[Workflow]:
         return [wf for wf in self._load_all() if wf.enabled]
@@ -42,14 +44,28 @@ class YamlWorkflowRepository:
 
     def save(self, workflow: Workflow) -> None:
         self._path_for(workflow.id).write_text(yaml.safe_dump(self._to_dict(workflow), sort_keys=False))
+        self._cache = None  # force a fresh _load_all() even if mtimes happened to collide
 
     def delete(self, workflow_id: str) -> None:
         self._path_for(workflow_id).unlink(missing_ok=True)
+        self._cache = None
 
     def _path_for(self, workflow_id: str) -> Path:
         return self._directory / f"{workflow_id}.yaml"
 
     def _load_all(self) -> list[Workflow]:
+        # WorkflowEngine.handle() calls list_enabled() once per event, and a
+        # single run can process many events across several fixed-point
+        # iterations (see main.py) - re-reading and re-parsing every
+        # workflow file's content on every one of those calls is pure waste
+        # when nothing in workflows/ has changed since the last call.
+        # Re-stat'ing every file (cheap: no content read, no YAML parsing)
+        # to build a (name, mtime) signature is enough to detect any change
+        # - a file added/removed/edited - without caching anything stale.
+        signature = self._directory_signature()
+        if self._cache is not None and signature == self._cache_signature:
+            return self._cache
+
         workflows = []
         for path in sorted(self._directory.glob("*.yaml")):
             try:
@@ -60,7 +76,13 @@ class YamlWorkflowRepository:
                 # A single malformed workflow file must not take every other
                 # workflow down with it - skip it, log it, keep going.
                 logger.exception("Skipping invalid workflow file %s", path)
+
+        self._cache = workflows
+        self._cache_signature = signature
         return workflows
+
+    def _directory_signature(self) -> tuple:
+        return tuple((path.name, path.stat().st_mtime_ns) for path in sorted(self._directory.glob("*.yaml")))
 
     @staticmethod
     def _parse(data: dict) -> Workflow:
