@@ -386,6 +386,14 @@
   // are the module param fields that benefit from search-by-name instead of
   // typing a raw id/CalDAV path - handled as hardcoded special cases rather
   // than a general field-type system that nothing else currently needs.
+  // The tiny setValue closure every {source, value, ...} entry's search
+  // field needs (renderUserSearchField/renderCalendarSearchField below).
+  function bindEntryValue(entry) {
+    return (value) => {
+      entry.value = value;
+    };
+  }
+
   function isUserIdField(moduleName, key) {
     return (moduleName === 'assign_user' || moduleName === 'unassign_user') && key === 'user_id';
   }
@@ -394,10 +402,10 @@
     return moduleName === 'calendar_lookup' && key === 'calendar_id';
   }
 
-  function renderUserSearchField(getValue, setValue) {
+  function renderUserSearchField(entry) {
     return renderTypeahead({
-      value: getValue() || '',
-      setValue,
+      value: entry.value || '',
+      setValue: bindEntryValue(entry),
       placeholder: 'Name eingeben (ab 3 Zeichen) oder User-Id direkt eintragen',
       minChars: 3,
       debounceMs: 300,
@@ -418,10 +426,10 @@
   // instead of a server round-trip per keystroke like the user search above.
   let calendarsCache = null;
 
-  function renderCalendarSearchField(getValue, setValue) {
+  function renderCalendarSearchField(entry) {
     return renderTypeahead({
-      value: getValue() || '',
-      setValue,
+      value: entry.value || '',
+      setValue: bindEntryValue(entry),
       placeholder: 'Kalendername eingeben oder CalDAV-Pfad direkt eintragen',
       loadOptions: async (query) => {
         if (!instanceEl.value) {
@@ -549,23 +557,9 @@
     if (entry.source === 'ref') {
       appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
-      wrapper.appendChild(
-        renderUserSearchField(
-          () => entry.value,
-          (value) => {
-            entry.value = value;
-          }
-        )
-      );
+      wrapper.appendChild(renderUserSearchField(entry));
     } else if (opts.isCalendarId) {
-      wrapper.appendChild(
-        renderCalendarSearchField(
-          () => entry.value,
-          (value) => {
-            entry.value = value;
-          }
-        )
-      );
+      wrapper.appendChild(renderCalendarSearchField(entry));
     } else {
       appendLiteralOperandField(wrapper, entry, opts);
     }

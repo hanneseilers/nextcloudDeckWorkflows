@@ -39,25 +39,23 @@ class NextcloudClient:
         headers = {"Content-Type": "application/xml; charset=utf-8"}
         if depth is not None:
             headers["Depth"] = str(depth)
-        response = requests.request(
-            method,
-            f"{self._base_url}{path}",
-            auth=self._auth,
-            headers=headers,
-            timeout=self._timeout,
-            data=body.encode("utf-8"),
-        )
-        if not response.ok:
-            raise NextcloudApiError(f"{method} {path} failed: {response.status_code} {response.text}")
+        response = self._send(method, path, headers=headers, data=body.encode("utf-8"))
         return response.text
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        url = f"{self._base_url}{path}"
-        response = requests.request(
-            method, url, auth=self._auth, headers=self._headers, timeout=self._timeout, **kwargs
-        )
-        if not response.ok:
-            raise NextcloudApiError(f"{method} {path} failed: {response.status_code} {response.text}")
+        response = self._send(method, path, headers=self._headers, **kwargs)
         if not response.content:
             return None
         return response.json()
+
+    def _send(self, method: str, path: str, **kwargs: Any) -> Any:
+        """Shared request/status-check for _request() and request_xml() -
+        they only differ in headers/body and how the response body is
+        parsed afterwards (.json() vs .text)."""
+
+        response = requests.request(
+            method, f"{self._base_url}{path}", auth=self._auth, timeout=self._timeout, **kwargs
+        )
+        if not response.ok:
+            raise NextcloudApiError(f"{method} {path} failed: {response.status_code} {response.text}")
+        return response
