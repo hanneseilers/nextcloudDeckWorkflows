@@ -16,3 +16,12 @@ max_run_seconds: 240
 #   enabled: true
 #   threshold: 3
 #   to: "admin@example.com"
+# Optional: let Nextcloud (via its own Flow/Webhooks admin settings - a
+# server-admin task, not something this project configures) ping
+# website/webhook.php when a board changes, instead of relying purely on
+# polling. See automation/README.md's "Webhooks" section before enabling
+# this - polling never goes away entirely, it becomes the fallback.
+# webhooks:
+#   enabled: true
+#   secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+#   fallback_poll_minutes: 15

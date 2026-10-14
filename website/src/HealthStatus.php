@@ -105,6 +105,32 @@ class HealthStatus
         return $result;
     }
 
+    /**
+     * Recent webhook pings (most recent first), per board - lets an admin
+     * confirm Nextcloud's webhook configuration is actually reaching
+     * website/webhook.php, independent of whether main.py has acted on
+     * them yet.
+     *
+     * @return array<int, array{instance: string, board_id: int, last_ping_at: string}>
+     */
+    public function recentWebhookPings(int $limit = 20): array
+    {
+        if (!$this->isAvailable()) {
+            return [];
+        }
+        try {
+            $stmt = $this->connect()->prepare(
+                'SELECT instance, board_id, last_ping_at FROM board_activity '
+                . 'WHERE last_ping_at IS NOT NULL ORDER BY last_ping_at DESC LIMIT :limit'
+            );
+            $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            return [];
+        }
+    }
+
     private function connect(): \PDO
     {
         $pdo = new \PDO('sqlite:' . $this->dbPath);

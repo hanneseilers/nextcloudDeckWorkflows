@@ -37,6 +37,7 @@ if (($_GET['format'] ?? '') === 'json') {
         'last_run_at' => $health->lastRunAt(),
         'minutes_since_last_run' => $health->minutesSinceLastRun(),
         'last_24h' => $stats,
+        'recent_webhook_pings' => $config->webhooks() !== null ? $health->recentWebhookPings() : null,
     ]);
     exit;
 }
@@ -104,6 +105,29 @@ if (($_GET['format'] ?? '') === 'json') {
 </table>
 <?php else: ?>
 <p>Keine Ausführungen in den letzten 24 Stunden.</p>
+<?php endif; ?>
+
+<?php if ($config->webhooks() !== null): ?>
+<h2>Webhook-Pings</h2>
+<p class="muted">Bestätigt, dass Nextclouds Webhook-Konfiguration diese Seite tatsächlich erreicht
+(unabhängig davon, ob <code>automation/main.py</code> den Ping schon verarbeitet hat).</p>
+<?php $pings = $health->recentWebhookPings(); ?>
+<?php if (empty($pings)): ?>
+<p>Noch kein Webhook-Ping empfangen.</p>
+<?php else: ?>
+<table>
+<thead><tr><th>Instanz</th><th>Board</th><th>Letzter Ping</th></tr></thead>
+<tbody>
+<?php foreach ($pings as $ping): ?>
+<tr>
+    <td><?= h($ping['instance']) ?></td>
+    <td><?= (int) $ping['board_id'] ?></td>
+    <td><?= h($ping['last_ping_at']) ?></td>
+</tr>
+<?php endforeach; ?>
+</tbody>
+</table>
+<?php endif; ?>
 <?php endif; ?>
 
 <?php endif; ?>

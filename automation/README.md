@@ -320,6 +320,54 @@ then the body) referenced via `params.template`. `$placeholder` values from
 an unresolved placeholder is left as-is rather than raising). See
 `config/email_templates/example.txt`.
 
+## Webhooks (optional, polling remains the fallback)
+
+Honest framing first: this project cannot verify Nextcloud Deck's actual
+outgoing-webhook behavior (no live instance was available while building
+this), and configuring Nextcloud to call out to an external URL is a
+Nextcloud **server-admin** task (its own Flow/Webhooks settings) entirely
+outside this codebase's control. So rather than guess at parsing whatever
+Nextcloud sends in a webhook request body, `website/webhook.php` treats
+an incoming call purely as a "check this board now" signal - the admin
+bakes `instance`/`board_id` into the URL they configure in Nextcloud, and
+the request body is ignored entirely:
+
+```
+https://your-site/website/webhook.php?secret=...&instance=prod&board_id=42
+```
+
+Enable it in `config/settings.yaml`:
+
+```yaml
+webhooks:
+  enabled: true
+  secret: "a-long-random-string"   # also put this in the URL Nextcloud calls
+  fallback_poll_minutes: 15
+```
+
+Once enabled, `core/domain/webhook_gate.should_poll_now` changes how
+`main.py` decides which boards to poll each run: a board is always polled
+if it's never been polled before, or if it's been pinged since its last
+poll - otherwise it's only polled every `fallback_poll_minutes`. **This is
+deliberately not "webhooks instead of polling" in the strict sense** -
+polling becomes the fallback rather than the primary mechanism, because
+webhook delivery reliability from Nextcloud is exactly the part that
+can't be verified here, and this project's standing principle (see
+"Re-running until nothing triggers" above, and the at-least-once
+execution-log guarantee) is to never silently stop noticing a change.
+Leave `webhooks` out of `settings.yaml` entirely (the default) and
+nothing here changes - every board is polled every run, exactly as before
+this feature existed.
+
+`webhook.php` also makes a best-effort attempt (`proc_open`, wrapped so a
+failure never affects its own response) to trigger an immediate
+`python -m automation.main` run instead of waiting for the next cron
+tick - `proc_open`/`exec` are commonly disabled on shared hosting, so this
+may silently do nothing; either way the ping itself is always recorded
+correctly and picked up on the next regular cron invocation. See
+`website/health.php` for a list of recently received pings, to confirm
+Nextcloud's configuration is actually reaching this endpoint at all.
+
 ## Encrypted app passwords
 
 Optional hardening for shared hosting (other accounts on the same machine

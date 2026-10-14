@@ -15,6 +15,8 @@ class Config
     private array $instances = [];
     private string $workflowsDir;
     private string $stateDbPath;
+    /** @var array{enabled: bool, secret: string, fallback_poll_minutes: float}|null */
+    private ?array $webhooks = null;
 
     public function __construct(string $configDir)
     {
@@ -36,6 +38,14 @@ class Config
         $this->stateDbPath = str_starts_with($stateDbPath, '/')
             ? $stateDbPath
             : dirname($configDir) . '/' . $stateDbPath;
+
+        if (!empty($settings['webhooks'])) {
+            $this->webhooks = [
+                'enabled' => (bool) ($settings['webhooks']['enabled'] ?? true),
+                'secret' => (string) $settings['webhooks']['secret'],
+                'fallback_poll_minutes' => (float) ($settings['webhooks']['fallback_poll_minutes'] ?? 15.0),
+            ];
+        }
     }
 
     public static function fromRepoRoot(): self
@@ -62,6 +72,12 @@ class Config
     public function stateDbPath(): string
     {
         return $this->stateDbPath;
+    }
+
+    /** @return array{enabled: bool, secret: string, fallback_poll_minutes: float}|null */
+    public function webhooks(): ?array
+    {
+        return $this->webhooks;
     }
 
     private function readYaml(string $path): array
