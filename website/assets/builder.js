@@ -384,6 +384,13 @@
     return '';
   }
 
+  const PARAM_EXAMPLES = {
+    'format_text.template': 'Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter "values" ersetzt.',
+    'format_text.values': 'Beispiel: {"nummer": {"$ref": "schritt1.number"}, "titel": {"$ref": "card.title"}} - links der Platzhaltername, rechts der Wert (als Referenz auf einen Schritt oder die Karte).',
+    'extract_field.data': 'Beispiel: Referenz auf Quelle "card", Feld "labels" - oder allgemein die gesamte Ausgabe eines früheren Schritts.',
+    'extract_field.path': 'Beispiel: 0.title - nimmt aus einer Liste den ersten Eintrag (0) und davon das Feld "title". Ebenen werden mit Punkten getrennt, Listen-Positionen beginnen bei 0.',
+  };
+
   function isStackIdField(moduleName, key) {
     return moduleName === 'move_card' && key === 'target_stack_id';
   }
@@ -772,6 +779,14 @@
         germanDateTime: isGermanDateTimeField(step.module, key),
       })
     );
+
+    const example = PARAM_EXAMPLES[step.module + '.' + key];
+    if (example) {
+      const exampleEl = document.createElement('div');
+      exampleEl.className = 'param-example muted';
+      exampleEl.textContent = example;
+      row.appendChild(exampleEl);
+    }
 
     return row;
   }
