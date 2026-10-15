@@ -378,43 +378,51 @@
     if (moduleName === 'set_due_date' && key === 'due_date') {
       return 'Format: TT.MM.JJJJ hh:mm';
     }
+    if (moduleName === 'move_card' && key === 'order') {
+      return 'Position in der Spalte (0 = ganz oben)';
+    }
     return '';
+  }
+
+  function isStackIdField(moduleName, key) {
+    return moduleName === 'move_card' && key === 'target_stack_id';
   }
 
   function isLabelIdField(moduleName, key) {
     return moduleName === 'add_label' && key === 'label_id';
   }
 
-  // Labels belong to a board - cached per board id, filtered client-side.
-  const labelsCache = {};
+  // Labels and stacks both belong to the currently selected board: fetched
+  // once per board (cached), filtered client-side as the user types, saved as
+  // the numeric id - a typed id still works. A saved id is shown as its name.
+  const boardItemsCache = {};
 
-  async function loadLabelsForCurrentBoard() {
+  async function loadBoardItems(endpoint, listKey) {
     const boardId = boardEl.value;
     if (!instanceEl.value || !/^\d+$/.test(boardId)) {
       return [];
     }
-    const key = instanceEl.value + ':' + boardId;
-    if (!labelsCache[key]) {
+    const key = endpoint + ':' + instanceEl.value + ':' + boardId;
+    if (!boardItemsCache[key]) {
       const data = await fetchJSON(
-        'api_labels.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId)
+        endpoint + '?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId)
       );
-      labelsCache[key] = data.labels || [];
+      boardItemsCache[key] = data[listKey] || [];
     }
-    return labelsCache[key];
+    return boardItemsCache[key];
   }
 
-  function renderLabelSearchField(entry) {
+  function renderBoardItemField(entry, { endpoint, listKey, placeholder }) {
     const field = renderTypeahead({
       value: entry.value ? String(entry.value) : '',
       setValue: (value) => {
         entry.value = /^\d+$/.test(String(value).trim()) ? Number(value) : value;
       },
-      placeholder: 'Label-Name eingeben oder Label-Id direkt eintragen',
-      loadOptions: async (query) => filterByTitle(await loadLabelsForCurrentBoard(), query),
+      placeholder,
+      loadOptions: async (query) => filterByTitle(await loadBoardItems(endpoint, listKey), query),
     });
-    // Show the saved label's name instead of its bare id. In edit mode the
-    // board is restored asynchronously after the steps render, so retry
-    // briefly until it is known.
+    // In edit mode the board is restored asynchronously after the steps
+    // render, so retry briefly until it is known.
     if (entry.value) {
       let attempts = 0;
       const resolveTitle = () => {
@@ -424,8 +432,8 @@
           }
           return;
         }
-        loadLabelsForCurrentBoard().then((labels) => {
-          const match = labels.find((l) => String(l.id) === String(entry.value));
+        loadBoardItems(endpoint, listKey).then((items) => {
+          const match = items.find((item) => String(item.id) === String(entry.value));
           const input = field.querySelector('input');
           if (match && input.value === String(entry.value)) {
             input.value = match.title;
@@ -435,6 +443,22 @@
       resolveTitle();
     }
     return field;
+  }
+
+  function renderLabelSearchField(entry) {
+    return renderBoardItemField(entry, {
+      endpoint: 'api_labels.php',
+      listKey: 'labels',
+      placeholder: 'Label-Name eingeben oder Label-Id direkt eintragen',
+    });
+  }
+
+  function renderStackSearchField(entry) {
+    return renderBoardItemField(entry, {
+      endpoint: 'api_stacks.php',
+      listKey: 'stacks',
+      placeholder: 'Spaltenname eingeben oder Spalten-Id direkt eintragen',
+    });
   }
 
   function renderUserSearchField(entry) {
@@ -714,6 +738,8 @@
       appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isStackId) {
+      wrapper.appendChild(renderStackSearchField(entry));
     } else if (opts.isLabelId) {
       wrapper.appendChild(renderLabelSearchField(entry));
     } else if (opts.isCalendarId) {
@@ -741,6 +767,7 @@
         isUserId: isUserIdField(step.module, key),
         isCalendarId: isCalendarIdField(step.module, key),
         isLabelId: isLabelIdField(step.module, key),
+        isStackId: isStackIdField(step.module, key),
         formatHint: formatHintFor(step.module, key),
         germanDateTime: isGermanDateTimeField(step.module, key),
       })
