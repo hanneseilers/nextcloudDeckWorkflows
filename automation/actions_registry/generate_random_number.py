@@ -54,7 +54,11 @@ class GenerateRandomNumberAction(WorkflowAction):
             raise RuntimeError("generate_random_number: no sequence store available for this run")
 
         list_name = str(params.get("list_name") or "default")
-        digits = max(1, int(params.get("min_digits") or 4))
+        # `or 4` would also treat an explicit min_digits=0 as "not given" and
+        # silently promote it to 4 - check for None (missing/null) instead so
+        # 0 (clamped to 1 by max() below) is respected as the caller intended.
+        raw_min_digits = params.get("min_digits")
+        digits = max(1, int(raw_min_digits if raw_min_digits is not None else 4))
         save = params.get("save", True)
         # A local Random instance (not the global `random` module) seeded
         # from the current timestamp - doesn't disturb any other code that

@@ -15,7 +15,11 @@ $eventTypes = EventTypes::labels();
 $editId = (string) ($_GET['id'] ?? '');
 $existingWorkflow = null;
 if ($editId !== '') {
-    $existingWorkflow = (new WorkflowRepository($config->workflowsDir()))->get($editId);
+    try {
+        $existingWorkflow = (new WorkflowRepository($config->workflowsDir()))->get($editId);
+    } catch (\InvalidArgumentException $e) {
+        $existingWorkflow = null;
+    }
 }
 $isEdit = $editId !== '' && $existingWorkflow !== null;
 

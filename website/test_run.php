@@ -10,7 +10,11 @@ $config = Config::fromRepoRoot();
 $workflows = new WorkflowRepository($config->workflowsDir());
 
 $workflowId = (string) ($_GET['workflow_id'] ?? '');
-$workflow = $workflows->get($workflowId);
+try {
+    $workflow = $workflows->get($workflowId);
+} catch (\InvalidArgumentException $e) {
+    $workflow = null;
+}
 
 function h(string $value): string
 {

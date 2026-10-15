@@ -35,7 +35,12 @@ def should_poll_now(
     if last_polled is None:
         return True  # never polled this board before - always do it at least once
 
-    has_fresh_ping = last_ping is not None and last_ping > last_polled
+    # >= rather than strict > - a ping recorded at the exact same instant as
+    # the last poll (e.g. identical, coarse ISO timestamps) should still
+    # count as fresh: treating it as stale only risks an extra, harmless
+    # poll, while the reverse risks missing a real change until the next
+    # fallback_poll_minutes tick.
+    has_fresh_ping = last_ping is not None and last_ping >= last_polled
     if has_fresh_ping:
         return True
 

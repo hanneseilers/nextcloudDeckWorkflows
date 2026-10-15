@@ -6,17 +6,19 @@ use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !Csrf::verify($_POST['csrf_token'] ?? null)) {
-    http_response_code(400);
-    echo 'Invalid request.';
-    exit;
-}
+Csrf::requireValidPost();
 
 $config = Config::fromRepoRoot();
 $workflows = new WorkflowRepository($config->workflowsDir());
 
 $id = (string) ($_POST['id'] ?? '');
-$original = $id !== '' ? $workflows->get($id) : null;
+try {
+    $original = $id !== '' ? $workflows->get($id) : null;
+} catch (\InvalidArgumentException $e) {
+    http_response_code(400);
+    echo 'Ungültige Workflow-Id.';
+    exit;
+}
 
 if ($original === null) {
     header('Location: index.php');

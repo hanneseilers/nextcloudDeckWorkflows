@@ -29,9 +29,14 @@ header('Content-Type: application/json');
 $config = Config::fromRepoRoot();
 $webhooks = $config->webhooks();
 
-if ($webhooks === null || !$webhooks['enabled']) {
+if ($webhooks === null || !$webhooks['enabled'] || $webhooks['secret'] === '') {
     // Deliberately a generic 404 (not "here's why") - don't help a
     // scanning attacker distinguish "not configured" from "wrong secret".
+    // An empty/unset secret is treated the same as "not configured" rather
+    // than falling through to hash_equals('', $providedSecret) below, which
+    // would otherwise accept an empty-string secret from anyone - silently
+    // turning a misconfiguration (webhooks enabled, no secret set) into an
+    // unauthenticated endpoint.
     http_response_code(404);
     echo json_encode(['error' => 'Not found']);
     exit;

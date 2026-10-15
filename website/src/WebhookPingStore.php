@@ -25,6 +25,18 @@ class WebhookPingStore
         $pdo = new \PDO('sqlite:' . $this->dbPath);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->exec('PRAGMA busy_timeout = 5000');
+        // A webhook can be configured and fire before `python -m
+        // automation.main` has ever run once - e.g. right after a fresh
+        // deploy - in which case state.sqlite3 (or this table) doesn't
+        // exist yet. Mirrors SqliteStateStore's own schema exactly so
+        // whichever side gets there first just creates it; the other side's
+        // later CREATE TABLE IF NOT EXISTS is then a no-op.
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS board_activity ('
+            . 'instance TEXT NOT NULL, board_id INTEGER NOT NULL, '
+            . 'last_ping_at TEXT, last_polled_at TEXT, '
+            . 'PRIMARY KEY (instance, board_id))'
+        );
         $stmt = $pdo->prepare(
             'INSERT INTO board_activity (instance, board_id, last_ping_at) VALUES (:instance, :board_id, :now) '
             . 'ON CONFLICT(instance, board_id) DO UPDATE SET last_ping_at = excluded.last_ping_at'

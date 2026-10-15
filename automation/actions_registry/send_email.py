@@ -56,7 +56,12 @@ class SendEmailAction(WorkflowAction):
 
         if params.get("template"):
             subject, body = _load_template(params["template"])
-            subject = params.get("subject", subject) or ""
+            # An explicit, non-empty `subject` param overrides the
+            # template's own `Subject:` header; a missing OR blank one
+            # (the website's builder always sends an empty-string default
+            # for every send_email step, template-based or not) falls back
+            # to the template's subject instead of silently sending blank.
+            subject = params.get("subject") or subject or ""
         else:
             subject = params["subject"]
             body = params["body"]

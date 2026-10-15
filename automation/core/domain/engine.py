@@ -71,7 +71,14 @@ class WorkflowEngine:
             if not workflow.matches(event):
                 continue
             result = self._run(workflow, event, deck, calendar)
-            self._execution_log.record(result)
+            try:
+                self._execution_log.record(result)
+            except Exception:
+                # Persisting this run's log entry must not abort every other
+                # workflow/board still pending this cron tick (and, via the
+                # caller, main.py's heartbeat update) - same "degrade, don't
+                # crash" stance already applied to each action step below.
+                logger.exception("Could not record execution log for workflow '%s'", workflow.id)
             results.append(result)
         return results
 

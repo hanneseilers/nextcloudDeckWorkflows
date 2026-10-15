@@ -7,11 +7,7 @@ use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\TestRunStore;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !Csrf::verify($_POST['csrf_token'] ?? null)) {
-    http_response_code(400);
-    echo 'Ungültige Anfrage (CSRF-Token fehlt oder abgelaufen).';
-    exit;
-}
+Csrf::requireValidPost('Ungültige Anfrage (CSRF-Token fehlt oder abgelaufen).');
 
 $config = Config::fromRepoRoot();
 $workflows = new WorkflowRepository($config->workflowsDir());
@@ -19,7 +15,12 @@ $workflows = new WorkflowRepository($config->workflowsDir());
 $workflowId = (string) ($_POST['workflow_id'] ?? '');
 $cardId = (int) ($_POST['card_id'] ?? 0);
 
-if ($workflows->get($workflowId) === null || $cardId <= 0) {
+try {
+    $workflowExists = $workflows->get($workflowId) !== null;
+} catch (\InvalidArgumentException $e) {
+    $workflowExists = false;
+}
+if (!$workflowExists || $cardId <= 0) {
     http_response_code(400);
     echo 'Workflow oder Karte ungültig.';
     exit;
