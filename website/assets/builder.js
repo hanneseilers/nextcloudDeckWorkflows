@@ -30,11 +30,13 @@
   JSON.parse(document.getElementById('modules-data').textContent).forEach((m) => {
     modulesByName[m.name] = m;
   });
-  const moduleNames = Object.keys(modulesByName).sort();
   const moduleLabel = (name) => {
     const m = modulesByName[name];
     return m && m.label && m.label !== name ? m.label : name;
   };
+  const moduleNames = Object.keys(modulesByName).sort(
+    (a, b) => moduleLabel(a).localeCompare(moduleLabel(b), 'de')
+  );
 
   // "card" is a reserved $ref source (see automation/README.md): the raw
   // Nextcloud Deck fields of the card that triggered the workflow, always
