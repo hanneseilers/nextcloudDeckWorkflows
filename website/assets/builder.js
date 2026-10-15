@@ -370,6 +370,13 @@
     return moduleName === 'calendar_lookup' && key === 'calendar_id';
   }
 
+  function formatHintFor(moduleName, key) {
+    if (moduleName === 'set_due_date' && key === 'due_date') {
+      return 'Format: JJJJ-MM-TTThh:mm:ss+00:00';
+    }
+    return '';
+  }
+
   function isLabelIdField(moduleName, key) {
     return moduleName === 'add_label' && key === 'label_id';
   }
@@ -600,6 +607,12 @@
       }
     });
     wrapper.appendChild(input);
+    if (opts.formatHint) {
+      const hint = document.createElement('span');
+      hint.className = 'muted format-hint';
+      hint.textContent = opts.formatHint;
+      wrapper.appendChild(hint);
+    }
   }
 
   // Renders the literal-vs-ref editor for any {source, value, refStep,
@@ -655,6 +668,7 @@
         isUserId: isUserIdField(step.module, key),
         isCalendarId: isCalendarIdField(step.module, key),
         isLabelId: isLabelIdField(step.module, key),
+        formatHint: formatHintFor(step.module, key),
       })
     );
 

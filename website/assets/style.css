@@ -351,3 +351,7 @@ fieldset .weekday-checkboxes input[type="checkbox"] {
     min-width: 0;
     width: 7rem;
 }
+
+.format-hint {
+    white-space: nowrap;
+}
