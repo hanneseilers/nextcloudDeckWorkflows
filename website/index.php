@@ -28,6 +28,9 @@ function icon(string $name): string
         'play' => '<polygon points="5 3 19 12 5 21 5 3"/>',
         'copy' => '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
         'power' => '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
+        'activity' => '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+        'clock' => '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+        'plus' => '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
         'trash' => '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
     ];
     return '<svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
@@ -45,9 +48,9 @@ function icon(string $name): string
 <header>
     <h1>Nextcloud Deck Workflows</h1>
     <div>
-        <a href="health.php">Status</a>
-        <a href="history.php">Historie</a>
-        <a class="button" href="new.php">+ Neuer Workflow</a>
+        <a class="button with-icon" href="health.php"><?= icon('activity') ?> Status</a>
+        <a class="button with-icon" href="history.php"><?= icon('clock') ?> Historie</a>
+        <a class="button with-icon" href="new.php"><?= icon('plus') ?> Neuer Workflow</a>
     </div>
 </header>
 

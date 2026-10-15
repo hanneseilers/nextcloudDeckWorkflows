@@ -298,3 +298,14 @@ ul.run-actions {
 .if-condition .value-or-ref {
     display: flex;
 }
+
+.button.with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+header > div {
+    display: flex;
+    gap: 0.5rem;
+}
