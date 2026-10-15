@@ -34,11 +34,27 @@
 
   // "card" is a reserved $ref source (see automation/README.md): the raw
   // Nextcloud Deck fields of the card that triggered the workflow, always
-  // available without adding a step. This list is only used to populate the
-  // field-name datalist below - the actual value comes straight from the
-  // Deck API at run time, so any other field name the API returns also works.
+  // available without adding a step. This list only feeds the field picker -
+  // the actual value comes straight from the Deck API at run time, so any
+  // other field name the API returns also works (via "Anderes Feld...").
   const CARD_FIELDS = [
-    'title', 'description', 'duedate', 'labels', 'assignedUsers', 'owner', 'done', 'archived',
+    ['title', 'Titel'],
+    ['description', 'Beschreibung'],
+    ['duedate', 'Fälligkeitsdatum'],
+    ['labels', 'Labels'],
+    ['assignedUsers', 'Zugewiesene Benutzer'],
+    ['owner', 'Ersteller'],
+    ['done', 'Erledigt (Datum)'],
+    ['archived', 'Archiviert'],
+    ['id', 'Karten-Id'],
+    ['stackId', 'Spalten-Id'],
+    ['createdAt', 'Erstellt am (Zeitstempel)'],
+    ['lastModified', 'Zuletzt geändert (Zeitstempel)'],
+    ['lastEditor', 'Zuletzt bearbeitet von'],
+    ['order', 'Position in der Spalte'],
+    ['overdue', 'Überfällig-Status'],
+    ['commentsCount', 'Anzahl Kommentare'],
+    ['attachmentCount', 'Anzahl Anhänge'],
   ];
 
   const CONDITION_OPS = [
@@ -395,8 +411,8 @@
   // side's input type comes from the module's declared default value) and an
   // if-condition's operands (always a plain text literal, no module/type to
   // derive from).
-  // Appends the ref-picker UI (source-step select + output-field input with
-  // its datalist of known field names) to `wrapper` for an entry whose
+  // Appends the ref-picker UI (source-step select + output-field picker
+  // listing the source's known fields, with a free-text fallback) to `wrapper` for an entry whose
   // source is "ref".
   function appendRefOperandFields(wrapper, entry) {
     const refSources = [{ id: 'card' }, { id: 'vars' }, ...collectAllSteps(state.steps)];
@@ -412,40 +428,86 @@
       option.selected = source.id === entry.refStep;
       refSelect.appendChild(option);
     });
-    refSelect.addEventListener('change', () => {
-      entry.refStep = refSelect.value;
-    });
     wrapper.appendChild(refSelect);
 
-    const listId = 'ref-fields-' + Math.random().toString(36).slice(2);
-    const fieldInput = document.createElement('input');
-    fieldInput.type = 'text';
-    fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
-    fieldInput.value = entry.refField || '';
-    fieldInput.setAttribute('list', listId);
-    fieldInput.addEventListener('input', () => {
-      entry.refField = fieldInput.value;
-    });
-    wrapper.appendChild(fieldInput);
+    const fieldBox = document.createElement('span');
+    wrapper.appendChild(fieldBox);
 
-    const datalist = document.createElement('datalist');
-    datalist.id = listId;
-    let fieldOptions;
-    if (entry.refStep === 'card') {
-      fieldOptions = CARD_FIELDS;
-    } else if (entry.refStep === 'vars') {
-      fieldOptions = collectVariableNames(state.steps);
-    } else {
-      const refStepObj = refSources.find((s) => s.id === entry.refStep);
+    // [value, label] pairs the picker offers for the currently chosen source.
+    const fieldOptionsFor = (stepId) => {
+      if (stepId === 'card') {
+        return CARD_FIELDS;
+      }
+      if (stepId === 'vars') {
+        return collectVariableNames(state.steps).map((name) => [name, name]);
+      }
+      const refStepObj = refSources.find((s) => s.id === stepId);
       const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
-      fieldOptions = Object.keys((refModule && refModule.output) || {});
-    }
-    fieldOptions.forEach((field) => {
-      const option = document.createElement('option');
-      option.value = field;
-      datalist.appendChild(option);
+      return Object.keys((refModule && refModule.output) || {}).map((name) => [name, name]);
+    };
+
+    const renderFieldPicker = () => {
+      fieldBox.textContent = '';
+      const options = fieldOptionsFor(entry.refStep);
+      const fieldInput = document.createElement('input');
+      fieldInput.type = 'text';
+      fieldInput.placeholder = 'Feldname';
+      fieldInput.value = entry.refField || '';
+      fieldInput.addEventListener('input', () => {
+        entry.refField = fieldInput.value;
+      });
+
+      if (options.length === 0) {
+        fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
+        fieldBox.appendChild(fieldInput);
+        return;
+      }
+
+      const CUSTOM = '__custom__';
+      const fieldSelect = document.createElement('select');
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '– Feld wählen –';
+      fieldSelect.appendChild(placeholder);
+      const known = options.some(([value]) => value === entry.refField);
+      options.forEach(([value, label]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label === value ? value : label + ' (' + value + ')';
+        option.selected = value === entry.refField;
+        fieldSelect.appendChild(option);
+      });
+      const customOpt = document.createElement('option');
+      customOpt.value = CUSTOM;
+      customOpt.textContent = 'Anderes Feld …';
+      const isCustom = !!entry.refField && !known;
+      customOpt.selected = isCustom;
+      fieldSelect.appendChild(customOpt);
+      if (!entry.refField) {
+        placeholder.selected = true;
+      }
+
+      fieldInput.hidden = !isCustom;
+      fieldSelect.addEventListener('change', () => {
+        if (fieldSelect.value === CUSTOM) {
+          fieldInput.hidden = false;
+          fieldInput.focus();
+        } else {
+          fieldInput.hidden = true;
+          entry.refField = fieldSelect.value;
+          fieldInput.value = fieldSelect.value;
+        }
+      });
+      fieldBox.appendChild(fieldSelect);
+      fieldBox.appendChild(fieldInput);
+    };
+    renderFieldPicker();
+
+    refSelect.addEventListener('change', () => {
+      entry.refStep = refSelect.value;
+      entry.refField = '';
+      renderFieldPicker();
     });
-    wrapper.appendChild(datalist);
   }
 
   // Appends the literal-value input (type derived from the module's default,
