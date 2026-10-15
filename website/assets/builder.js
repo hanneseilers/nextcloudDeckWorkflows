@@ -602,6 +602,46 @@
     return row;
   }
 
+  const CALCULATE_OPS = [
+    ['add', '+  Addieren'],
+    ['subtract', '−  Subtrahieren'],
+    ['multiply', '×  Multiplizieren'],
+    ['divide', '÷  Dividieren'],
+  ];
+
+  // calculate reads as one line - left value, operation dropdown, right value
+  // - instead of three stacked param rows.
+  function renderCalculateRow(step) {
+    const row = document.createElement('div');
+    row.className = 'calc-row';
+    row.appendChild(renderValueOrRefEditor(step.params.left, {
+      defaultValue: modulesByName.calculate.input.left,
+    }));
+
+    const opEntry = step.params.op;
+    if (opEntry.source === 'ref') {
+      row.appendChild(renderValueOrRefEditor(opEntry, {}));
+    } else {
+      const opSelect = document.createElement('select');
+      CALCULATE_OPS.forEach(([value, text]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = text;
+        option.selected = opEntry.value === value;
+        opSelect.appendChild(option);
+      });
+      opSelect.addEventListener('change', () => {
+        opEntry.value = opSelect.value;
+      });
+      row.appendChild(opSelect);
+    }
+
+    row.appendChild(renderValueOrRefEditor(step.params.right, {
+      defaultValue: modulesByName.calculate.input.right,
+    }));
+    return row;
+  }
+
   function renderActionNode(step, list, index) {
     const wrapper = document.createElement('div');
     wrapper.className = 'step';
@@ -643,9 +683,13 @@
 
     if (module) {
       const keys = Object.keys(module.input || {});
-      keys.forEach((key) => {
-        paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
-      });
+      if (step.module === 'calculate' && step.params.left && step.params.op && step.params.right) {
+        paramsEl.appendChild(renderCalculateRow(step));
+      } else {
+        keys.forEach((key) => {
+          paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
+        });
+      }
       if (keys.length === 0) {
         const none = document.createElement('p');
         none.className = 'muted';

@@ -327,3 +327,27 @@ fieldset .weekday-checkboxes input[type="checkbox"] {
     width: auto;
     margin: 0;
 }
+
+.calc-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.calc-row > select {
+    width: auto;
+    margin-top: 0;
+}
+
+.calc-row .value-or-ref {
+    flex-wrap: nowrap;
+}
+
+.calc-row .value-or-ref input[type="text"],
+.calc-row .value-or-ref input[type="number"] {
+    min-width: 0;
+    width: 7rem;
+}
