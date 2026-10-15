@@ -370,6 +370,62 @@
     return moduleName === 'calendar_lookup' && key === 'calendar_id';
   }
 
+  function isLabelIdField(moduleName, key) {
+    return moduleName === 'add_label' && key === 'label_id';
+  }
+
+  // Labels belong to a board - cached per board id, filtered client-side.
+  const labelsCache = {};
+
+  async function loadLabelsForCurrentBoard() {
+    const boardId = boardEl.value;
+    if (!instanceEl.value || !/^\d+$/.test(boardId)) {
+      return [];
+    }
+    const key = instanceEl.value + ':' + boardId;
+    if (!labelsCache[key]) {
+      const data = await fetchJSON(
+        'api_labels.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId)
+      );
+      labelsCache[key] = data.labels || [];
+    }
+    return labelsCache[key];
+  }
+
+  function renderLabelSearchField(entry) {
+    const field = renderTypeahead({
+      value: entry.value ? String(entry.value) : '',
+      setValue: (value) => {
+        entry.value = /^\d+$/.test(String(value).trim()) ? Number(value) : value;
+      },
+      placeholder: 'Label-Name eingeben oder Label-Id direkt eintragen',
+      loadOptions: async (query) => filterByTitle(await loadLabelsForCurrentBoard(), query),
+    });
+    // Show the saved label's name instead of its bare id. In edit mode the
+    // board is restored asynchronously after the steps render, so retry
+    // briefly until it is known.
+    if (entry.value) {
+      let attempts = 0;
+      const resolveTitle = () => {
+        if (!/^\d+$/.test(boardEl.value)) {
+          if (++attempts < 20) {
+            setTimeout(resolveTitle, 250);
+          }
+          return;
+        }
+        loadLabelsForCurrentBoard().then((labels) => {
+          const match = labels.find((l) => String(l.id) === String(entry.value));
+          const input = field.querySelector('input');
+          if (match && input.value === String(entry.value)) {
+            input.value = match.title;
+          }
+        }).catch(() => {});
+      };
+      resolveTitle();
+    }
+    return field;
+  }
+
   function renderUserSearchField(entry) {
     return renderTypeahead({
       value: entry.value || '',
@@ -572,6 +628,8 @@
       appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isLabelId) {
+      wrapper.appendChild(renderLabelSearchField(entry));
     } else if (opts.isCalendarId) {
       wrapper.appendChild(renderCalendarSearchField(entry));
     } else {
@@ -596,6 +654,7 @@
         defaultValue,
         isUserId: isUserIdField(step.module, key),
         isCalendarId: isCalendarIdField(step.module, key),
+        isLabelId: isLabelIdField(step.module, key),
       })
     );
 

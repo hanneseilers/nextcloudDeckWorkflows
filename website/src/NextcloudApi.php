@@ -54,6 +54,24 @@ class NextcloudApi
     }
 
     /**
+     * The labels defined on a board, for the add_label label picker. Deck's
+     * single-board endpoint embeds them as `labels`. Not verified against a
+     * live Nextcloud instance - a missing/odd `labels` key just yields an
+     * empty picker (the field still accepts a typed label id).
+     *
+     * @return array<int, array{id: int, title: string}>
+     */
+    public function listLabels(int $boardId): array
+    {
+        $board = $this->get(self::DECK_API . '/boards/' . $boardId) ?? [];
+        $labels = [];
+        foreach ($board['labels'] ?? [] as $label) {
+            $labels[] = ['id' => (int) $label['id'], 'title' => (string) $label['title']];
+        }
+        return $labels;
+    }
+
+    /**
      * Every card across every stack of a board, for the "Testlauf" card
      * picker - the stacks endpoint already embeds each stack's cards (same
      * response DeckGatewayPort.list_cards() filters by stack on the Python
