@@ -370,9 +370,13 @@
     return moduleName === 'calendar_lookup' && key === 'calendar_id';
   }
 
+  function isGermanDateTimeField(moduleName, key) {
+    return moduleName === 'set_due_date' && key === 'due_date';
+  }
+
   function formatHintFor(moduleName, key) {
     if (moduleName === 'set_due_date' && key === 'due_date') {
-      return 'Format: JJJJ-MM-TTThh:mm:ss+00:00';
+      return 'Format: TT.MM.JJJJ hh:mm';
     }
     return '';
   }
@@ -581,7 +585,76 @@
 
   // Appends the literal-value input (type derived from the module's default,
   // or a plain text field for an if-condition operand) to `wrapper`.
+  // -- German date/time entry (TT.MM.JJJJ hh:mm, local time) <-> stored ISO 8601 --
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  function germanToIso(text) {
+    const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(text.trim());
+    if (!m) {
+      return null;
+    }
+    const [day, month, year, hour, minute] = [m[1], m[2], m[3], m[4], m[5]].map(Number);
+    const date = new Date(year, month - 1, day, hour, minute);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day
+        || date.getHours() !== hour || date.getMinutes() !== minute) {
+      return null; // e.g. 31.02. or 25:00 - Date would silently roll over
+    }
+    const offset = -date.getTimezoneOffset();
+    const sign = offset >= 0 ? '+' : '-';
+    return year + '-' + pad2(month) + '-' + pad2(day) + 'T' + pad2(hour) + ':' + pad2(minute) + ':00'
+      + sign + pad2(Math.floor(Math.abs(offset) / 60)) + ':' + pad2(Math.abs(offset) % 60);
+  }
+
+  function isoToGerman(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+      return value == null ? '' : String(value);
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return pad2(date.getDate()) + '.' + pad2(date.getMonth() + 1) + '.' + date.getFullYear()
+      + ' ' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+  }
+
+  function appendGermanDateTimeField(wrapper, entry, hint) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'TT.MM.JJJJ hh:mm';
+    input.value = isoToGerman(entry.value);
+    input.addEventListener('input', () => {
+      const text = input.value.trim();
+      if (text === '') {
+        entry.value = null;
+        input.classList.remove('invalid');
+      } else if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
+        entry.value = text; // raw ISO 8601 still accepted
+        input.classList.remove('invalid');
+      } else {
+        const iso = germanToIso(text);
+        if (iso === null) {
+          input.classList.add('invalid');
+        } else {
+          entry.value = iso;
+          input.classList.remove('invalid');
+        }
+      }
+    });
+    wrapper.appendChild(input);
+    if (hint) {
+      const hintEl = document.createElement('span');
+      hintEl.className = 'muted format-hint';
+      hintEl.textContent = hint;
+      wrapper.appendChild(hintEl);
+    }
+  }
+
   function appendLiteralOperandField(wrapper, entry, opts) {
+    if (opts.germanDateTime) {
+      appendGermanDateTimeField(wrapper, entry, opts.formatHint);
+      return;
+    }
     const input = renderValueInput(opts.defaultValue !== undefined ? opts.defaultValue : '', entry.value);
     const isCheckbox = input.type === 'checkbox';
     const isTextarea = input.tagName === 'TEXTAREA';
@@ -669,6 +742,7 @@
         isCalendarId: isCalendarIdField(step.module, key),
         isLabelId: isLabelIdField(step.module, key),
         formatHint: formatHintFor(step.module, key),
+        germanDateTime: isGermanDateTimeField(step.module, key),
       })
     );
 
@@ -988,6 +1062,9 @@
     }
     if (stepsEl.querySelector('textarea.invalid')) {
       throw new Error('Ein JSON-Feld enthält ungültiges JSON - bitte prüfen.');
+    }
+    if (stepsEl.querySelector('input.invalid')) {
+      throw new Error('Ein Datumsfeld hat kein gültiges Format (TT.MM.JJJJ hh:mm) - bitte prüfen.');
     }
 
     const payload = {
