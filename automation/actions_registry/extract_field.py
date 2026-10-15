@@ -52,6 +52,7 @@ class ExtractFieldAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "extract_field"
+    LABEL: ClassVar[str] = "Feld extrahieren"
 
     def default_input(self) -> dict[str, Any]:
         return {"data": {}, "path": ""}

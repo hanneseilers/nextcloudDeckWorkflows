@@ -30,6 +30,7 @@ class SliceTextAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "slice_text"
+    LABEL: ClassVar[str] = "Text ausschneiden"
 
     def default_input(self) -> dict[str, Any]:
         return {"text": "", "start": None, "end": None}

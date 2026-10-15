@@ -350,6 +350,7 @@ def _modules_snapshot() -> dict[str, Any]:
         action = loader.get(name)
         modules.append({
             "name": name,
+            "label": getattr(action, "LABEL", "") or name,
             "requires": list(getattr(action, "REQUIRES", ())),
             "input": action.default_input(),
             "output": action.default_output(),

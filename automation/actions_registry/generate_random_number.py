@@ -34,6 +34,7 @@ class GenerateRandomNumberAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "generate_random_number"
+    LABEL: ClassVar[str] = "Zufallszahl erzeugen"
 
     # After this many consecutive collisions at the current digit width,
     # widen by one digit and start a fresh attempt round.

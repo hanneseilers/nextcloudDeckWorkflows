@@ -4,6 +4,7 @@ from automation.adapters.actions.simple_card_action import make_simple_card_acti
 
 AssignUserAction = make_simple_card_action(
     action_name="assign_user",
+    label="Benutzer zuweisen",
     param_name="user_id",
     default_value="",
     deck_method="assign_user",

@@ -27,6 +27,7 @@ class ForgetRandomNumberAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "forget_random_number"
+    LABEL: ClassVar[str] = "Zufallszahl freigeben"
 
     def default_input(self) -> dict[str, Any]:
         return {"list_name": "default", "number": ""}

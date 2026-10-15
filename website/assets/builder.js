@@ -31,6 +31,10 @@
     modulesByName[m.name] = m;
   });
   const moduleNames = Object.keys(modulesByName).sort();
+  const moduleLabel = (name) => {
+    const m = modulesByName[name];
+    return m && m.label && m.label !== name ? m.label : name;
+  };
 
   // "card" is a reserved $ref source (see automation/README.md): the raw
   // Nextcloud Deck fields of the card that triggered the workflow, always
@@ -424,7 +428,7 @@
     refSources.forEach((source) => {
       const option = document.createElement('option');
       option.value = source.id;
-      option.textContent = source.module ? source.id + ' (' + source.module + ')' : source.id;
+      option.textContent = source.module ? source.id + ' (' + moduleLabel(source.module) + ')' : source.id;
       option.selected = source.id === entry.refStep;
       refSelect.appendChild(option);
     });
@@ -616,7 +620,8 @@
     moduleNames.forEach((name) => {
       const option = document.createElement('option');
       option.value = name;
-      option.textContent = name;
+      option.textContent = moduleLabel(name);
+      option.title = name;
       option.selected = name === step.module;
       moduleSelect.appendChild(option);
     });
@@ -930,7 +935,9 @@
         else: (raw.else || []).map(toInternalStep),
       };
     }
-    const params = {};
+    // Start from the module's defaults so a param omitted in a hand-written
+    // YAML (e.g. date_offset's optional base) still gets an editor row.
+    const params = defaultParamsFor(raw.module);
     Object.keys(raw.params || {}).forEach((key) => {
       params[key] = toInternalOperand(raw.params[key]);
     });
