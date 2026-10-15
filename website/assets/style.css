@@ -53,7 +53,29 @@ th, td {
 
 form.inline {
     display: inline-block;
-    margin-right: 0.25rem;
+    margin: 0;
+}
+
+td.actions {
+    white-space: nowrap;
+}
+
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    vertical-align: middle;
+}
+
+.icon-btn.is-on {
+    color: var(--accent);
+}
+
+.icon-btn.is-off {
+    color: var(--muted, #888);
 }
 
 .notice {
@@ -116,6 +138,13 @@ fieldset textarea {
 
 .params {
     margin-left: 1rem;
+}
+
+.if-condition {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .if-step {
@@ -239,4 +268,33 @@ ul.run-actions {
 
 .action-failed {
     color: var(--danger);
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.value-or-ref select,
+.value-or-ref input[type="text"],
+.value-or-ref input[type="number"],
+.value-or-ref textarea {
+    display: inline-block;
+    width: auto;
+    min-width: 10rem;
+    margin-top: 0;
+}
+
+.if-condition select {
+    width: auto;
+    margin-top: 0;
+}
+
+.value-or-ref > span {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.if-condition .value-or-ref {
+    display: flex;
 }

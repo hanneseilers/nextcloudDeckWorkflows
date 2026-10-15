@@ -686,7 +686,13 @@
     label.textContent = 'Wenn';
     header.appendChild(label);
 
-    header.appendChild(renderValueOrRefEditor(node.condition.left, {}));
+    header.appendChild(renderMoveRemoveControls(list, index));
+    wrapper.appendChild(header);
+
+    // Left value, operator and right value each get their own line.
+    const conditionEl = document.createElement('div');
+    conditionEl.className = 'if-condition';
+    conditionEl.appendChild(renderValueOrRefEditor(node.condition.left, {}));
 
     const opSelect = document.createElement('select');
     CONDITION_OPS.forEach(([value, text]) => {
@@ -699,11 +705,12 @@
     opSelect.addEventListener('change', () => {
       node.condition.op = opSelect.value;
     });
-    header.appendChild(opSelect);
+    const opRow = document.createElement('div');
+    opRow.appendChild(opSelect);
+    conditionEl.appendChild(opRow);
 
-    header.appendChild(renderValueOrRefEditor(node.condition.right, {}));
-    header.appendChild(renderMoveRemoveControls(list, index));
-    wrapper.appendChild(header);
+    conditionEl.appendChild(renderValueOrRefEditor(node.condition.right, {}));
+    wrapper.appendChild(conditionEl);
 
     wrapper.appendChild(renderBranch('Dann:', node.then));
     wrapper.appendChild(renderBranch('Sonst:', node.else));
