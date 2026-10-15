@@ -662,11 +662,15 @@
   }
 
   const CALCULATE_OPS = [
-    ['add', '+  Addieren'],
-    ['subtract', '−  Subtrahieren'],
-    ['multiply', '×  Multiplizieren'],
-    ['divide', '÷  Dividieren'],
+    ['add', '+'],
+    ['subtract', '−'],
+    ['multiply', '×'],
+    ['divide', '÷'],
   ];
+
+  const CALCULATE_OP_NAMES = {
+    add: 'Addieren', subtract: 'Subtrahieren', multiply: 'Multiplizieren', divide: 'Dividieren',
+  };
 
   // calculate reads as one line - left value, operation dropdown, right value
   // - instead of three stacked param rows.
@@ -686,6 +690,7 @@
         const option = document.createElement('option');
         option.value = value;
         option.textContent = text;
+        option.title = CALCULATE_OP_NAMES[value];
         option.selected = opEntry.value === value;
         opSelect.appendChild(option);
       });
