@@ -10,12 +10,11 @@ namespace NextcloudDeckWorkflows;
  */
 class ModuleRegistry
 {
-    /** @var array<int, array{name: string, requires: array<int, string>, input: array, output: array}> */
-    private array $modules;
+    /** @var array<int, array{name: string, requires: array<int, string>, input: array, output: array}>|null */
+    private ?array $modules = null;
 
     public function __construct(private readonly string $snapshotPath)
     {
-        $this->modules = $this->load();
     }
 
     public static function fromRepoRoot(): self
@@ -26,12 +25,16 @@ class ModuleRegistry
     /** @return array<int, array{name: string, requires: array<int, string>, input: array, output: array}> */
     public function all(): array
     {
-        return $this->modules;
+        // Lazy: a page that only needs isAvailable()/rawModulesJson() (both
+        // read the snapshot file their own way) never triggers this
+        // assoc-array decode at all - index.php and new.php are exactly
+        // that case; only save.php's get() actually needs it.
+        return $this->modules ??= $this->load();
     }
 
     public function get(string $name): ?array
     {
-        foreach ($this->modules as $module) {
+        foreach ($this->all() as $module) {
             if ($module['name'] === $name) {
                 return $module;
             }

@@ -1,11 +1,27 @@
 /**
  * Drives the "new workflow" form: board/stack pickers (AJAX), and the module
  * chain builder where each step's params are either a literal value or a
- * {"$ref": "<step_id>.<field>"} mapping from an earlier step's output - the
- * same convention automation/core/domain/engine.py resolves at run time.
+ * {"$ref": "<step_id>.<field>"} mapping - the same convention
+ * automation/core/domain/engine.py resolves at run time.
  *
- * All state lives in `state.steps`; the DOM under #steps is fully re-rendered
- * from it on every change, so the DOM never has to be patched in place.
+ * The chain is a tree, not a flat list: a step is either
+ *   {kind: 'action', id, module, params}
+ * or a branching step
+ *   {kind: 'if', condition: {left, op, right}, then: [...nodes], else: [...nodes]}
+ * (`left`/`right` are the same {source, value, refStep, refField} shape as a
+ * param entry). `state.steps` is the top-level list; `then`/`else` are nested
+ * lists of the same shape, so the whole tree renders/collects recursively.
+ *
+ * $ref sources offered in the UI are gathered from the *whole* tree
+ * (collectAllSteps), not just "earlier in this branch" - simpler than
+ * tracking per-branch execution order, and harmless even if a suggested step
+ * wouldn't actually have run yet: the engine resolves a bad/premature $ref to
+ * `None` and logs a warning rather than crashing (see
+ * automation.core.domain.engine._resolve_ref).
+ *
+ * Everything under #steps is fully re-rendered from `state` on every change -
+ * the DOM is never patched in place, mirroring the rest of this file's
+ * existing style.
  */
 (function () {
   'use strict';
@@ -16,8 +32,28 @@
   });
   const moduleNames = Object.keys(modulesByName).sort();
 
+  // "card" is a reserved $ref source (see automation/README.md): the raw
+  // Nextcloud Deck fields of the card that triggered the workflow, always
+  // available without adding a step. This list is only used to populate the
+  // field-name datalist below - the actual value comes straight from the
+  // Deck API at run time, so any other field name the API returns also works.
+  const CARD_FIELDS = [
+    'title', 'description', 'duedate', 'labels', 'assignedUsers', 'owner', 'done', 'archived',
+  ];
+
+  const CONDITION_OPS = [
+    ['eq', '='],
+    ['ne', '≠'],
+    ['lt', '<'],
+    ['gt', '>'],
+    ['contains', 'enthält'],
+    ['beginswith', 'beginnt mit'],
+    ['endswith', 'endet mit'],
+  ];
+
   const state = { steps: [] };
   let idManuallyEdited = false;
+  let stepCounter = 1; // unique default step ids regardless of nesting/removal
 
   const stepsEl = document.getElementById('steps');
   const errorEl = document.getElementById('error-banner');
@@ -50,58 +86,126 @@
     return data;
   }
 
-  function fillSelect(select, items, placeholder) {
-    select.innerHTML = '';
-    const empty = document.createElement('option');
-    empty.value = '';
-    empty.textContent = placeholder;
-    select.appendChild(empty);
-    items.forEach((item) => {
-      const option = document.createElement('option');
-      option.value = String(item.id);
-      option.textContent = item.title + ' (#' + item.id + ')';
-      select.appendChild(option);
-    });
-  }
-
   const instanceEl = document.getElementById('instance');
+  // Hidden inputs hold the actual value (a board/stack id); the visible
+  // typeahead widgets are mounted into -field next to them and only ever
+  // write into these, same split as getValue/setValue below for the
+  // user/calendar search fields.
   const boardEl = document.getElementById('board');
   const stackEl = document.getElementById('stack');
+  const boardFieldEl = document.getElementById('board-field');
+  const stackFieldEl = document.getElementById('stack-field');
 
-  instanceEl.addEventListener('change', async () => {
+  // Shows a plain "– loading –"/"– pick X first –" text in place of a
+  // mounted typeahead - used both for the initial disabled state and while
+  // loadAndMount() below is waiting on a request.
+  function showPlaceholder(el, text) {
+    el.innerHTML = '';
+    el.className = 'muted';
+    el.textContent = text;
+  }
+
+  // Shared by every instance->board->stack step: show a loading placeholder,
+  // fetch, then either mount the real field from the response or show the
+  // error banner - the one pattern the instance-change and board-pick
+  // handlers below both followed independently before.
+  async function loadAndMount(url, targetEl, loadingText, onData) {
     hideError();
-    fillSelect(boardEl, [], '– lädt –');
-    fillSelect(stackEl, [], '– zuerst Board wählen –');
-    boardEl.disabled = true;
-    stackEl.disabled = true;
+    showPlaceholder(targetEl, loadingText);
+    try {
+      const data = await fetchJSON(url);
+      onData(data);
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  // `preselectId`, when given (edit mode restoring a saved board/stack),
+  // sets the hidden value immediately and looks up its title in the
+  // already-fetched list for the typeahead's initial display text - if the
+  // board/stack no longer exists (renamed/deleted since), the hidden value
+  // is still correct for saving, it just displays the raw id as a fallback.
+  function mountBoardField(boards, preselectId) {
+    const match = preselectId != null ? boards.find((b) => String(b.id) === String(preselectId)) : null;
+    boardEl.value = preselectId != null ? String(preselectId) : '';
+    boardFieldEl.className = '';
+    boardFieldEl.innerHTML = '';
+    boardFieldEl.appendChild(
+      renderTypeahead({
+        value: match ? match.title : boardEl.value,
+        placeholder: 'Board-Name eingeben',
+        setValue: (value) => {
+          boardEl.value = value;
+        },
+        loadOptions: (query) => filterByTitle(boards, query),
+        onPick: (item) => loadStacksFor(item.id),
+      })
+    );
+  }
+
+  function loadStacksFor(boardId, preselectStackId) {
+    stackEl.value = preselectStackId != null ? String(preselectStackId) : '';
+    loadAndMount(
+      'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId),
+      stackFieldEl,
+      '– lädt –',
+      (data) => mountStackField(data.stacks, preselectStackId)
+    );
+  }
+
+  function mountStackField(stacks, preselectId) {
+    const allColumns = { id: '', title: 'Alle Spalten' };
+    const all = [allColumns, ...stacks];
+    const match = preselectId != null ? all.find((s) => String(s.id) === String(preselectId)) : null;
+    stackEl.value = preselectId != null ? String(preselectId) : '';
+    stackFieldEl.className = '';
+    stackFieldEl.innerHTML = '';
+    stackFieldEl.appendChild(
+      renderTypeahead({
+        value: match ? match.title : stackEl.value,
+        placeholder: 'Spaltenname eingeben (leer = alle Spalten)',
+        setValue: (value) => {
+          stackEl.value = value;
+        },
+        loadOptions: (query) => filterByTitle(all, query),
+      })
+    );
+  }
+
+  // Shared substring match (case-insensitive) for the already-fetched,
+  // small lists (boards/stacks/calendars) - unlike user search, these don't
+  // need a server round-trip per keystroke.
+  function filterByTitle(items, query) {
+    const q = query.trim().toLowerCase();
+    return items
+      .filter((item) => item.title.toLowerCase().includes(q))
+      .map((item) => ({ id: String(item.id), label: item.title }));
+  }
+
+  function loadBoardsFor(preselectBoardId, preselectStackId) {
     if (!instanceEl.value) {
+      showPlaceholder(boardFieldEl, '– zuerst Instanz wählen –');
       return;
     }
-    try {
-      const data = await fetchJSON('api_boards.php?instance=' + encodeURIComponent(instanceEl.value));
-      fillSelect(boardEl, data.boards, '– wählen –');
-      boardEl.disabled = false;
-    } catch (e) {
-      showError(e.message);
-    }
-  });
+    loadAndMount(
+      'api_boards.php?instance=' + encodeURIComponent(instanceEl.value),
+      boardFieldEl,
+      '– lädt –',
+      (data) => {
+        mountBoardField(data.boards, preselectBoardId);
+        if (preselectBoardId != null) {
+          loadStacksFor(preselectBoardId, preselectStackId);
+        }
+      }
+    );
+  }
 
-  boardEl.addEventListener('change', async () => {
-    hideError();
-    fillSelect(stackEl, [], '– lädt –');
-    stackEl.disabled = true;
-    if (!boardEl.value) {
-      return;
-    }
-    try {
-      const data = await fetchJSON(
-        'api_stacks.php?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardEl.value)
-      );
-      fillSelect(stackEl, data.stacks, '– wählen –');
-      stackEl.disabled = false;
-    } catch (e) {
-      showError(e.message);
-    }
+  instanceEl.addEventListener('change', () => {
+    calendarsCache = null; // a different instance has different calendars
+    boardEl.value = '';
+    stackEl.value = '';
+    showPlaceholder(stackFieldEl, '– zuerst Board wählen –');
+    loadBoardsFor();
   });
 
   // -- workflow id suggestion from name -----------------------------------
@@ -117,7 +221,26 @@
     idManuallyEdited = true;
   });
 
-  // -- step/module chain builder -------------------------------------------
+  // -- event vs. schedule trigger toggle --------------------------------------
+
+  const triggerKindEl = document.getElementById('trigger-kind');
+  const eventTriggerFieldsEl = document.getElementById('event-trigger-fields');
+  const scheduleTriggerFieldsEl = document.getElementById('schedule-trigger-fields');
+  const stackLabelEl = document.getElementById('stack-label');
+  const scheduleTimeEl = document.getElementById('schedule-time');
+  const weekdayCheckboxes = Array.from(document.querySelectorAll('.schedule-weekday'));
+
+  function applyTriggerKind() {
+    const isSchedule = triggerKindEl.value === 'schedule';
+    eventTriggerFieldsEl.hidden = isSchedule;
+    scheduleTriggerFieldsEl.hidden = !isSchedule;
+    stackLabelEl.hidden = isSchedule; // "Spalte" only makes sense for an event trigger
+  }
+
+  triggerKindEl.addEventListener('change', applyTriggerKind);
+  applyTriggerKind();
+
+  // -- step tree: data helpers -----------------------------------------------
 
   function defaultParamsFor(moduleName) {
     const module = modulesByName[moduleName];
@@ -131,30 +254,49 @@
     return params;
   }
 
-  function addStep() {
+  function makeActionNode() {
     const firstModule = moduleNames[0] || '';
-    state.steps.push({
-      id: 'step' + (state.steps.length + 1),
+    return {
+      kind: 'action',
+      id: 'step' + stepCounter++,
       module: firstModule,
       params: defaultParamsFor(firstModule),
+    };
+  }
+
+  function makeIfNode() {
+    return {
+      kind: 'if',
+      condition: {
+        left: { source: 'literal', value: '' },
+        op: 'eq',
+        right: { source: 'literal', value: '' },
+      },
+      then: [],
+      else: [],
+    };
+  }
+
+  function collectAllSteps(list) {
+    let result = [];
+    list.forEach((node) => {
+      if (node.kind === 'action') {
+        result.push(node);
+      } else {
+        result = result.concat(collectAllSteps(node.then), collectAllSteps(node.else));
+      }
     });
-    render();
+    return result;
   }
 
-  function removeStep(index) {
-    state.steps.splice(index, 1);
-    render();
+  function collectVariableNames(list) {
+    return collectAllSteps(list)
+      .filter((node) => node.module === 'set_variable' && node.params.name && node.params.name.source === 'literal')
+      .map((node) => node.params.name.value)
+      .filter((name) => !!name);
   }
 
-  function moveStep(index, direction) {
-    const target = index + direction;
-    if (target < 0 || target >= state.steps.length) {
-      return;
-    }
-    const [step] = state.steps.splice(index, 1);
-    state.steps.splice(target, 0, step);
-    render();
-  }
+  // -- rendering: shared value/operand widgets --------------------------------
 
   function renderValueInput(defaultValue, currentValue) {
     const type = defaultValue === null ? 'nullable-string' : typeof defaultValue;
@@ -183,7 +325,216 @@
     return input;
   }
 
-  function renderStep(step, index) {
+  // renderTypeahead() now lives in assets/typeahead.js (new.php loads it
+  // before this file) - shared with test_run.php's card picker.
+
+  // assign_user/unassign_user's user_id and calendar_lookup's calendar_id
+  // are the module param fields that benefit from search-by-name instead of
+  // typing a raw id/CalDAV path - handled as hardcoded special cases rather
+  // than a general field-type system that nothing else currently needs.
+  // The tiny setValue closure every {source, value, ...} entry's search
+  // field needs (renderUserSearchField/renderCalendarSearchField below).
+  function bindEntryValue(entry) {
+    return (value) => {
+      entry.value = value;
+    };
+  }
+
+  function isUserIdField(moduleName, key) {
+    return (moduleName === 'assign_user' || moduleName === 'unassign_user') && key === 'user_id';
+  }
+
+  function isCalendarIdField(moduleName, key) {
+    return moduleName === 'calendar_lookup' && key === 'calendar_id';
+  }
+
+  function renderUserSearchField(entry) {
+    return renderTypeahead({
+      value: entry.value || '',
+      setValue: bindEntryValue(entry),
+      placeholder: 'Name eingeben (ab 3 Zeichen) oder User-Id direkt eintragen',
+      minChars: 3,
+      debounceMs: 300,
+      loadOptions: async (query) => {
+        if (!instanceEl.value) {
+          return [];
+        }
+        const data = await fetchJSON(
+          'api_users.php?instance=' + encodeURIComponent(instanceEl.value) + '&query=' + encodeURIComponent(query)
+        );
+        return (data.users || []).map((user) => ({ id: user.id, label: user.label }));
+      },
+    });
+  }
+
+  // Calendars are a short, per-instance list (like boards/stacks) - fetched
+  // once and cached here, then filtered client-side as the user types,
+  // instead of a server round-trip per keystroke like the user search above.
+  let calendarsCache = null;
+
+  function renderCalendarSearchField(entry) {
+    return renderTypeahead({
+      value: entry.value || '',
+      setValue: bindEntryValue(entry),
+      placeholder: 'Kalendername eingeben oder CalDAV-Pfad direkt eintragen',
+      loadOptions: async (query) => {
+        if (!instanceEl.value) {
+          return [];
+        }
+        if (!calendarsCache) {
+          const data = await fetchJSON('api_calendars.php?instance=' + encodeURIComponent(instanceEl.value));
+          calendarsCache = data.calendars || [];
+        }
+        return filterByTitle(calendarsCache, query);
+      },
+    });
+  }
+
+  // Renders the literal-vs-ref editor for any {source, value, refStep,
+  // refField} entry - used for both a module's params (where the literal
+  // side's input type comes from the module's declared default value) and an
+  // if-condition's operands (always a plain text literal, no module/type to
+  // derive from).
+  // Appends the ref-picker UI (source-step select + output-field input with
+  // its datalist of known field names) to `wrapper` for an entry whose
+  // source is "ref".
+  function appendRefOperandFields(wrapper, entry) {
+    const refSources = [{ id: 'card' }, { id: 'vars' }, ...collectAllSteps(state.steps)];
+    const refSelect = document.createElement('select');
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = '– Quelle wählen –';
+    refSelect.appendChild(emptyOpt);
+    refSources.forEach((source) => {
+      const option = document.createElement('option');
+      option.value = source.id;
+      option.textContent = source.module ? source.id + ' (' + source.module + ')' : source.id;
+      option.selected = source.id === entry.refStep;
+      refSelect.appendChild(option);
+    });
+    refSelect.addEventListener('change', () => {
+      entry.refStep = refSelect.value;
+    });
+    wrapper.appendChild(refSelect);
+
+    const listId = 'ref-fields-' + Math.random().toString(36).slice(2);
+    const fieldInput = document.createElement('input');
+    fieldInput.type = 'text';
+    fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
+    fieldInput.value = entry.refField || '';
+    fieldInput.setAttribute('list', listId);
+    fieldInput.addEventListener('input', () => {
+      entry.refField = fieldInput.value;
+    });
+    wrapper.appendChild(fieldInput);
+
+    const datalist = document.createElement('datalist');
+    datalist.id = listId;
+    let fieldOptions;
+    if (entry.refStep === 'card') {
+      fieldOptions = CARD_FIELDS;
+    } else if (entry.refStep === 'vars') {
+      fieldOptions = collectVariableNames(state.steps);
+    } else {
+      const refStepObj = refSources.find((s) => s.id === entry.refStep);
+      const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
+      fieldOptions = Object.keys((refModule && refModule.output) || {});
+    }
+    fieldOptions.forEach((field) => {
+      const option = document.createElement('option');
+      option.value = field;
+      datalist.appendChild(option);
+    });
+    wrapper.appendChild(datalist);
+  }
+
+  // Appends the literal-value input (type derived from the module's default,
+  // or a plain text field for an if-condition operand) to `wrapper`.
+  function appendLiteralOperandField(wrapper, entry, opts) {
+    const input = renderValueInput(opts.defaultValue !== undefined ? opts.defaultValue : '', entry.value);
+    const isCheckbox = input.type === 'checkbox';
+    const isTextarea = input.tagName === 'TEXTAREA';
+    input.addEventListener('input', () => {
+      if (isCheckbox) {
+        entry.value = input.checked;
+      } else if (isTextarea) {
+        // Object/array field: keep the textarea's raw JSON text parsed into a
+        // real value. On invalid JSON, flag it and keep the last good value -
+        // collectPayload() refuses to submit while any field is flagged.
+        try {
+          entry.value = input.value.trim() === '' ? opts.defaultValue : JSON.parse(input.value);
+          input.classList.remove('invalid');
+        } catch (e) {
+          input.classList.add('invalid');
+        }
+      } else if (input.type === 'number') {
+        entry.value = input.value === '' ? opts.defaultValue : Number(input.value);
+      } else if (input.dataset.valueType === 'nullable-string' && input.value === '') {
+        entry.value = null;
+      } else {
+        entry.value = input.value;
+      }
+    });
+    wrapper.appendChild(input);
+  }
+
+  // Renders the literal-vs-ref editor for any {source, value, refStep,
+  // refField} entry (see the module docstring at the top of this file) -
+  // just a dispatcher over the three appendX helpers above.
+  function renderValueOrRefEditor(entry, options) {
+    const opts = options || {};
+    const wrapper = document.createElement('span');
+    wrapper.className = 'value-or-ref';
+
+    const sourceSelect = document.createElement('select');
+    ['literal', 'ref'].forEach((source) => {
+      const option = document.createElement('option');
+      option.value = source;
+      option.textContent = source === 'literal' ? 'Fester Wert' : 'Referenz';
+      option.selected = entry.source === source;
+      sourceSelect.appendChild(option);
+    });
+    sourceSelect.addEventListener('change', () => {
+      entry.source = sourceSelect.value;
+      render();
+    });
+    wrapper.appendChild(sourceSelect);
+
+    if (entry.source === 'ref') {
+      appendRefOperandFields(wrapper, entry);
+    } else if (opts.isUserId) {
+      wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isCalendarId) {
+      wrapper.appendChild(renderCalendarSearchField(entry));
+    } else {
+      appendLiteralOperandField(wrapper, entry, opts);
+    }
+
+    return wrapper;
+  }
+
+  // -- rendering: step tree ----------------------------------------------------
+
+  function renderParamRow(step, key, defaultValue) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+
+    const label = document.createElement('label');
+    label.textContent = key;
+    row.appendChild(label);
+
+    row.appendChild(
+      renderValueOrRefEditor(step.params[key], {
+        defaultValue,
+        isUserId: isUserIdField(step.module, key),
+        isCalendarId: isCalendarIdField(step.module, key),
+      })
+    );
+
+    return row;
+  }
+
+  function renderActionNode(step, list, index) {
     const wrapper = document.createElement('div');
     wrapper.className = 'step';
 
@@ -193,7 +544,7 @@
     const idInput = document.createElement('input');
     idInput.type = 'text';
     idInput.value = step.id;
-    idInput.title = 'Schritt-Id (für $ref aus späteren Schritten)';
+    idInput.title = 'Schritt-Id (für $ref aus anderen Schritten)';
     idInput.addEventListener('input', () => {
       step.id = idInput.value;
     });
@@ -214,24 +565,7 @@
     });
     header.appendChild(moduleSelect);
 
-    const upBtn = document.createElement('button');
-    upBtn.type = 'button';
-    upBtn.textContent = '↑';
-    upBtn.addEventListener('click', () => moveStep(index, -1));
-    header.appendChild(upBtn);
-
-    const downBtn = document.createElement('button');
-    downBtn.type = 'button';
-    downBtn.textContent = '↓';
-    downBtn.addEventListener('click', () => moveStep(index, 1));
-    header.appendChild(downBtn);
-
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.textContent = 'Entfernen';
-    removeBtn.addEventListener('click', () => removeStep(index));
-    header.appendChild(removeBtn);
-
+    header.appendChild(renderMoveRemoveControls(list, index));
     wrapper.appendChild(header);
 
     const module = modulesByName[step.module];
@@ -239,10 +573,11 @@
     paramsEl.className = 'params';
 
     if (module) {
-      Object.keys(module.input || {}).forEach((key) => {
-        paramsEl.appendChild(renderParamRow(step, index, key, module.input[key]));
+      const keys = Object.keys(module.input || {});
+      keys.forEach((key) => {
+        paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
       });
-      if (Object.keys(module.input || {}).length === 0) {
+      if (keys.length === 0) {
         const none = document.createElement('p');
         none.className = 'muted';
         none.textContent = 'Dieses Modul benötigt keine Parameter.';
@@ -254,126 +589,198 @@
     return wrapper;
   }
 
-  function renderParamRow(step, index, key, defaultValue) {
-    const row = document.createElement('div');
-    row.className = 'param-row';
+  function renderMoveRemoveControls(list, index) {
+    const controls = document.createElement('span');
 
-    const label = document.createElement('label');
-    label.textContent = key;
-    row.appendChild(label);
+    const upBtn = document.createElement('button');
+    upBtn.type = 'button';
+    upBtn.textContent = '↑';
+    upBtn.addEventListener('click', () => moveNode(list, index, -1));
+    controls.appendChild(upBtn);
 
-    const sourceSelect = document.createElement('select');
-    ['literal', 'ref'].forEach((source) => {
+    const downBtn = document.createElement('button');
+    downBtn.type = 'button';
+    downBtn.textContent = '↓';
+    downBtn.addEventListener('click', () => moveNode(list, index, 1));
+    controls.appendChild(downBtn);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Entfernen';
+    removeBtn.addEventListener('click', () => removeNode(list, index));
+    controls.appendChild(removeBtn);
+
+    return controls;
+  }
+
+  function renderIfNode(node, list, index) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'step if-step';
+
+    const header = document.createElement('div');
+    header.className = 'step-header';
+
+    const label = document.createElement('strong');
+    label.textContent = 'Wenn';
+    header.appendChild(label);
+
+    header.appendChild(renderValueOrRefEditor(node.condition.left, {}));
+
+    const opSelect = document.createElement('select');
+    CONDITION_OPS.forEach(([value, text]) => {
       const option = document.createElement('option');
-      option.value = source;
-      option.textContent = source === 'literal' ? 'Fester Wert' : 'Aus vorherigem Schritt';
-      option.selected = step.params[key].source === source;
-      sourceSelect.appendChild(option);
+      option.value = value;
+      option.textContent = text;
+      option.selected = node.condition.op === value;
+      opSelect.appendChild(option);
     });
-    sourceSelect.addEventListener('change', () => {
-      step.params[key].source = sourceSelect.value;
-      if (sourceSelect.value === 'ref' && !step.params[key].refStep) {
-        step.params[key].refStep = '';
-        step.params[key].refField = '';
-      }
+    opSelect.addEventListener('change', () => {
+      node.condition.op = opSelect.value;
+    });
+    header.appendChild(opSelect);
+
+    header.appendChild(renderValueOrRefEditor(node.condition.right, {}));
+    header.appendChild(renderMoveRemoveControls(list, index));
+    wrapper.appendChild(header);
+
+    wrapper.appendChild(renderBranch('Dann:', node.then));
+    wrapper.appendChild(renderBranch('Sonst:', node.else));
+
+    return wrapper;
+  }
+
+  function renderBranch(labelText, branchSteps) {
+    const section = document.createElement('div');
+    section.className = 'branch';
+
+    const label = document.createElement('div');
+    label.className = 'branch-label';
+    label.textContent = labelText;
+    section.appendChild(label);
+
+    const container = document.createElement('div');
+    container.className = 'branch-steps';
+    section.appendChild(container);
+    renderStepList(branchSteps, container);
+
+    return section;
+  }
+
+  function renderStepList(list, container) {
+    list.forEach((node, index) => {
+      container.appendChild(node.kind === 'if' ? renderIfNode(node, list, index) : renderActionNode(node, list, index));
+    });
+
+    const controls = document.createElement('div');
+    controls.className = 'step-list-controls';
+
+    const addStepBtn = document.createElement('button');
+    addStepBtn.type = 'button';
+    addStepBtn.textContent = '+ Schritt';
+    addStepBtn.addEventListener('click', () => {
+      list.push(makeActionNode());
       render();
     });
-    row.appendChild(sourceSelect);
+    controls.appendChild(addStepBtn);
 
-    if (step.params[key].source === 'ref') {
-      const priorSteps = state.steps.slice(0, index);
-      const refSelect = document.createElement('select');
-      const emptyOpt = document.createElement('option');
-      emptyOpt.value = '';
-      emptyOpt.textContent = '– Schritt wählen –';
-      refSelect.appendChild(emptyOpt);
-      priorSteps.forEach((prior) => {
-        const option = document.createElement('option');
-        option.value = prior.id;
-        option.textContent = prior.id + ' (' + prior.module + ')';
-        option.selected = prior.id === step.params[key].refStep;
-        refSelect.appendChild(option);
-      });
-      refSelect.addEventListener('change', () => {
-        step.params[key].refStep = refSelect.value;
-      });
-      row.appendChild(refSelect);
+    const addIfBtn = document.createElement('button');
+    addIfBtn.type = 'button';
+    addIfBtn.textContent = '+ Wenn/Sonst';
+    addIfBtn.addEventListener('click', () => {
+      list.push(makeIfNode());
+      render();
+    });
+    controls.appendChild(addIfBtn);
 
-      const fieldInput = document.createElement('input');
-      fieldInput.type = 'text';
-      fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
-      fieldInput.value = step.params[key].refField || '';
-      fieldInput.setAttribute('list', 'output-fields-' + index + '-' + key);
-      fieldInput.addEventListener('input', () => {
-        step.params[key].refField = fieldInput.value;
-      });
-      row.appendChild(fieldInput);
+    container.appendChild(controls);
+  }
 
-      const datalist = document.createElement('datalist');
-      datalist.id = 'output-fields-' + index + '-' + key;
-      const refStepObj = priorSteps.find((s) => s.id === step.params[key].refStep);
-      const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
-      Object.keys((refModule && refModule.output) || {}).forEach((field) => {
-        const option = document.createElement('option');
-        option.value = field;
-        datalist.appendChild(option);
-      });
-      row.appendChild(datalist);
-    } else {
-      const input = renderValueInput(defaultValue, step.params[key].value);
-      const isCheckbox = input.type === 'checkbox';
-      const isTextarea = input.tagName === 'TEXTAREA';
-      input.addEventListener('input', () => {
-        if (isCheckbox) {
-          step.params[key].value = input.checked;
-        } else if (isTextarea) {
-          // Object/array field: keep the textarea's raw JSON text parsed into a
-          // real value. On invalid JSON, flag it and keep the last good value -
-          // collectPayload() refuses to submit while any field is flagged.
-          try {
-            step.params[key].value = input.value.trim() === '' ? defaultValue : JSON.parse(input.value);
-            input.classList.remove('invalid');
-          } catch (e) {
-            input.classList.add('invalid');
-          }
-        } else if (input.type === 'number') {
-          step.params[key].value = input.value === '' ? defaultValue : Number(input.value);
-        } else if (input.dataset.valueType === 'nullable-string' && input.value === '') {
-          step.params[key].value = null;
-        } else {
-          step.params[key].value = input.value;
-        }
-      });
-      row.appendChild(input);
+  function removeNode(list, index) {
+    list.splice(index, 1);
+    render();
+  }
+
+  function moveNode(list, index, direction) {
+    const target = index + direction;
+    if (target < 0 || target >= list.length) {
+      return;
     }
-
-    return row;
+    const [node] = list.splice(index, 1);
+    list.splice(target, 0, node);
+    render();
   }
 
   function render() {
     stepsEl.innerHTML = '';
-    state.steps.forEach((step, index) => {
-      stepsEl.appendChild(renderStep(step, index));
-    });
+    renderStepList(state.steps, stepsEl);
   }
-
-  document.getElementById('add-step').addEventListener('click', addStep);
 
   // -- assembling the payload for save.php ----------------------------------
 
-  function paramValue(entry) {
+  function operandValue(entry) {
     if (entry.source === 'ref') {
       if (!entry.refStep || !entry.refField) {
-        throw new Error('Ein Mapping-Feld ist noch nicht vollständig ausgefüllt (Schritt/Feld fehlt).');
+        throw new Error('Eine Referenz ist noch nicht vollständig ausgefüllt (Quelle/Feld fehlt).');
       }
       return { $ref: entry.refStep + '.' + entry.refField };
     }
     return entry.value === undefined ? null : entry.value;
   }
 
+  function collectSteps(list, seenIds) {
+    return list.map((node) => {
+      if (node.kind === 'if') {
+        return {
+          type: 'if',
+          condition: {
+            left: operandValue(node.condition.left),
+            op: node.condition.op,
+            right: operandValue(node.condition.right),
+          },
+          then: collectSteps(node.then, seenIds),
+          else: collectSteps(node.else, seenIds),
+        };
+      }
+
+      const id = node.id.trim();
+      if (!id) {
+        throw new Error('Jeder Schritt braucht eine Id.');
+      }
+      if (seenIds.has(id)) {
+        throw new Error("Schritt-Id '" + id + "' wird mehrfach verwendet.");
+      }
+      seenIds.add(id);
+
+      const params = {};
+      Object.keys(node.params).forEach((key) => {
+        params[key] = operandValue(node.params[key]);
+      });
+
+      return { id, module: node.module, params };
+    });
+  }
+
+  // A board/stack id only ever becomes valid by picking a suggestion from
+  // the typeahead (see renderTypeahead's onPick/setValue) - typing text
+  // that was never picked leaves it as non-numeric, which this catches
+  // with a clear message instead of silently sending NaN to save.php.
+  function parseId(value, label) {
+    if (value.trim() === '') {
+      return null;
+    }
+    if (!/^\d+$/.test(value.trim())) {
+      throw new Error(label + " '" + value + "' ist kein gültiges Board/Spalte - bitte aus der Liste auswählen.");
+    }
+    return Number(value);
+  }
+
   function collectPayload() {
-    if (!instanceEl.value || !boardEl.value || !stackEl.value) {
-      throw new Error('Bitte Instanz, Board und Spalte auswählen.');
+    if (!instanceEl.value) {
+      throw new Error('Bitte Instanz auswählen.');
+    }
+    const boardId = parseId(boardEl.value, 'Board');
+    if (boardId === null) {
+      throw new Error('Bitte ein Board aus der Liste auswählen.');
     }
     if (!nameEl.value.trim() || !idEl.value.trim()) {
       throw new Error('Bitte Name und Id des Workflows angeben.');
@@ -385,34 +792,29 @@
       throw new Error('Ein JSON-Feld enthält ungültiges JSON - bitte prüfen.');
     }
 
-    const seenIds = new Set();
-    const steps = state.steps.map((step) => {
-      const id = step.id.trim();
-      if (!id) {
-        throw new Error('Jeder Schritt braucht eine Id.');
-      }
-      if (seenIds.has(id)) {
-        throw new Error("Schritt-Id '" + id + "' wird mehrfach verwendet.");
-      }
-      seenIds.add(id);
-
-      const params = {};
-      Object.keys(step.params).forEach((key) => {
-        params[key] = paramValue(step.params[key]);
-      });
-
-      return { id, module: step.module, params };
-    });
-
-    return {
+    const payload = {
+      mode: isEditMode ? 'edit' : 'create',
       instance: instanceEl.value,
-      board_id: Number(boardEl.value),
-      stack_id: Number(stackEl.value),
-      event: document.getElementById('event-type').value,
+      board_id: boardId,
       name: nameEl.value.trim(),
       id: idEl.value.trim(),
-      steps,
+      steps: collectSteps(state.steps, new Set()),
     };
+
+    if (triggerKindEl.value === 'schedule') {
+      if (!scheduleTimeEl.value) {
+        throw new Error('Bitte eine Uhrzeit für den Zeitplan angeben.');
+      }
+      payload.schedule = {
+        time: scheduleTimeEl.value,
+        weekdays: weekdayCheckboxes.filter((cb) => cb.checked).map((cb) => Number(cb.value)),
+      };
+    } else {
+      payload.stack_id = parseId(stackEl.value, 'Spalte');
+      payload.event = document.getElementById('event-type').value;
+    }
+
+    return payload;
   }
 
   document.getElementById('workflow-form').addEventListener('submit', (event) => {
@@ -426,5 +828,80 @@
     }
   });
 
-  addStep();
+  // -- edit mode: restore an existing workflow's data into the form ----------
+
+  // Inverse of operandValue() above - turns a stored literal/{"$ref": ...}
+  // value back into the internal {source, value, refStep, refField} shape.
+  function toInternalOperand(value) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)
+        && Object.keys(value).length === 1 && typeof value.$ref === 'string') {
+      const dot = value.$ref.indexOf('.');
+      return {
+        source: 'ref',
+        refStep: dot === -1 ? value.$ref : value.$ref.slice(0, dot),
+        refField: dot === -1 ? '' : value.$ref.slice(dot + 1),
+      };
+    }
+    return { source: 'literal', value: value === undefined ? null : value };
+  }
+
+  // Inverse of collectSteps() - turns a stored step (action or if/then/else)
+  // back into the internal tree shape render()/collectSteps() expect.
+  function toInternalStep(raw) {
+    if (raw.type === 'if') {
+      const condition = raw.condition || {};
+      return {
+        kind: 'if',
+        condition: {
+          left: toInternalOperand(condition.left),
+          op: condition.op,
+          right: toInternalOperand(condition.right),
+        },
+        then: (raw.then || []).map(toInternalStep),
+        else: (raw.else || []).map(toInternalStep),
+      };
+    }
+    const params = {};
+    Object.keys(raw.params || {}).forEach((key) => {
+      params[key] = toInternalOperand(raw.params[key]);
+    });
+    return { kind: 'action', id: raw.id || 'step' + stepCounter++, module: raw.module, params };
+  }
+
+  function initializeForEdit(existing) {
+    instanceEl.value = existing.nextcloud_instance;
+    nameEl.value = existing.name;
+    idEl.value = existing.id;
+    idManuallyEdited = true; // the id is fixed in edit mode - never auto-slugify over it
+
+    const schedule = existing.trigger.schedule;
+    if (schedule) {
+      triggerKindEl.value = 'schedule';
+      scheduleTimeEl.value = schedule.time;
+      (schedule.weekdays || []).forEach((iso) => {
+        const cb = weekdayCheckboxes.find((c) => Number(c.value) === iso);
+        if (cb) {
+          cb.checked = true;
+        }
+      });
+    } else {
+      triggerKindEl.value = 'event';
+      document.getElementById('event-type').value = existing.trigger.event;
+    }
+    applyTriggerKind();
+
+    state.steps = (existing.actions || []).map(toInternalStep);
+    render();
+
+    loadBoardsFor(existing.board_id, schedule ? null : existing.trigger.stack_id ?? null);
+  }
+
+  const existingDataEl = document.getElementById('existing-workflow-data');
+  const isEditMode = existingDataEl !== null;
+  if (isEditMode) {
+    initializeForEdit(JSON.parse(existingDataEl.textContent));
+  } else {
+    state.steps.push(makeActionNode());
+    render();
+  }
 })();

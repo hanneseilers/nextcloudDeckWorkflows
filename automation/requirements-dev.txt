@@ -1,2 +1,6 @@
 -r requirements.txt
 pytest>=8.0
+# Optional at runtime (see automation/config/secrets.py's module docstring
+# for why it's not in requirements.txt/vendored) - needed here so
+# test_secrets.py actually runs instead of skipping in dev/CI.
+cryptography>=42.0

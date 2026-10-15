@@ -9,6 +9,9 @@ Workflow automation for the [Nextcloud Deck](https://apps.nextcloud.com/apps/dec
 - **workflows/** — Storage for the workflow definitions created via the website.
 - **config/** — YAML configuration files (Nextcloud connections, credentials, general settings).
 
+Want to add your own capability beyond the modules shipped here (e.g. a
+new action a workflow can use)? See [MODULE_GUIDE.md](MODULE_GUIDE.md).
+
 All configuration and workflow data is stored as YAML files, requiring no database.
 
 ## Requirements
@@ -30,6 +33,11 @@ The repository itself isn't directly uploadable (dev-only files, no `vendor/`, n
 1. Configure your Nextcloud connection(s) in `config/` (copy the `*.example.yaml` files).
 2. Use the website to create and manage workflows for your decks; workflows are saved as YAML files in `workflows/`.
 3. Schedule `automation/` to run periodically via cron to execute the workflows in the background.
+
+New to building workflows here? [TUTORIAL.md](TUTORIAL.md) (German) walks
+through using the tool from first principles to a multi-step example.
+Looking for ideas on what to build next? See [ROADMAP.md](ROADMAP.md)
+(German) for a curated list of not-yet-implemented features.
 
 ## License
 

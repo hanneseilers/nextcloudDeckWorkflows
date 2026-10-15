@@ -15,6 +15,10 @@
 #   instead, installed by tools/install.sh on the server. A venv built on
 #   this machine often doesn't work on a different host (OS/arch/paths are
 #   baked into it), so shipping one would be actively misleading.
+# - DOES try to bundle automation/vendor/ (pure-Python sources only, see
+#   below) - unlike a venv this is portable, and it means a shared host
+#   with no working pip doesn't block the whole thing; install.sh falls
+#   back to installing on the server itself if this step didn't run.
 # - Copies tools/install.sh to the root of the build output, so it's right
 #   there after upload.
 #
@@ -94,6 +98,33 @@ if command -v composer >/dev/null 2>&1; then
     fi
 else
     warn "composer ist nicht installiert - website/vendor/ fehlt im Build. install.sh versucht es serverseitig (falls composer dort verfügbar ist), sonst manuell nachholen."
+fi
+
+# -- Python-Abhängigkeiten als portablen Vendor-Ordner bündeln -----------------
+#
+# PyYAML/requests/icalendar/python-dateutil sind reiner Python-Code - anders
+# als ein venv (siehe oben) ist ein daraus gebauter automation/vendor/-Ordner
+# deshalb plattformunabhängig und sicher mitlieferbar. "--no-binary=:all:"
+# erzwingt die Sdist/Source-Variante statt eines evtl. plattformspezifischen
+# Wheels; einzige Ausnahme ist PyYAMLs rein optionale libyaml-C-Erweiterung,
+# die trotzdem mitkompiliert würde, FALLS auf dieser Build-Maschine die
+# libyaml-Dev-Header installiert sind (PyYAML funktioniert ohne sie genauso,
+# nur etwas langsamer) - im Zweifel also auf einer Maschine ohne libyaml-dev
+# bauen, oder einen automation/vendor/_yaml*.so-Fund danach einfach löschen.
+# automation/__init__.py setzt automation/vendor/ (falls vorhanden) vorn auf
+# sys.path, genau wie website/index.php es für website/vendor/ tut.
+if command -v python3 >/dev/null 2>&1; then
+    log "Installiere Python-Abhängigkeiten nach automation/vendor/ (pip install --target) ..."
+    if python3 -m pip install -q --no-binary=:all: \
+        --target "$TARGET_DIR/automation/vendor" -r "$TARGET_DIR/automation/requirements.txt"; then
+        find "$TARGET_DIR/automation/vendor" -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+        log "automation/vendor/ erfolgreich befüllt."
+    else
+        warn "pip install --target automation/vendor ist fehlgeschlagen - automation/vendor/ fehlt im Build. install.sh installiert die Abhängigkeiten dann serverseitig (venv/pip)."
+        rm -rf "$TARGET_DIR/automation/vendor"
+    fi
+else
+    warn "python3 ist auf dieser Build-Maschine nicht verfügbar - automation/vendor/ fehlt im Build. install.sh installiert die Abhängigkeiten serverseitig."
 fi
 
 # -- Build-Info -----------------------------------------------------------------

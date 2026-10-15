@@ -1,46 +1,15 @@
 from __future__ import annotations
 
-import smtplib
-from dataclasses import dataclass
-from email.message import EmailMessage
 from pathlib import Path
 from string import Template
 from typing import Any, ClassVar, Optional
 
-import yaml
-
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.smtp_config import load_smtp_config, send_email as smtp_send
 from automation.config.settings import REPO_ROOT
 from automation.core.ports.action_module import ActionContext
 
-SMTP_CONFIG_PATH = REPO_ROOT / "config" / "smtp.yaml"
 TEMPLATES_DIR = REPO_ROOT / "config" / "email_templates"
-
-
-@dataclass(frozen=True)
-class SmtpConfig:
-    host: str
-    port: int
-    username: Optional[str]
-    password: Optional[str]
-    use_tls: bool
-    from_address: str
-
-
-def _load_smtp_config() -> SmtpConfig:
-    if not SMTP_CONFIG_PATH.exists():
-        raise FileNotFoundError(
-            f"Missing {SMTP_CONFIG_PATH} (copy config/smtp.example.yaml and fill in your values)"
-        )
-    data = yaml.safe_load(SMTP_CONFIG_PATH.read_text()) or {}
-    return SmtpConfig(
-        host=data["host"],
-        port=int(data.get("port", 587)),
-        username=data.get("username"),
-        password=data.get("password"),
-        use_tls=bool(data.get("use_tls", True)),
-        from_address=data.get("from_address") or data.get("username"),
-    )
 
 
 def _load_template(name: str) -> tuple[Optional[str], str]:
@@ -64,10 +33,11 @@ class SendEmailAction(WorkflowAction):
     Server settings come from config/smtp.yaml (module-specific, gitignored -
     copy config/smtp.example.yaml). The subject/body are either given directly
     or loaded from a template file in config/email_templates/<name>.txt. Either
-    way, $placeholder values from params['template_data'] are substituted with
-    string.Template.safe_substitute - unresolved placeholders are left as-is
-    instead of raising, so a template ahead of its data never breaks the send.
-    Exact placeholder names are defined per template/workflow, not by this code.
+    way, $placeholder values are substituted with string.Template.safe_substitute
+    from context.variables (global, set via set_variable) merged with
+    params['template_data'] (template_data wins on a name clash) - unresolved
+    placeholders are left as-is instead of raising, so a template ahead of its
+    data never breaks the send.
 
     params:
       to: str - recipient address
@@ -82,11 +52,16 @@ class SendEmailAction(WorkflowAction):
         return {"to": "", "subject": "", "body": "", "template": None, "template_data": {}}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        template_data = params.get("template_data", {})
+        template_data = {**context.variables, **params.get("template_data", {})}
 
         if params.get("template"):
             subject, body = _load_template(params["template"])
-            subject = params.get("subject", subject) or ""
+            # An explicit, non-empty `subject` param overrides the
+            # template's own `Subject:` header; a missing OR blank one
+            # (the website's builder always sends an empty-string default
+            # for every send_email step, template-based or not) falls back
+            # to the template's subject instead of silently sending blank.
+            subject = params.get("subject") or subject or ""
         else:
             subject = params["subject"]
             body = params["body"]
@@ -94,18 +69,5 @@ class SendEmailAction(WorkflowAction):
         subject = Template(subject).safe_substitute(**template_data)
         body = Template(body).safe_substitute(**template_data)
 
-        smtp_config = _load_smtp_config()
-        message = EmailMessage()
-        message["From"] = smtp_config.from_address
-        message["To"] = params["to"]
-        message["Subject"] = subject
-        message.set_content(body)
-
-        with smtplib.SMTP(smtp_config.host, smtp_config.port, timeout=15) as client:
-            if smtp_config.use_tls:
-                client.starttls()
-            if smtp_config.username:
-                client.login(smtp_config.username, smtp_config.password or "")
-            client.send_message(message)
-
+        smtp_send(load_smtp_config(), to=params["to"], subject=subject, body=body)
         return {}

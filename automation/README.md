@@ -5,14 +5,73 @@ Cron-driven workflow engine, built as a hexagonal (ports & adapters) architectur
 ## Layout
 
 - `core/domain/` — framework-free domain model (`Workflow`, `DeckEvent`, ...) and the `WorkflowEngine` application service. No I/O.
-- `core/ports/` — abstract interfaces the core depends on (`WorkflowRepositoryPort`, `DeckGatewayPort`, `EventSourcePort`, `ActionModulePort`, `ExecutionLogPort`).
-- `adapters/nextcloud/` — talks to the Nextcloud/Deck REST API; detects events by polling and diffing board state against the last snapshot (no webhooks needed).
-- `adapters/persistence/` — `YamlWorkflowRepository` (workflow definitions as YAML in `workflows/`) and `SqliteStateStore` (snapshot + execution log, `automation/var/state.sqlite3`).
+- `core/ports/` — abstract interfaces the core depends on (`WorkflowRepositoryPort`, `DeckGatewayPort`, `EventSourcePort`, `ActionModulePort`, `ExecutionLogPort`, `CalendarGatewayPort`, `SequenceStorePort`).
+- `adapters/nextcloud/` — talks to the Nextcloud/Deck REST API; detects events by polling and diffing board state against the last snapshot (no webhooks needed). Also talks to Nextcloud Calendar over CalDAV (`calendar_gateway.py`, see below) using the same account/client as Deck.
+- `adapters/persistence/` — `YamlWorkflowRepository` (workflow definitions as YAML in `workflows/`) and `SqliteStateStore` (snapshot + execution log + generate_random_number's used-number lists, `automation/var/state.sqlite3`).
 - `adapters/actions/` — dynamically loads action modules from `actions_registry/`.
-- `actions_registry/` — one file per action capability. Drop in a new file that subclasses `WorkflowAction` to add a capability; no other code needs to change. Ships with standard card-editing actions: `set_title`, `set_description`, `set_due_date`, `move_card`, `add_label`, `assign_user`, `unassign_user`, `add_comment`; plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (data-lookup reference module, not wired to anything yet); plus `log_action` as a no-op reference/smoke-test action.
+- `actions_registry/` — one file per action capability. Drop in a new file that subclasses `WorkflowAction` to add a capability; no other code needs to change. Ships with standard card-editing actions: `set_title`, `set_description`, `set_due_date`, `move_card`, `add_label`, `assign_user`, `unassign_user`, `add_comment`, `add_checklist_item` (Deck has no separate checklist API - this appends a `- [ ] text` Markdown line to the card's own description, which is how Deck represents checklists); `set_variable` (global workflow variables, see below); `date_offset` (today,
+or any date, plus/minus N days - e.g. to compute a due date); `slice_text`
+(extract the text between two delimiter strings); `extract_field` (pull a
+value out of a dict/list by path - like `$ref` but also walks into lists by
+index, e.g. "events.0.title"); `generate_random_number`/`forget_random_number`
+(a unique random number generator with a persistent "already generated"
+list, see "Random numbers" below); `format_text` ($placeholder substitution
+from explicit values/`$ref`s into one string, for modules that don't do
+their own substitution); `calculate` (add/subtract/multiply/divide two
+numbers); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
+
+## Trigger events
+
+`EventType` (`core/domain/models.py`), detected by diffing each poll against
+the last snapshot (`adapters/nextcloud/event_source.py`):
+
+- `card_created`, `card_moved`, `card_deleted` - unambiguous, fire once each.
+- `card_assigned` - a *new* user was added to the card's assignees (not a
+  removal).
+- `card_due_date_changed`, `card_description_changed` - that specific field's
+  value differs from the last poll.
+- `card_label_changed` - the card's set of labels differs from the last poll,
+  either a label added or removed (unlike `card_assigned`, which only fires
+  on an addition).
+- `card_updated` - fires on *any* change to the card, including the specific
+  ones above - it's a superset, not an alternative to them. A workflow can
+  watch either the specific event it cares about, or `card_updated` to catch
+  everything (e.g. a title or label change, which has no dedicated event).
+
+A `Trigger`'s `stack_id` is optional - omitted (or "all columns" in the
+website) means the workflow reacts to that event on any column of the board.
+
+## Time-based (schedule) triggers
+
+A workflow can run on a schedule instead of a Deck event - "every day at
+09:00" or "every Monday at 09:00" - via `Trigger.schedule`
+(`ScheduleTrigger`) instead of `event_type`:
+
+```yaml
+trigger:
+  schedule:
+    time: "09:00"          # HH:MM, server-local time (same as a cron expression)
+    weekdays: [1, 2, 3, 4, 5]   # optional, ISO weekdays 1=Mon..7=Sun; omitted = every day
+```
+
+Checked once per `main.py` invocation (`_process_schedules`, independent of
+the Deck-event polling below) via `core/domain/schedule.should_fire()`:
+fires once the scheduled time for "today" has passed and hasn't already
+fired for that slot (tracked in `state.sqlite3`'s `schedule_state` table) -
+comparing against the last-fired timestamp rather than requiring an
+exact-minute match, so a delayed or missed cron tick still fires on the
+next one, and it never fires twice for the same slot.
+
+A schedule-triggered run has no real triggering card, so `context.deck` is
+a `NullDeckGateway` that raises a clear error if an action actually tries
+to use it - stick to card-independent actions (`send_email`, `log_action`,
+`generate_random_number`, `calculate`, `format_text`, ...). The website
+still asks for an instance/board for a schedule-triggered workflow (same
+`Workflow` shape either way), but nothing reads it unless an action calls
+`context.deck` against it, so it only matters if you use one.
 
 ## Modules calling modules
 
@@ -21,7 +80,9 @@ same `ActionModulePort` registry the engine itself uses):
 
 ```python
 def execute(self, context: ActionContext, params: dict) -> None:
-    appointment = context.modules.get("calendar_lookup").execute(context, {...})
+    appointment = context.modules.get("calendar_lookup").execute(
+        context, {"calendar_id": "...", "title_contains": "Sync"}
+    )
     ...  # use appointment's return value, e.g. to fill an email body
 ```
 
@@ -46,15 +107,15 @@ actions:
   - id: lookup
     module: calendar_lookup
     params:
-      summary: "Team sync"
-      start: "2026-01-05T10:00:00+00:00"
+      calendar_id: "/remote.php/dav/calendars/alice/personal/"
+      title_contains: "Team sync"
   - module: send_email          # no id needed - nothing references this step
     params:
       to: "team@example.com"
       subject: "Reminder"
-      body: "$summary at $start"
+      body: "$title at $start"
       template_data:
-        summary: {$ref: lookup.summary}   # mapped from the lookup step's output
+        title: {$ref: lookup.title}   # mapped from the lookup step's output
         start: {$ref: lookup.start}
 ```
 
@@ -65,9 +126,56 @@ dict - is used as-is. A `$ref` to a step that hasn't run (wrong order), doesn't
 exist, or produced no such field resolves to `None` and logs a warning rather
 than raising - see `WorkflowEngine._resolve_ref` in `core/domain/engine.py`.
 
+`card` is a reserved step id, always available without adding any step: it
+holds the triggering card's raw Nextcloud fields, e.g. `{$ref: card.title}` or
+`{$ref: card.duedate}` - whatever the Deck API returned for that card
+(`title`, `description`, `duedate`, `labels`, `assignedUsers`, ...). Don't give
+one of your own steps the id `card` - it would shadow this.
+
+`vars` is a second reserved step id: the workflow's global variables, set via
+the `set_variable` action (`{"name": "due_in_three_days", "value": {$ref: ...}}`)
+under whatever name you choose. Read one back structurally with
+`{$ref: vars.<name>}`, or - in actions that substitute text placeholders
+(`send_email`, `add_comment`) - directly as `$<name>` in the text itself, with
+no `$ref`/`template_data` wiring needed there at all.
+
 This is the workflow-level counterpart to modules calling modules above: the
 *workflow* wires one step's output into another step's input declaratively;
 a *module's own code* decides when to call another module directly.
+
+## If/else branching
+
+A step can be a branch instead of a module call: `type: if` with a `condition`
+and `then`/`else` lists of further steps (which can themselves contain `if`
+steps - branches nest). Each side of the condition is a literal or a `$ref`,
+resolved the same way as a module's params.
+
+```yaml
+actions:
+  - type: if
+    condition:
+      left: {$ref: card.priority}
+      op: eq
+      right: high
+    then:
+      - module: add_label
+        params: {label_id: 3}
+    else:
+      - module: log_action
+        params: {message: "not urgent"}
+  - module: log_action          # runs either way - outside the if
+    params: {message: "always runs"}
+```
+
+`op` is one of `eq`, `ne`, `lt`, `gt`, `contains`, `beginswith`, `endswith`.
+`eq`/`ne`/`lt`/`gt` compare numerically if both sides parse as numbers (so a
+YAML int and a numeric-looking API string compare equal), otherwise as
+strings for `lt`/`gt` and with plain equality for `eq`/`ne`; the other three
+always compare as strings - see `WorkflowEngine._evaluate_condition`. A
+condition that fails to evaluate takes the `else` branch and logs a warning
+rather than crashing the workflow, consistent with everything else here.
+Steps inside either branch can still be referenced via `$ref` by id from
+anywhere else in the workflow, same as a top-level step.
 
 ## Fault tolerance
 
@@ -84,6 +192,27 @@ instead of propagating:
   actions still run (`WorkflowEngine`, already true for nested module calls too)
 - missing/invalid config → logged, the run ends cleanly instead of raising (`main.py::main`)
 
+## Re-running until nothing triggers
+
+One workflow's own actions (move a card, change its due date, assign someone)
+can be exactly what another workflow is watching for. So a single
+`python -m automation.main` invocation doesn't poll just once: `run()` keeps
+polling every configured board and re-running matching workflows for as long
+as the *previous* pass triggered at least one of them, up to `max_run_seconds`
+(`config/settings.yaml`, default 240s - keep it comfortably below your cron
+interval). Once a pass detects nothing new, or the time limit is hit, the run
+ends; a limit hit just means "pick this up again next time", not an error.
+
+This only works safely because `PollingEventSource.poll()` no longer saves
+its new snapshot by itself - `main.py` calls `commit()` only after every
+event from that poll has been fully handled. If the process dies in between
+(SIGKILL included), the snapshot stays at its old value, so the next run (or
+the next loop iteration) detects the exact same events again and reruns their
+workflows - "at least once", not "exactly once": a rare crash mid-run can mean
+a workflow's actions run twice (e.g. a duplicate email) but never that an
+event is silently dropped. No separate "which iteration were we on" state
+needs to survive a crash - the snapshot itself *is* that state.
+
 ## Running
 
 ```bash
@@ -98,6 +227,87 @@ pytest                                # unit tests against in-memory fakes
 
 Schedule `python -m automation.main` via cron for periodic execution.
 
+## Random numbers
+
+`generate_random_number` generates a random, digit-only number (leading
+zeros allowed) that hasn't been generated before in the same named list -
+e.g. for a unique ticket/ID number written onto a card.
+
+```yaml
+params:
+  list_name: "tickets"   # independent workflows can use different lists (default "default")
+  min_digits: 4          # starting/minimum width - "0042" at min_digits=4 (default 4)
+  save: true             # record it so it won't be generated again (default true)
+```
+
+Output: `number` (string, zero-padded to its final width).
+
+How it avoids repeats: the generated number is checked against (and, if
+`save` is true, added to) a persistent list in `automation/var/state.sqlite3`
+(`SequenceStorePort`, implemented by the same `SqliteStateStore` used for
+polling snapshots and the execution log). If a draw at the current width
+collides 5 times in a row, the width grows by one digit and the attempt
+count resets - repeating until a free number is found. At realistic digit
+counts this resolves in at most a handful of draws; growing the width by
+one digit multiplies the available space by 10, so it converges fast even
+once a list is fairly full.
+
+`forget_random_number` removes a number from that list again - e.g. because
+whatever was using it (a card, a ticket) was deleted, and the number should
+become available to generate again:
+
+```yaml
+params:
+  list_name: "tickets"
+  number: "0042"   # typically {"$ref": "<step_id>.number"} from an earlier
+                    # generate_random_number step, or any other module's output
+```
+
+Matching is by exact text, including leading zeros - not by numeric value.
+Removing a number that was never saved (or already removed) is a no-op, not
+an error.
+
+## Calendar lookup
+
+`calendar_lookup` (`actions_registry/calendar_lookup.py`) searches a Nextcloud
+calendar over CalDAV for the next future occurrence of an event whose title
+contains a given substring (case-insensitive) - recurring events included, so
+a yearly "Birthday" or weekly "Standup" series resolves to its actual next
+occurrence, not the series' original start date.
+
+```yaml
+params:
+  calendar_id: "/remote.php/dav/calendars/alice/personal/"  # from list_calendars()
+  title_contains: "Standup"   # "" matches any event
+```
+
+Output: `title`, `start`, `end`, `location` (all `null` if nothing matched).
+
+How it works (`adapters/nextcloud/calendar_gateway.py`, `NextcloudCalendarGateway`):
+
+- `list_calendars()` - `PROPFIND` on `/remote.php/dav/calendars/<user>/` (same
+  account/`NextcloudClient` already used for Deck - no extra config needed).
+- `find_next_occurrence()` - a `REPORT` (`calendar-query`) bounded to a
+  two-year future time-range (CalDAV needs a bound to expand an open-ended
+  RRULE), parsed with `icalendar`; the title filter is applied client-side
+  (deliberately, not via CalDAV's server-side text-match, which is
+  inconsistently supported and awkward against a recurring master where the
+  title lives once for the whole series); each candidate's actual next
+  occurrence is computed with `dateutil.rrule`, respecting `EXDATE`; the
+  earliest matching occurrence overall wins.
+
+**Not verified against a live Nextcloud instance** - built against the CalDAV
+(RFC 4791) and iCalendar (RFC 5545) specs and Nextcloud's documented CalDAV
+URL convention, but there was no live server available while building this.
+Known limitations: `RDATE` (ad-hoc extra occurrences) and `RECURRENCE-ID`
+(single-instance overrides of a recurring series) are not handled - only
+`RRULE`+`EXDATE` on the series master. If something doesn't match a real
+server's behaviour, `calendar_gateway.py` is the place to fix it.
+
+With no calendar connection configured for an instance (e.g. the `--dry-run`
+smoke test), `calendar_lookup` raises a clear error instead of crashing -
+caught and logged like any other action's failure.
+
 ## send_email
 
 Sends mail via SMTP. Server settings are its own file, `config/smtp.yaml` (copy
@@ -109,6 +319,111 @@ then the body) referenced via `params.template`. `$placeholder` values from
 `params.template_data` are substituted (`string.Template.safe_substitute` -
 an unresolved placeholder is left as-is rather than raising). See
 `config/email_templates/example.txt`.
+
+## Webhooks (optional, polling remains the fallback)
+
+Honest framing first: this project cannot verify Nextcloud Deck's actual
+outgoing-webhook behavior (no live instance was available while building
+this), and configuring Nextcloud to call out to an external URL is a
+Nextcloud **server-admin** task (its own Flow/Webhooks settings) entirely
+outside this codebase's control. So rather than guess at parsing whatever
+Nextcloud sends in a webhook request body, `website/webhook.php` treats
+an incoming call purely as a "check this board now" signal - the admin
+bakes `instance`/`board_id` into the URL they configure in Nextcloud, and
+the request body is ignored entirely:
+
+```
+https://your-site/website/webhook.php?secret=...&instance=prod&board_id=42
+```
+
+Enable it in `config/settings.yaml`:
+
+```yaml
+webhooks:
+  enabled: true
+  secret: "a-long-random-string"   # also put this in the URL Nextcloud calls
+  fallback_poll_minutes: 15
+```
+
+Once enabled, `core/domain/webhook_gate.should_poll_now` changes how
+`main.py` decides which boards to poll each run: a board is always polled
+if it's never been polled before, or if it's been pinged since its last
+poll - otherwise it's only polled every `fallback_poll_minutes`. **This is
+deliberately not "webhooks instead of polling" in the strict sense** -
+polling becomes the fallback rather than the primary mechanism, because
+webhook delivery reliability from Nextcloud is exactly the part that
+can't be verified here, and this project's standing principle (see
+"Re-running until nothing triggers" above, and the at-least-once
+execution-log guarantee) is to never silently stop noticing a change.
+Leave `webhooks` out of `settings.yaml` entirely (the default) and
+nothing here changes - every board is polled every run, exactly as before
+this feature existed.
+
+`webhook.php` also makes a best-effort attempt (`proc_open`, wrapped so a
+failure never affects its own response) to trigger an immediate
+`python -m automation.main` run instead of waiting for the next cron
+tick - `proc_open`/`exec` are commonly disabled on shared hosting, so this
+may silently do nothing; either way the ping itself is always recorded
+correctly and picked up on the next regular cron invocation. See
+`website/health.php` for a list of recently received pings, to confirm
+Nextcloud's configuration is actually reaching this endpoint at all.
+
+## Encrypted app passwords
+
+Optional hardening for shared hosting (other accounts on the same machine
+sometimes being able to read files they shouldn't via misconfigured
+permissions): instead of a plaintext `app_password` in
+`config/nextcloud.yaml`, an instance can have `encrypted_app_password`.
+
+```bash
+python -m automation.config.secrets generate-key      # writes config/secret.key once
+python -m automation.config.secrets encrypt "the real app password"
+```
+
+Paste the printed value into `nextcloud.yaml` as `encrypted_app_password`
+instead of `app_password`. Uses `cryptography`'s Fernet (AES-128-CBC +
+HMAC-SHA256, authenticated) - deliberately **not** in `requirements.txt`
+or vendored by `tools/build.sh` like the project's other dependencies,
+since it has a compiled extension that can't be vendored as plain source;
+install it yourself (`pip install cryptography`) only if you use this.
+`website/src/Fernet.php` decrypts the exact same token format in pure PHP
+(via `openssl`/`hash_hmac`, no extra PHP dependency) using the same
+`config/secret.key` - keep that file's permissions tight and never commit
+it (already gitignored).
+
+## Failure notifications
+
+Optional: email an admin address once a workflow has failed `threshold`
+times in a row, via `error_notifications` in `config/settings.yaml`
+(disabled unless this section is present - see
+`config/settings.example.yaml`):
+
+```yaml
+error_notifications:
+  enabled: true
+  threshold: 3
+  to: "admin@example.com"
+```
+
+Uses the same `config/smtp.yaml` as `send_email` - set that up too.
+Checked once per `main.py` invocation (`_process_failure_notifications`),
+against the `threshold` most recent runs of each enabled workflow
+(`SqliteStateStore.recent_run_outcomes`, one entry per run - a run counts
+as failed if *any* of its actions failed). Notifies exactly once per
+failure streak - a `failure_notifications` row marks "already notified for
+the current, still-unbroken streak", cleared the moment a run succeeds, so
+a workflow that keeps flapping doesn't spam an email on every single tick,
+but does get a fresh notification if it recovers and then fails that many
+times again.
+
+## Health check & statistics
+
+`website/health.php` shows whether `main.py` is still running (via the
+heartbeat above - stale after 15 minutes, a fixed default) and simple
+run statistics for the last 24 hours, overall and per workflow.
+`health.php?format=json` returns the same data as JSON with an HTTP status
+code (200 healthy, 503 not) an external uptime monitor can check directly
+without parsing HTML.
 
 ## Adding a new action module
 

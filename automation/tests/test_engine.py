@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 from automation import actions_registry
+from automation.actions_registry.set_variable import SetVariableAction
 from automation.adapters.actions.loader import ModuleLoader
 from automation.core.domain.engine import WorkflowEngine
-from automation.core.domain.models import ActionStep, DeckEvent, EventType, Trigger, Workflow
+from automation.core.domain.models import (
+    ActionStep,
+    ComparisonOp,
+    Condition,
+    DeckEvent,
+    EventType,
+    IfStep,
+    Trigger,
+    Workflow,
+)
 from automation.testing.fakes import (
     InMemoryActionRegistry,
     InMemoryDeckGateway,
@@ -206,3 +216,258 @@ def test_unresolvable_ref_resolves_to_none_instead_of_crashing():
 
     assert results[0].success
     assert consumer.received == {"missing": None}
+
+
+def test_card_fields_are_available_as_a_ref_source_without_any_step():
+    consumer = ConsumerAction()
+    workflow = make_workflow(
+        actions=(
+            ActionStep(
+                module="consumer",
+                params={"title": {"$ref": "card.title"}, "due": {"$ref": "card.duedate"}},
+            ),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"consumer": consumer}),
+        execution_log=InMemoryExecutionLog(),
+    )
+    event = make_event(card={"title": "Buy milk", "duedate": "2026-01-05T10:00:00+00:00"})
+
+    results = engine.handle(event, deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert consumer.received == {"title": "Buy milk", "due": "2026-01-05T10:00:00+00:00"}
+
+
+def test_set_variable_is_readable_by_later_steps_via_vars_ref():
+    consumer = ConsumerAction()
+    workflow = make_workflow(
+        actions=(
+            ActionStep(module="set_variable", id="greet", params={"name": "greeting", "value": "hi"}),
+            ActionStep(module="consumer", params={"text": {"$ref": "vars.greeting"}}),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"set_variable": SetVariableAction(), "consumer": consumer}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert consumer.received == {"text": "hi"}
+
+
+def test_if_true_runs_the_then_branch_not_the_else_branch():
+    then_action = RecordingAction()
+    else_action = RecordingAction()
+    workflow = make_workflow(
+        actions=(
+            IfStep(
+                condition=Condition(left=1, op=ComparisonOp.EQ, right=1),
+                then_steps=(ActionStep(module="then_action"),),
+                else_steps=(ActionStep(module="else_action"),),
+            ),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"then_action": then_action, "else_action": else_action}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert len(then_action.calls) == 1
+    assert len(else_action.calls) == 0
+
+
+def test_if_false_runs_the_else_branch():
+    then_action = RecordingAction()
+    else_action = RecordingAction()
+    workflow = make_workflow(
+        actions=(
+            IfStep(
+                condition=Condition(left=1, op=ComparisonOp.EQ, right=2),
+                then_steps=(ActionStep(module="then_action"),),
+                else_steps=(ActionStep(module="else_action"),),
+            ),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"then_action": then_action, "else_action": else_action}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert len(then_action.calls) == 0
+    assert len(else_action.calls) == 1
+
+
+def test_if_condition_can_reference_card_fields_via_ref():
+    then_action = RecordingAction()
+    workflow = make_workflow(
+        actions=(
+            IfStep(
+                condition=Condition(left={"$ref": "card.priority"}, op=ComparisonOp.EQ, right="high"),
+                then_steps=(ActionStep(module="then_action"),),
+                else_steps=(),
+            ),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"then_action": then_action}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(card={"priority": "high"}), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert len(then_action.calls) == 1
+
+
+def test_steps_after_an_if_block_still_run_regardless_of_branch():
+    after_action = RecordingAction()
+    workflow = make_workflow(
+        actions=(
+            IfStep(
+                condition=Condition(left=1, op=ComparisonOp.EQ, right=2),
+                then_steps=(),
+                else_steps=(),
+            ),
+            ActionStep(module="after_action"),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"after_action": after_action}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert len(after_action.calls) == 1
+
+
+def test_nested_if_inside_a_then_branch():
+    inner_action = RecordingAction()
+    workflow = make_workflow(
+        actions=(
+            IfStep(
+                condition=Condition(left=1, op=ComparisonOp.EQ, right=1),
+                then_steps=(
+                    IfStep(
+                        condition=Condition(left=2, op=ComparisonOp.EQ, right=2),
+                        then_steps=(ActionStep(module="inner_action"),),
+                        else_steps=(),
+                    ),
+                ),
+                else_steps=(),
+            ),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"inner_action": inner_action}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert len(inner_action.calls) == 1
+
+
+def test_unid_steps_in_different_branches_do_not_collide_on_fallback_keys():
+    """Both branches have an id-less step; a step after the if-block must be
+    able to see whichever branch's output actually ran, keyed independently -
+    this is only possible if the two id-less steps got different fallback
+    keys despite both being "the first step" of their own branch."""
+
+    class EchoAction:
+        ACTION_NAME = "echo"
+
+        def execute(self, context, params):
+            return {"value": params["value"]}
+
+    consumer = ConsumerAction()
+    workflow = make_workflow(
+        actions=(
+            IfStep(
+                condition=Condition(left=1, op=ComparisonOp.EQ, right=1),
+                then_steps=(ActionStep(module="echo", params={"value": "from-then"}),),
+                else_steps=(ActionStep(module="echo", params={"value": "from-else"}),),
+            ),
+        )
+    )
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"echo": EchoAction(), "consumer": consumer}),
+        execution_log=InMemoryExecutionLog(),
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert results[0].action_results[0].success
+
+
+def test_sequence_store_is_threaded_into_action_context_via_the_constructor():
+    """generate_random_number is a real, registered action (not a test
+    double) - this exercises the actual constructor-level wiring main.py
+    relies on (sequence_store is passed once, unlike `calendar` which is
+    passed per handle() call)."""
+
+    from automation.testing.fakes import InMemorySequenceStore
+
+    sequence_store = InMemorySequenceStore()
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([
+            make_workflow(actions=(ActionStep(id="num", module="generate_random_number", params={
+                "list_name": "default", "min_digits": 4, "save": True,
+            }),))
+        ]),
+        actions=ModuleLoader(actions_registry),
+        execution_log=InMemoryExecutionLog(),
+        sequence_store=sequence_store,
+    )
+
+    results = engine.handle(make_event(), deck=InMemoryDeckGateway())
+
+    assert results[0].success
+    assert results[0].action_results[0].success
+    saved_numbers = sequence_store._lists["default"]
+    assert len(saved_numbers) == 1
+    assert len(next(iter(saved_numbers))) == 4
+
+
+def test_run_single_runs_a_workflow_even_if_disabled_and_event_does_not_match():
+    """run_single is what main.py's test-run processing uses - a manual
+    "try this workflow against this card" request should work regardless of
+    whether the workflow is enabled or whether its own trigger matches."""
+
+    action = RecordingAction()
+    workflow = make_workflow(enabled=False, trigger=Trigger(event_type=EventType.CARD_MOVED, stack_id=99))
+    execution_log = InMemoryExecutionLog()
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"recording": action}),
+        execution_log=execution_log,
+    )
+
+    result, run_id = engine.run_single(workflow, make_event(event_type=EventType.CARD_CREATED), deck=InMemoryDeckGateway())
+
+    assert result.success
+    assert len(action.calls) == 1
+    assert run_id
+    assert execution_log.results == [result]
+

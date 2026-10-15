@@ -118,6 +118,41 @@ fieldset textarea {
     margin-left: 1rem;
 }
 
+.if-step {
+    background: #f7f9f8;
+}
+
+.branch {
+    margin-left: 1rem;
+    margin-top: 0.5rem;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--border);
+}
+
+.branch-label {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.branch-steps .step {
+    background: #fff;
+}
+
+.step-list-controls {
+    margin-top: 0.25rem;
+}
+
+.step-list-controls button {
+    margin-right: 0.25rem;
+}
+
+.value-or-ref {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .param-row {
     display: flex;
     gap: 0.5rem;
@@ -157,4 +192,51 @@ code {
     background: #f0f0f0;
     padding: 0.1rem 0.3rem;
     border-radius: 3px;
+}
+
+.typeahead {
+    position: relative;
+    display: inline-block;
+}
+
+.typeahead-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 10;
+    min-width: 100%;
+    max-height: 12rem;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.typeahead-result {
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.typeahead-result:hover {
+    background: #eef3f0;
+}
+
+tr.run-failed {
+    background: #fdeceb;
+}
+
+ul.run-actions {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.action-ok {
+    color: var(--accent);
+}
+
+.action-failed {
+    color: var(--danger);
 }

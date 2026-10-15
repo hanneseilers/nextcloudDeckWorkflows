@@ -1,28 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from automation.adapters.actions.simple_card_action import make_simple_card_action
 
-from automation.adapters.actions.base import WorkflowAction
-from automation.core.ports.action_module import ActionContext
-
-
-class AddLabelAction(WorkflowAction):
-    """Adds an existing Deck label (by its numeric id) to the triggering card.
+AddLabelAction = make_simple_card_action(
+    action_name="add_label",
+    param_name="label_id",
+    default_value=0,
+    deck_method="add_label",
+    doc="""Adds an existing Deck label (by its numeric id) to the triggering card.
 
     params:
       label_id: int - id of an existing label on the card's board
-    """
-
-    ACTION_NAME: ClassVar[str] = "add_label"
-
-    def default_input(self) -> dict[str, Any]:
-        return {"label_id": 0}
-
-    def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        context.deck.add_label(
-            board_id=context.event.board_id,
-            stack_id=context.current_stack_id,
-            card_id=context.event.card_id,
-            label_id=params["label_id"],
-        )
-        return {}
+    """,
+)

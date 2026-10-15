@@ -175,6 +175,11 @@ section_php_deps() {
 section_python_deps() {
     log "3/8 Python-Abhängigkeiten"
 
+    if [ -d "$AUTOMATION_DIR/vendor" ]; then
+        info "automation/vendor/ ist bereits gebündelt (von tools/build.sh) - nichts zu installieren."
+        return
+    fi
+
     if ! command -v python3 >/dev/null 2>&1; then
         warn "python3 fehlt - Schritt übersprungen."
         note_todo "python3 installieren, dann 'pip3 install -r automation/requirements.txt' ausführen."

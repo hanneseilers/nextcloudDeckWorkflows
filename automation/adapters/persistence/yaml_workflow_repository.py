@@ -6,7 +6,17 @@ from typing import Optional
 
 import yaml
 
-from automation.core.domain.models import ActionStep, EventType, Trigger, Workflow
+from automation.core.domain.models import (
+    ActionStep,
+    ComparisonOp,
+    Condition,
+    EventType,
+    IfStep,
+    ScheduleTrigger,
+    Trigger,
+    Workflow,
+    WorkflowStep,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +28,8 @@ class YamlWorkflowRepository:
     def __init__(self, directory: Path) -> None:
         self._directory = Path(directory)
         self._directory.mkdir(parents=True, exist_ok=True)
+        self._cache: Optional[list[Workflow]] = None
+        self._cache_signature: Optional[tuple] = None
 
     def list_enabled(self) -> list[Workflow]:
         return [wf for wf in self._load_all() if wf.enabled]
@@ -33,14 +45,28 @@ class YamlWorkflowRepository:
 
     def save(self, workflow: Workflow) -> None:
         self._path_for(workflow.id).write_text(yaml.safe_dump(self._to_dict(workflow), sort_keys=False))
+        self._cache = None  # force a fresh _load_all() even if mtimes happened to collide
 
     def delete(self, workflow_id: str) -> None:
         self._path_for(workflow_id).unlink(missing_ok=True)
+        self._cache = None
 
     def _path_for(self, workflow_id: str) -> Path:
         return self._directory / f"{workflow_id}.yaml"
 
     def _load_all(self) -> list[Workflow]:
+        # WorkflowEngine.handle() calls list_enabled() once per event, and a
+        # single run can process many events across several fixed-point
+        # iterations (see main.py) - re-reading and re-parsing every
+        # workflow file's content on every one of those calls is pure waste
+        # when nothing in workflows/ has changed since the last call.
+        # Re-stat'ing every file (cheap: no content read, no YAML parsing)
+        # to build a (name, mtime) signature is enough to detect any change
+        # - a file added/removed/edited - without caching anything stale.
+        signature = self._directory_signature()
+        if self._cache is not None and signature == self._cache_signature:
+            return self._cache
+
         workflows = []
         for path in sorted(self._directory.glob("*.yaml")):
             try:
@@ -51,19 +77,30 @@ class YamlWorkflowRepository:
                 # A single malformed workflow file must not take every other
                 # workflow down with it - skip it, log it, keep going.
                 logger.exception("Skipping invalid workflow file %s", path)
+
+        self._cache = workflows
+        self._cache_signature = signature
         return workflows
+
+    def _directory_signature(self) -> tuple:
+        return tuple((path.name, path.stat().st_mtime_ns) for path in sorted(self._directory.glob("*.yaml")))
 
     @staticmethod
     def _parse(data: dict) -> Workflow:
         trigger_data = data["trigger"]
-        trigger = Trigger(
-            event_type=EventType(trigger_data["event"]),
-            stack_id=trigger_data.get("stack_id"),
-        )
-        actions = tuple(
-            ActionStep(module=step["module"], id=step.get("id", ""), params=step.get("params") or {})
-            for step in data.get("actions", [])
-        )
+        if "schedule" in trigger_data:
+            schedule_data = trigger_data["schedule"]
+            weekdays = schedule_data.get("weekdays")
+            trigger = Trigger(schedule=ScheduleTrigger(
+                time=schedule_data["time"],
+                weekdays=tuple(weekdays) if weekdays else None,
+            ))
+        else:
+            trigger = Trigger(
+                event_type=EventType(trigger_data["event"]),
+                stack_id=trigger_data.get("stack_id"),
+            )
+        actions = _parse_steps(data.get("actions", []))
         return Workflow(
             id=data["id"],
             name=data.get("name", data["id"]),
@@ -76,9 +113,15 @@ class YamlWorkflowRepository:
 
     @staticmethod
     def _to_dict(workflow: Workflow) -> dict:
-        trigger: dict = {"event": workflow.trigger.event_type.value}
-        if workflow.trigger.stack_id is not None:
-            trigger["stack_id"] = workflow.trigger.stack_id
+        if workflow.trigger.schedule is not None:
+            schedule: dict = {"time": workflow.trigger.schedule.time}
+            if workflow.trigger.schedule.weekdays:
+                schedule["weekdays"] = list(workflow.trigger.schedule.weekdays)
+            trigger: dict = {"schedule": schedule}
+        else:
+            trigger = {"event": workflow.trigger.event_type.value}
+            if workflow.trigger.stack_id is not None:
+                trigger["stack_id"] = workflow.trigger.stack_id
         return {
             "id": workflow.id,
             "name": workflow.name,
@@ -90,7 +133,42 @@ class YamlWorkflowRepository:
         }
 
 
-def _step_to_dict(step: ActionStep) -> dict:
+def _parse_steps(items: list) -> tuple[WorkflowStep, ...]:
+    return tuple(_parse_step(item) for item in items)
+
+
+def _parse_step(data: dict) -> WorkflowStep:
+    if data.get("type") == "if":
+        condition_data = data["condition"]
+        condition = Condition(
+            left=condition_data["left"],
+            op=ComparisonOp(condition_data["op"]),
+            right=condition_data["right"],
+        )
+        return IfStep(
+            condition=condition,
+            then_steps=_parse_steps(data.get("then", [])),
+            else_steps=_parse_steps(data.get("else", [])),
+        )
+    return ActionStep(module=data["module"], id=data.get("id", ""), params=data.get("params") or {})
+
+
+def _steps_to_list(steps: tuple[WorkflowStep, ...]) -> list:
+    return [_step_to_dict(step) for step in steps]
+
+
+def _step_to_dict(step: WorkflowStep) -> dict:
+    if isinstance(step, IfStep):
+        return {
+            "type": "if",
+            "condition": {
+                "left": step.condition.left,
+                "op": step.condition.op.value,
+                "right": step.condition.right,
+            },
+            "then": _steps_to_list(step.then_steps),
+            "else": _steps_to_list(step.else_steps),
+        }
     data: dict = {"module": step.module}
     if step.id:
         data["id"] = step.id

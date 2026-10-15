@@ -92,6 +92,17 @@ class WorkflowRepository
 
     private function pathFor(string $id): string
     {
+        // Every caller (save.php, delete.php, toggle.php, duplicate.php,
+        // new.php, test_run.php, start_test_run.php) ultimately reaches a
+        // filesystem path through here - validating once, centrally, means
+        // a future entry point can't forget the id-sanitization check
+        // save.php otherwise did on its own (and delete/toggle/duplicate did
+        // not), and closes off path traversal (e.g. id=../../config/nextcloud)
+        // that would otherwise let a POST delete/overwrite/read an arbitrary
+        // .yaml file outside the workflows directory.
+        if (!preg_match('/^[a-z0-9\-]+$/', $id)) {
+            throw new \InvalidArgumentException("Invalid workflow id '$id'");
+        }
         return $this->directory . '/' . $id . '.yaml';
     }
 }

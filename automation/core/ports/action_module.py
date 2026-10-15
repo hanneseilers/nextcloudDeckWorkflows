@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable, Protocol
+from typing import Any, ClassVar, Iterable, Optional, Protocol
 
 from automation.core.domain.models import DeckEvent
+from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
+from automation.core.ports.sequence_store import SequenceStorePort
 
 
 class UnknownActionError(KeyError):
@@ -27,11 +29,31 @@ class ActionContext:
     MoveCardAction when it runs, so later actions in the same chain (e.g.
     set_due_date after move_card) address the card's actual current stack
     instead of the one it was in when the event was detected.
+
+    `variables` is the workflow run's shared global-variable store, written to
+    by SetVariableAction under a workflow-chosen name and shared with the
+    engine (see WorkflowEngine._run, which exposes the same dict as
+    outputs_by_step["vars"] for {"$ref": "vars.<name>"}) and with any action
+    that substitutes $placeholders in free text (send_email, add_comment).
+
+    `calendar` is the CalDAV connection for this event's Nextcloud instance -
+    None where it wasn't set up (dry-run, most tests), in which case
+    calendar_lookup raises a clear error rather than crashing with an
+    AttributeError, caught like any other action's error.
+
+    `sequence_store` backs generate_random_number/forget_random_number's
+    "already generated" lists - one store shared across all instances/boards
+    (unlike `calendar`, nothing here is Nextcloud-instance-specific). None in
+    the same situations as `calendar` (dry-run, most tests), where those two
+    actions raise a clear error instead of crashing.
     """
 
     event: DeckEvent
     deck: DeckGatewayPort
     modules: "ActionModulePort"
+    variables: dict[str, Any] = field(default_factory=dict)
+    calendar: Optional[CalendarGatewayPort] = None
+    sequence_store: Optional[SequenceStorePort] = None
     current_stack_id: int = field(init=False)
 
     def __post_init__(self) -> None:

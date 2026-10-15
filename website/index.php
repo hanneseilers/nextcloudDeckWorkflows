@@ -4,6 +4,7 @@ require __DIR__ . '/vendor/autoload.php';
 
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Csrf;
+use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
@@ -29,7 +30,11 @@ function h(string $value): string
 <body>
 <header>
     <h1>Nextcloud Deck Workflows</h1>
-    <a class="button" href="new.php">+ Neuer Workflow</a>
+    <div>
+        <a href="health.php">Status</a>
+        <a href="history.php">Historie</a>
+        <a class="button" href="new.php">+ Neuer Workflow</a>
+    </div>
 </header>
 
 <?php if (empty($config->instances())): ?>
@@ -62,8 +67,15 @@ function h(string $value): string
 <?php foreach ($workflowList as $workflow): ?>
 <?php
     $trigger = $workflow['trigger'] ?? [];
-    $triggerLabel = h((string) ($trigger['event'] ?? '?'))
-        . (isset($trigger['stack_id']) ? ' (Spalte ' . h((string) $trigger['stack_id']) . ')' : '');
+    if (isset($trigger['schedule'])) {
+        $weekdayNames = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+        $weekdays = $trigger['schedule']['weekdays'] ?? [];
+        $triggerLabel = 'Zeitplan ' . h((string) ($trigger['schedule']['time'] ?? '?'))
+            . ($weekdays !== [] ? ' (' . h(implode(',', array_map(fn ($d) => $weekdayNames[$d] ?? $d, $weekdays))) . ')' : ' (täglich)');
+    } else {
+        $triggerLabel = h(EventTypes::label((string) ($trigger['event'] ?? '?')))
+            . (isset($trigger['stack_id']) ? ' (Spalte ' . h((string) $trigger['stack_id']) . ')' : '');
+    }
     $stepCount = count($workflow['actions'] ?? []);
     $enabled = (bool) ($workflow['enabled'] ?? true);
 ?>
@@ -75,6 +87,13 @@ function h(string $value): string
     <td><?= $stepCount ?></td>
     <td><?= $enabled ? 'ja' : 'nein' ?></td>
     <td class="actions">
+        <a class="button" href="new.php?id=<?= urlencode((string) $workflow['id']) ?>">Bearbeiten</a>
+        <a class="button" href="test_run.php?workflow_id=<?= urlencode((string) $workflow['id']) ?>">Testlauf</a>
+        <form method="post" action="duplicate.php" class="inline">
+            <input type="hidden" name="id" value="<?= h((string) $workflow['id']) ?>">
+            <?= Csrf::field() ?>
+            <button type="submit">Duplizieren</button>
+        </form>
         <form method="post" action="toggle.php" class="inline">
             <input type="hidden" name="id" value="<?= h((string) $workflow['id']) ?>">
             <input type="hidden" name="enabled" value="<?= $enabled ? '0' : '1' ?>">
