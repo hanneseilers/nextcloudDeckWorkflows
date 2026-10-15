@@ -649,6 +649,27 @@
       + ' ' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
   }
 
+  // Shows `input.dataset.errorMessage` in a line below the field when the
+  // field is flagged .invalid and loses focus; hides it again as soon as the
+  // content is valid. Call after the input's own 'input' listener is attached.
+  function addSyntaxErrorDisplay(input, wrapper) {
+    const errorEl = document.createElement('span');
+    errorEl.className = 'field-error';
+    errorEl.hidden = true;
+    wrapper.appendChild(errorEl);
+    input.addEventListener('blur', () => {
+      if (input.classList.contains('invalid')) {
+        errorEl.textContent = input.dataset.errorMessage || 'Ungültiger Wert.';
+        errorEl.hidden = false;
+      }
+    });
+    input.addEventListener('input', () => {
+      if (!input.classList.contains('invalid')) {
+        errorEl.hidden = true;
+      }
+    });
+  }
+
   function appendGermanDateTimeField(wrapper, entry, hint) {
     const input = document.createElement('input');
     input.type = 'text';
@@ -666,6 +687,7 @@
         const iso = germanToIso(text);
         if (iso === null) {
           input.classList.add('invalid');
+          input.dataset.errorMessage = 'Ungültiges Datum - erwartet wird TT.MM.JJJJ hh:mm, z. B. 15.03.2027 14:30.';
         } else {
           entry.value = iso;
           input.classList.remove('invalid');
@@ -679,6 +701,7 @@
       hintEl.textContent = hint;
       wrapper.appendChild(hintEl);
     }
+    addSyntaxErrorDisplay(input, wrapper);
   }
 
   function appendLiteralOperandField(wrapper, entry, opts) {
@@ -701,6 +724,7 @@
           input.classList.remove('invalid');
         } catch (e) {
           input.classList.add('invalid');
+          input.dataset.errorMessage = 'Ungültiges JSON: ' + e.message;
         }
       } else if (input.type === 'number') {
         entry.value = input.value === '' ? opts.defaultValue : Number(input.value);
@@ -716,6 +740,9 @@
       hint.className = 'muted format-hint';
       hint.textContent = opts.formatHint;
       wrapper.appendChild(hint);
+    }
+    if (isTextarea) {
+      addSyntaxErrorDisplay(input, wrapper);
     }
   }
 
