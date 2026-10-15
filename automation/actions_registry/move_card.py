@@ -15,6 +15,7 @@ class MoveCardAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "move_card"
+    LABEL: ClassVar[str] = "Karte verschieben"
 
     def default_input(self) -> dict[str, Any]:
         return {"target_stack_id": 0, "order": 0}

@@ -1,7 +1,7 @@
 /**
- * Drives test_run.php's card picker - mounts a renderTypeahead() (see
- * assets/typeahead.js) fetching every card on the workflow's own board via
- * api_cards.php, and blocks submitting without an actual pick.
+ * Drives test_run.php's card picker - a dropdown of every card on the
+ * workflow's own board (via api_cards.php) - and asks for confirmation
+ * before submitting.
  */
 (function () {
   'use strict';
@@ -26,53 +26,50 @@
     return data;
   }
 
-  function filterByTitle(items, query) {
-    const q = query.trim().toLowerCase();
-    return items
-      .filter((item) => item.title.toLowerCase().includes(q))
-      .map((item) => ({ id: String(item.id), label: item.title }));
-  }
-
   const cardIdEl = document.getElementById('card-id');
   const cardFieldEl = document.getElementById('card-field');
-  let cardsCache = null;
 
-  async function loadCards(query) {
-    if (!cardsCache) {
+  // A plain dropdown of every card on the board (first one preselected), so
+  // confirming a test run never requires typing a card title.
+  (async function mountCardSelect() {
+    try {
       const data = await fetchJSON(
         'api_cards.php?instance=' + encodeURIComponent(window.TEST_RUN_INSTANCE)
           + '&board_id=' + encodeURIComponent(window.TEST_RUN_BOARD_ID)
       );
-      cardsCache = data.cards || [];
+      const cards = data.cards || [];
+      cardFieldEl.className = '';
+      cardFieldEl.innerHTML = '';
+      if (cards.length === 0) {
+        showError('Auf diesem Board gibt es keine Karte für einen Testlauf.');
+        return;
+      }
+      const select = document.createElement('select');
+      cards.forEach((card) => {
+        const option = document.createElement('option');
+        option.value = String(card.id);
+        option.textContent = card.title;
+        select.appendChild(option);
+      });
+      select.addEventListener('change', () => {
+        cardIdEl.value = select.value;
+      });
+      cardIdEl.value = select.value;
+      cardFieldEl.appendChild(select);
+    } catch (e) {
+      showError(e.message);
     }
-    return filterByTitle(cardsCache, query);
-  }
-
-  cardFieldEl.className = '';
-  cardFieldEl.innerHTML = '';
-  cardFieldEl.appendChild(
-    renderTypeahead({
-      value: '',
-      placeholder: 'Kartentitel eingeben',
-      setValue: (value) => {
-        cardIdEl.value = value;
-      },
-      loadOptions: async (query) => {
-        try {
-          return await loadCards(query);
-        } catch (e) {
-          showError(e.message);
-          return [];
-        }
-      },
-    })
-  );
+  })();
 
   document.getElementById('test-run-form').addEventListener('submit', (event) => {
     hideError();
     if (!/^\d+$/.test(cardIdEl.value.trim())) {
       event.preventDefault();
-      showError('Bitte eine Karte aus der Liste auswählen.');
+      showError('Bitte eine Karte auswählen.');
+      return;
+    }
+    if (!confirm('Den Workflow jetzt wirklich gegen die gewählte Karte ausführen?')) {
+      event.preventDefault();
     }
   });
 })();

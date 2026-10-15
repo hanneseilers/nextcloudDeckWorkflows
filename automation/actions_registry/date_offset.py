@@ -22,6 +22,7 @@ class DateOffsetAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "date_offset"
+    LABEL: ClassVar[str] = "Datum verschieben"
 
     def default_input(self) -> dict[str, Any]:
         return {"base": None, "days": 0}

@@ -25,6 +25,7 @@ class CalendarLookupAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "calendar_lookup"
+    LABEL: ClassVar[str] = "Kalender abfragen"
 
     def default_input(self) -> dict[str, Any]:
         return {"calendar_id": "", "title_contains": ""}

@@ -19,6 +19,7 @@ class AddCommentAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "add_comment"
+    LABEL: ClassVar[str] = "Kommentar hinzufügen"
 
     def default_input(self) -> dict[str, Any]:
         return {"message": ""}

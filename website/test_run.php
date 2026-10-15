@@ -52,14 +52,13 @@ der <a href="history.php">Historie</a>.</p>
 <label>Karte (auf Board <?= h((string) $workflow['board_id']) ?>)
     <span id="card-field" class="muted">– lädt –</span>
 </label>
-<button type="submit" class="button">Testlauf anfragen</button>
+<button type="submit" class="button">Testlauf starten</button>
 </form>
 
 <script>
   window.TEST_RUN_INSTANCE = <?= json_encode($workflow['nextcloud_instance']) ?>;
   window.TEST_RUN_BOARD_ID = <?= json_encode($workflow['board_id']) ?>;
 </script>
-<script src="assets/typeahead.js"></script>
 <script src="assets/test_run.js"></script>
 <?php endif; ?>
 

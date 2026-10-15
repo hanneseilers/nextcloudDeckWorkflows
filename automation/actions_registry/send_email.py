@@ -47,6 +47,7 @@ class SendEmailAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "send_email"
+    LABEL: ClassVar[str] = "E-Mail senden"
 
     def default_input(self) -> dict[str, Any]:
         return {"to": "", "subject": "", "body": "", "template": None, "template_data": {}}

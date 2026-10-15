@@ -26,6 +26,7 @@ class FormatTextAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "format_text"
+    LABEL: ClassVar[str] = "Text zusammensetzen"
 
     def default_input(self) -> dict[str, Any]:
         return {"template": "", "values": {}}

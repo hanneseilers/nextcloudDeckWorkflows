@@ -22,6 +22,7 @@ class SetVariableAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "set_variable"
+    LABEL: ClassVar[str] = "Variable setzen"
 
     def default_input(self) -> dict[str, Any]:
         return {"name": "", "value": None}

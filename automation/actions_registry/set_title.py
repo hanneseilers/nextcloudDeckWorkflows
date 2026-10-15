@@ -4,6 +4,7 @@ from automation.adapters.actions.simple_card_action import make_simple_card_acti
 
 SetTitleAction = make_simple_card_action(
     action_name="set_title",
+    label="Titel setzen",
     param_name="title",
     default_value="",
     deck_method="set_title",

@@ -26,6 +26,7 @@ class AddChecklistItemAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "add_checklist_item"
+    LABEL: ClassVar[str] = "Checklisten-Punkt hinzufügen"
 
     def default_input(self) -> dict[str, Any]:
         return {"text": ""}

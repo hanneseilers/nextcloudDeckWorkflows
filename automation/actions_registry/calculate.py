@@ -29,6 +29,7 @@ class CalculateAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "calculate"
+    LABEL: ClassVar[str] = "Berechnen"
 
     def default_input(self) -> dict[str, Any]:
         return {"left": 0, "right": 0, "op": "add"}

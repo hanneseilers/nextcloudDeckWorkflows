@@ -14,6 +14,7 @@ class LogAction(WorkflowAction):
     action - copy this file as a starting point for a new capability."""
 
     ACTION_NAME: ClassVar[str] = "log_action"
+    LABEL: ClassVar[str] = "Eintrag protokollieren"
 
     def default_input(self) -> dict[str, Any]:
         return {"message": ""}

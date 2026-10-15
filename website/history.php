@@ -5,12 +5,18 @@ require __DIR__ . '/vendor/autoload.php';
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ExecutionLog;
+use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\TestRunStore;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
 $workflows = new WorkflowRepository($config->workflowsDir());
 $executionLog = new ExecutionLog($config->stateDbPath());
+
+$moduleLabels = [];
+foreach (ModuleRegistry::fromRepoRoot()->all() as $module) {
+    $moduleLabels[$module['name']] = $module['label'] ?? $module['name'];
+}
 
 $pendingTestRun = null;
 if (isset($_GET['test_run_id'])) {
@@ -105,7 +111,7 @@ function h(string $value): string
         <ul class="run-actions">
         <?php foreach ($run['actions'] as $action): ?>
             <li class="<?= $action['success'] ? 'action-ok' : 'action-failed' ?>">
-                <?= $action['success'] ? '✓' : '✗' ?> <?= h($action['module']) ?>
+                <?= $action['success'] ? '✓' : '✗' ?> <span title="<?= h($action['module']) ?>"><?= h($moduleLabels[$action['module']] ?? $action['module']) ?></span>
                 <?php if (!$action['success'] && $action['error']): ?>
                     — <?= h($action['error']) ?>
                 <?php endif; ?>

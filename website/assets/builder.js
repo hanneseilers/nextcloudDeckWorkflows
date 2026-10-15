@@ -30,15 +30,37 @@
   JSON.parse(document.getElementById('modules-data').textContent).forEach((m) => {
     modulesByName[m.name] = m;
   });
-  const moduleNames = Object.keys(modulesByName).sort();
+  const moduleLabel = (name) => {
+    const m = modulesByName[name];
+    return m && m.label && m.label !== name ? m.label : name;
+  };
+  const moduleNames = Object.keys(modulesByName).sort(
+    (a, b) => moduleLabel(a).localeCompare(moduleLabel(b), 'de')
+  );
 
   // "card" is a reserved $ref source (see automation/README.md): the raw
   // Nextcloud Deck fields of the card that triggered the workflow, always
-  // available without adding a step. This list is only used to populate the
-  // field-name datalist below - the actual value comes straight from the
-  // Deck API at run time, so any other field name the API returns also works.
+  // available without adding a step. This list only feeds the field picker -
+  // the actual value comes straight from the Deck API at run time, so any
+  // other field name the API returns also works (via "Anderes Feld...").
   const CARD_FIELDS = [
-    'title', 'description', 'duedate', 'labels', 'assignedUsers', 'owner', 'done', 'archived',
+    ['title', 'Titel'],
+    ['description', 'Beschreibung'],
+    ['duedate', 'Fälligkeitsdatum'],
+    ['labels', 'Labels'],
+    ['assignedUsers', 'Zugewiesene Benutzer'],
+    ['owner', 'Ersteller'],
+    ['done', 'Erledigt (Datum)'],
+    ['archived', 'Archiviert'],
+    ['id', 'Karten-Id'],
+    ['stackId', 'Spalten-Id'],
+    ['createdAt', 'Erstellt am (Zeitstempel)'],
+    ['lastModified', 'Zuletzt geändert (Zeitstempel)'],
+    ['lastEditor', 'Zuletzt bearbeitet von'],
+    ['order', 'Position in der Spalte'],
+    ['overdue', 'Überfällig-Status'],
+    ['commentsCount', 'Anzahl Kommentare'],
+    ['attachmentCount', 'Anzahl Anhänge'],
   ];
 
   const CONDITION_OPS = [
@@ -348,6 +370,104 @@
     return moduleName === 'calendar_lookup' && key === 'calendar_id';
   }
 
+  function isGermanDateTimeField(moduleName, key) {
+    return moduleName === 'set_due_date' && key === 'due_date';
+  }
+
+  function formatHintFor(moduleName, key) {
+    if (moduleName === 'set_due_date' && key === 'due_date') {
+      return 'Format: TT.MM.JJJJ hh:mm';
+    }
+    if (moduleName === 'move_card' && key === 'order') {
+      return 'Position in der Spalte (0 = ganz oben)';
+    }
+    return '';
+  }
+
+  const PARAM_EXAMPLES = {
+    'format_text.template': 'Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter "values" ersetzt.',
+    'format_text.values': 'Beispiel: {"nummer": {"$ref": "schritt1.number"}, "titel": {"$ref": "card.title"}} - links der Platzhaltername, rechts der Wert (als Referenz auf einen Schritt oder die Karte).',
+    'extract_field.data': 'Beispiel: Referenz auf Quelle "card", Feld "labels" - oder allgemein die gesamte Ausgabe eines früheren Schritts.',
+    'extract_field.path': 'Beispiel: 0.title - nimmt aus einer Liste den ersten Eintrag (0) und davon das Feld "title". Ebenen werden mit Punkten getrennt, Listen-Positionen beginnen bei 0.',
+  };
+
+  function isStackIdField(moduleName, key) {
+    return moduleName === 'move_card' && key === 'target_stack_id';
+  }
+
+  function isLabelIdField(moduleName, key) {
+    return moduleName === 'add_label' && key === 'label_id';
+  }
+
+  // Labels and stacks both belong to the currently selected board: fetched
+  // once per board (cached), filtered client-side as the user types, saved as
+  // the numeric id - a typed id still works. A saved id is shown as its name.
+  const boardItemsCache = {};
+
+  async function loadBoardItems(endpoint, listKey) {
+    const boardId = boardEl.value;
+    if (!instanceEl.value || !/^\d+$/.test(boardId)) {
+      return [];
+    }
+    const key = endpoint + ':' + instanceEl.value + ':' + boardId;
+    if (!boardItemsCache[key]) {
+      const data = await fetchJSON(
+        endpoint + '?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId)
+      );
+      boardItemsCache[key] = data[listKey] || [];
+    }
+    return boardItemsCache[key];
+  }
+
+  function renderBoardItemField(entry, { endpoint, listKey, placeholder }) {
+    const field = renderTypeahead({
+      value: entry.value ? String(entry.value) : '',
+      setValue: (value) => {
+        entry.value = /^\d+$/.test(String(value).trim()) ? Number(value) : value;
+      },
+      placeholder,
+      loadOptions: async (query) => filterByTitle(await loadBoardItems(endpoint, listKey), query),
+    });
+    // In edit mode the board is restored asynchronously after the steps
+    // render, so retry briefly until it is known.
+    if (entry.value) {
+      let attempts = 0;
+      const resolveTitle = () => {
+        if (!/^\d+$/.test(boardEl.value)) {
+          if (++attempts < 20) {
+            setTimeout(resolveTitle, 250);
+          }
+          return;
+        }
+        loadBoardItems(endpoint, listKey).then((items) => {
+          const match = items.find((item) => String(item.id) === String(entry.value));
+          const input = field.querySelector('input');
+          if (match && input.value === String(entry.value)) {
+            input.value = match.title;
+          }
+        }).catch(() => {});
+      };
+      resolveTitle();
+    }
+    return field;
+  }
+
+  function renderLabelSearchField(entry) {
+    return renderBoardItemField(entry, {
+      endpoint: 'api_labels.php',
+      listKey: 'labels',
+      placeholder: 'Label-Name eingeben oder Label-Id direkt eintragen',
+    });
+  }
+
+  function renderStackSearchField(entry) {
+    return renderBoardItemField(entry, {
+      endpoint: 'api_stacks.php',
+      listKey: 'stacks',
+      placeholder: 'Spaltenname eingeben oder Spalten-Id direkt eintragen',
+    });
+  }
+
   function renderUserSearchField(entry) {
     return renderTypeahead({
       value: entry.value || '',
@@ -395,8 +515,8 @@
   // side's input type comes from the module's declared default value) and an
   // if-condition's operands (always a plain text literal, no module/type to
   // derive from).
-  // Appends the ref-picker UI (source-step select + output-field input with
-  // its datalist of known field names) to `wrapper` for an entry whose
+  // Appends the ref-picker UI (source-step select + output-field picker
+  // listing the source's known fields, with a free-text fallback) to `wrapper` for an entry whose
   // source is "ref".
   function appendRefOperandFields(wrapper, entry) {
     const refSources = [{ id: 'card' }, { id: 'vars' }, ...collectAllSteps(state.steps)];
@@ -408,49 +528,164 @@
     refSources.forEach((source) => {
       const option = document.createElement('option');
       option.value = source.id;
-      option.textContent = source.module ? source.id + ' (' + source.module + ')' : source.id;
+      option.textContent = source.module ? source.id + ' (' + moduleLabel(source.module) + ')' : source.id;
       option.selected = source.id === entry.refStep;
       refSelect.appendChild(option);
     });
-    refSelect.addEventListener('change', () => {
-      entry.refStep = refSelect.value;
-    });
     wrapper.appendChild(refSelect);
 
-    const listId = 'ref-fields-' + Math.random().toString(36).slice(2);
-    const fieldInput = document.createElement('input');
-    fieldInput.type = 'text';
-    fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
-    fieldInput.value = entry.refField || '';
-    fieldInput.setAttribute('list', listId);
-    fieldInput.addEventListener('input', () => {
-      entry.refField = fieldInput.value;
-    });
-    wrapper.appendChild(fieldInput);
+    const fieldBox = document.createElement('span');
+    wrapper.appendChild(fieldBox);
 
-    const datalist = document.createElement('datalist');
-    datalist.id = listId;
-    let fieldOptions;
-    if (entry.refStep === 'card') {
-      fieldOptions = CARD_FIELDS;
-    } else if (entry.refStep === 'vars') {
-      fieldOptions = collectVariableNames(state.steps);
-    } else {
-      const refStepObj = refSources.find((s) => s.id === entry.refStep);
+    // [value, label] pairs the picker offers for the currently chosen source.
+    const fieldOptionsFor = (stepId) => {
+      if (stepId === 'card') {
+        return CARD_FIELDS;
+      }
+      if (stepId === 'vars') {
+        return collectVariableNames(state.steps).map((name) => [name, name]);
+      }
+      const refStepObj = refSources.find((s) => s.id === stepId);
       const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
-      fieldOptions = Object.keys((refModule && refModule.output) || {});
-    }
-    fieldOptions.forEach((field) => {
-      const option = document.createElement('option');
-      option.value = field;
-      datalist.appendChild(option);
+      return Object.keys((refModule && refModule.output) || {}).map((name) => [name, name]);
+    };
+
+    const renderFieldPicker = () => {
+      fieldBox.textContent = '';
+      const options = fieldOptionsFor(entry.refStep);
+      const fieldInput = document.createElement('input');
+      fieldInput.type = 'text';
+      fieldInput.placeholder = 'Feldname';
+      fieldInput.value = entry.refField || '';
+      fieldInput.addEventListener('input', () => {
+        entry.refField = fieldInput.value;
+      });
+
+      if (options.length === 0) {
+        fieldInput.placeholder = 'Ausgabefeld, z.B. summary';
+        fieldBox.appendChild(fieldInput);
+        return;
+      }
+
+      const CUSTOM = '__custom__';
+      const fieldSelect = document.createElement('select');
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '– Feld wählen –';
+      fieldSelect.appendChild(placeholder);
+      const known = options.some(([value]) => value === entry.refField);
+      options.forEach(([value, label]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label === value ? value : label + ' (' + value + ')';
+        option.selected = value === entry.refField;
+        fieldSelect.appendChild(option);
+      });
+      const customOpt = document.createElement('option');
+      customOpt.value = CUSTOM;
+      customOpt.textContent = 'Anderes Feld …';
+      const isCustom = !!entry.refField && !known;
+      customOpt.selected = isCustom;
+      fieldSelect.appendChild(customOpt);
+      if (!entry.refField) {
+        placeholder.selected = true;
+      }
+
+      fieldInput.hidden = !isCustom;
+      fieldSelect.addEventListener('change', () => {
+        if (fieldSelect.value === CUSTOM) {
+          fieldInput.hidden = false;
+          fieldInput.focus();
+        } else {
+          fieldInput.hidden = true;
+          entry.refField = fieldSelect.value;
+          fieldInput.value = fieldSelect.value;
+        }
+      });
+      fieldBox.appendChild(fieldSelect);
+      fieldBox.appendChild(fieldInput);
+    };
+    renderFieldPicker();
+
+    refSelect.addEventListener('change', () => {
+      entry.refStep = refSelect.value;
+      entry.refField = '';
+      renderFieldPicker();
     });
-    wrapper.appendChild(datalist);
   }
 
   // Appends the literal-value input (type derived from the module's default,
   // or a plain text field for an if-condition operand) to `wrapper`.
+  // -- German date/time entry (TT.MM.JJJJ hh:mm, local time) <-> stored ISO 8601 --
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  function germanToIso(text) {
+    const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(text.trim());
+    if (!m) {
+      return null;
+    }
+    const [day, month, year, hour, minute] = [m[1], m[2], m[3], m[4], m[5]].map(Number);
+    const date = new Date(year, month - 1, day, hour, minute);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day
+        || date.getHours() !== hour || date.getMinutes() !== minute) {
+      return null; // e.g. 31.02. or 25:00 - Date would silently roll over
+    }
+    const offset = -date.getTimezoneOffset();
+    const sign = offset >= 0 ? '+' : '-';
+    return year + '-' + pad2(month) + '-' + pad2(day) + 'T' + pad2(hour) + ':' + pad2(minute) + ':00'
+      + sign + pad2(Math.floor(Math.abs(offset) / 60)) + ':' + pad2(Math.abs(offset) % 60);
+  }
+
+  function isoToGerman(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+      return value == null ? '' : String(value);
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return pad2(date.getDate()) + '.' + pad2(date.getMonth() + 1) + '.' + date.getFullYear()
+      + ' ' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+  }
+
+  function appendGermanDateTimeField(wrapper, entry, hint) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'TT.MM.JJJJ hh:mm';
+    input.value = isoToGerman(entry.value);
+    input.addEventListener('input', () => {
+      const text = input.value.trim();
+      if (text === '') {
+        entry.value = null;
+        input.classList.remove('invalid');
+      } else if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
+        entry.value = text; // raw ISO 8601 still accepted
+        input.classList.remove('invalid');
+      } else {
+        const iso = germanToIso(text);
+        if (iso === null) {
+          input.classList.add('invalid');
+        } else {
+          entry.value = iso;
+          input.classList.remove('invalid');
+        }
+      }
+    });
+    wrapper.appendChild(input);
+    if (hint) {
+      const hintEl = document.createElement('span');
+      hintEl.className = 'muted format-hint';
+      hintEl.textContent = hint;
+      wrapper.appendChild(hintEl);
+    }
+  }
+
   function appendLiteralOperandField(wrapper, entry, opts) {
+    if (opts.germanDateTime) {
+      appendGermanDateTimeField(wrapper, entry, opts.formatHint);
+      return;
+    }
     const input = renderValueInput(opts.defaultValue !== undefined ? opts.defaultValue : '', entry.value);
     const isCheckbox = input.type === 'checkbox';
     const isTextarea = input.tagName === 'TEXTAREA';
@@ -476,6 +711,12 @@
       }
     });
     wrapper.appendChild(input);
+    if (opts.formatHint) {
+      const hint = document.createElement('span');
+      hint.className = 'muted format-hint';
+      hint.textContent = opts.formatHint;
+      wrapper.appendChild(hint);
+    }
   }
 
   // Renders the literal-vs-ref editor for any {source, value, refStep,
@@ -504,6 +745,10 @@
       appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isStackId) {
+      wrapper.appendChild(renderStackSearchField(entry));
+    } else if (opts.isLabelId) {
+      wrapper.appendChild(renderLabelSearchField(entry));
     } else if (opts.isCalendarId) {
       wrapper.appendChild(renderCalendarSearchField(entry));
     } else {
@@ -528,9 +773,66 @@
         defaultValue,
         isUserId: isUserIdField(step.module, key),
         isCalendarId: isCalendarIdField(step.module, key),
+        isLabelId: isLabelIdField(step.module, key),
+        isStackId: isStackIdField(step.module, key),
+        formatHint: formatHintFor(step.module, key),
+        germanDateTime: isGermanDateTimeField(step.module, key),
       })
     );
 
+    const example = PARAM_EXAMPLES[step.module + '.' + key];
+    if (example) {
+      const exampleEl = document.createElement('div');
+      exampleEl.className = 'param-example muted';
+      exampleEl.textContent = example;
+      row.appendChild(exampleEl);
+    }
+
+    return row;
+  }
+
+  const CALCULATE_OPS = [
+    ['add', '+'],
+    ['subtract', '−'],
+    ['multiply', '×'],
+    ['divide', '÷'],
+  ];
+
+  const CALCULATE_OP_NAMES = {
+    add: 'Addieren', subtract: 'Subtrahieren', multiply: 'Multiplizieren', divide: 'Dividieren',
+  };
+
+  // calculate reads as one line - left value, operation dropdown, right value
+  // - instead of three stacked param rows.
+  function renderCalculateRow(step) {
+    const row = document.createElement('div');
+    row.className = 'calc-row';
+    row.appendChild(renderValueOrRefEditor(step.params.left, {
+      defaultValue: modulesByName.calculate.input.left,
+    }));
+
+    const opEntry = step.params.op;
+    if (opEntry.source === 'ref') {
+      row.appendChild(renderValueOrRefEditor(opEntry, {}));
+    } else {
+      const opSelect = document.createElement('select');
+      CALCULATE_OPS.forEach(([value, text]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = text;
+        option.title = CALCULATE_OP_NAMES[value];
+        option.selected = opEntry.value === value;
+        opSelect.appendChild(option);
+      });
+      opSelect.addEventListener('change', () => {
+        opEntry.value = opSelect.value;
+      });
+      row.appendChild(opSelect);
+    }
+
+    row.appendChild(renderValueOrRefEditor(step.params.right, {
+      defaultValue: modulesByName.calculate.input.right,
+    }));
     return row;
   }
 
@@ -554,7 +856,8 @@
     moduleNames.forEach((name) => {
       const option = document.createElement('option');
       option.value = name;
-      option.textContent = name;
+      option.textContent = moduleLabel(name);
+      option.title = name;
       option.selected = name === step.module;
       moduleSelect.appendChild(option);
     });
@@ -574,9 +877,13 @@
 
     if (module) {
       const keys = Object.keys(module.input || {});
-      keys.forEach((key) => {
-        paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
-      });
+      if (step.module === 'calculate' && step.params.left && step.params.op && step.params.right) {
+        paramsEl.appendChild(renderCalculateRow(step));
+      } else {
+        keys.forEach((key) => {
+          paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
+        });
+      }
       if (keys.length === 0) {
         const none = document.createElement('p');
         none.className = 'muted';
@@ -624,7 +931,13 @@
     label.textContent = 'Wenn';
     header.appendChild(label);
 
-    header.appendChild(renderValueOrRefEditor(node.condition.left, {}));
+    header.appendChild(renderMoveRemoveControls(list, index));
+    wrapper.appendChild(header);
+
+    // Left value, operator and right value each get their own line.
+    const conditionEl = document.createElement('div');
+    conditionEl.className = 'if-condition';
+    conditionEl.appendChild(renderValueOrRefEditor(node.condition.left, {}));
 
     const opSelect = document.createElement('select');
     CONDITION_OPS.forEach(([value, text]) => {
@@ -637,11 +950,12 @@
     opSelect.addEventListener('change', () => {
       node.condition.op = opSelect.value;
     });
-    header.appendChild(opSelect);
+    const opRow = document.createElement('div');
+    opRow.appendChild(opSelect);
+    conditionEl.appendChild(opRow);
 
-    header.appendChild(renderValueOrRefEditor(node.condition.right, {}));
-    header.appendChild(renderMoveRemoveControls(list, index));
-    wrapper.appendChild(header);
+    conditionEl.appendChild(renderValueOrRefEditor(node.condition.right, {}));
+    wrapper.appendChild(conditionEl);
 
     wrapper.appendChild(renderBranch('Dann:', node.then));
     wrapper.appendChild(renderBranch('Sonst:', node.else));
@@ -791,6 +1105,9 @@
     if (stepsEl.querySelector('textarea.invalid')) {
       throw new Error('Ein JSON-Feld enthält ungültiges JSON - bitte prüfen.');
     }
+    if (stepsEl.querySelector('input.invalid')) {
+      throw new Error('Ein Datumsfeld hat kein gültiges Format (TT.MM.JJJJ hh:mm) - bitte prüfen.');
+    }
 
     const payload = {
       mode: isEditMode ? 'edit' : 'create',
@@ -861,7 +1178,9 @@
         else: (raw.else || []).map(toInternalStep),
       };
     }
-    const params = {};
+    // Start from the module's defaults so a param omitted in a hand-written
+    // YAML (e.g. date_offset's optional base) still gets an editor row.
+    const params = defaultParamsFor(raw.module);
     Object.keys(raw.params || {}).forEach((key) => {
       params[key] = toInternalOperand(raw.params[key]);
     });

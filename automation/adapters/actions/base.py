@@ -25,6 +25,8 @@ class WorkflowAction(ABC):
     """
 
     ACTION_NAME: ClassVar[str]
+    # German display name shown in the website; falls back to ACTION_NAME.
+    LABEL: ClassVar[str] = ""
     REQUIRES: ClassVar[tuple[str, ...]] = ()
 
     def default_input(self) -> dict[str, Any]:
