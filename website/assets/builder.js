@@ -423,11 +423,19 @@
     const field = renderTypeahead({
       value: entry.value ? String(entry.value) : '',
       setValue: (value) => {
-        entry.value = /^\d+$/.test(String(value).trim()) ? Number(value) : value;
+        const text = String(value).trim();
+        entry.value = /^\d+$/.test(text) ? Number(text) : value;
+        // Free text that was never picked from the list is not an id.
+        const input = field && field.querySelector('input');
+        if (input) {
+          input.classList.toggle('invalid', text !== '' && !/^\d+$/.test(text));
+          input.dataset.errorMessage = 'Bitte einen Eintrag aus der Liste wählen oder eine numerische Id eintragen.';
+        }
       },
       placeholder,
       loadOptions: async (query) => filterByTitle(await loadBoardItems(endpoint, listKey), query),
     });
+    addSyntaxErrorDisplay(field.querySelector('input'), field);
     // In edit mode the board is restored asynchronously after the steps
     // render, so retry briefly until it is known.
     if (entry.value) {
@@ -843,11 +851,16 @@
       row.appendChild(renderValueOrRefEditor(opEntry, {}));
     } else {
       const opSelect = document.createElement('select');
-      CALCULATE_OPS.forEach(([value, text]) => {
+      // A hand-written op outside the four known ones is shown as-is instead
+      // of silently displaying "+" while still saving the unknown value.
+      const ops = CALCULATE_OPS.some(([value]) => value === opEntry.value)
+        ? CALCULATE_OPS
+        : [...CALCULATE_OPS, [opEntry.value, String(opEntry.value)]];
+      ops.forEach(([value, text]) => {
         const option = document.createElement('option');
         option.value = value;
         option.textContent = text;
-        option.title = CALCULATE_OP_NAMES[value];
+        option.title = CALCULATE_OP_NAMES[value] || '';
         option.selected = opEntry.value === value;
         opSelect.appendChild(option);
       });
@@ -1133,7 +1146,7 @@
       throw new Error('Ein JSON-Feld enthält ungültiges JSON - bitte prüfen.');
     }
     if (stepsEl.querySelector('input.invalid')) {
-      throw new Error('Ein Datumsfeld hat kein gültiges Format (TT.MM.JJJJ hh:mm) - bitte prüfen.');
+      throw new Error('Ein Feld hat keinen gültigen Wert (Datum TT.MM.JJJJ hh:mm bzw. Auswahl aus der Liste) - bitte prüfen.');
     }
 
     const payload = {
