@@ -83,6 +83,16 @@ class InMemoryDeckGateway:
     def add_comment(self, card_id: int, message: str) -> None:
         self.calls.append(("add_comment", card_id, message))
 
+    def create_card(self, board_id: int, stack_id: int, title: str, description: str = "") -> dict[str, Any]:
+        self.calls.append(("create_card", board_id, stack_id, title, description))
+        existing_ids = [c["id"] for stacks in self.stacks.values() for st in stacks for c in st.get("cards", [])]
+        card = {"id": max(existing_ids, default=0) + 1, "title": title, "description": description, "lastModified": 1}
+        for stack in self.list_stacks(board_id):
+            if stack["id"] == stack_id:
+                stack.setdefault("cards", []).append(card)
+                return dict(card)
+        raise KeyError(f"no stack {stack_id} on board {board_id}")
+
     def _find_card(self, board_id: int, stack_id: int, card_id: int) -> Optional[dict[str, Any]]:
         for stack in self.list_stacks(board_id):
             if stack["id"] != stack_id:

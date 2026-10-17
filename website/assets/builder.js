@@ -392,34 +392,40 @@
   };
 
   function isStackIdField(moduleName, key) {
-    return moduleName === 'move_card' && key === 'target_stack_id';
+    return (moduleName === 'move_card' || moduleName === 'copy_card') && key === 'target_stack_id';
+  }
+
+  function isBoardIdField(moduleName, key) {
+    return moduleName === 'copy_card' && key === 'target_board_id';
   }
 
   function isLabelIdField(moduleName, key) {
     return moduleName === 'add_label' && key === 'label_id';
   }
 
-  // Labels and stacks both belong to the currently selected board: fetched
-  // once per board (cached), filtered client-side as the user types, saved as
-  // the numeric id - a typed id still works. A saved id is shown as its name.
+  // Labels, stacks and boards: fetched once (cached), filtered client-side as
+  // the user types, saved as the numeric id - a typed id still works. A saved
+  // id is shown as its name. Labels/stacks belong to a board - by default the
+  // workflow's own, or whichever `boardIdOf()` returns (copy_card's target
+  // board); `boardScoped: false` is for the per-instance board list itself.
   const boardItemsCache = {};
 
-  async function loadBoardItems(endpoint, listKey) {
-    const boardId = boardEl.value;
-    if (!instanceEl.value || !/^\d+$/.test(boardId)) {
+  async function loadScopedItems(endpoint, listKey, boardId, boardScoped) {
+    if (!instanceEl.value || (boardScoped && !/^\d+$/.test(String(boardId)))) {
       return [];
     }
-    const key = endpoint + ':' + instanceEl.value + ':' + boardId;
+    const query = '?instance=' + encodeURIComponent(instanceEl.value)
+      + (boardScoped ? '&board_id=' + encodeURIComponent(boardId) : '');
+    const key = endpoint + query;
     if (!boardItemsCache[key]) {
-      const data = await fetchJSON(
-        endpoint + '?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId)
-      );
+      const data = await fetchJSON(endpoint + query);
       boardItemsCache[key] = data[listKey] || [];
     }
     return boardItemsCache[key];
   }
 
-  function renderBoardItemField(entry, { endpoint, listKey, placeholder }) {
+  function renderBoardItemField(entry, { endpoint, listKey, placeholder, boardScoped = true, boardIdOf = () => boardEl.value }) {
+    const load = () => loadScopedItems(endpoint, listKey, boardIdOf(), boardScoped);
     const field = renderTypeahead({
       value: entry.value ? String(entry.value) : '',
       setValue: (value) => {
@@ -433,7 +439,7 @@
         }
       },
       placeholder,
-      loadOptions: async (query) => filterByTitle(await loadBoardItems(endpoint, listKey), query),
+      loadOptions: async (query) => filterByTitle(await load(), query),
     });
     addSyntaxErrorDisplay(field.querySelector('input'), field);
     // In edit mode the board is restored asynchronously after the steps
@@ -441,13 +447,13 @@
     if (entry.value) {
       let attempts = 0;
       const resolveTitle = () => {
-        if (!/^\d+$/.test(boardEl.value)) {
+        if (boardScoped && !/^\d+$/.test(String(boardIdOf()))) {
           if (++attempts < 20) {
             setTimeout(resolveTitle, 250);
           }
           return;
         }
-        loadBoardItems(endpoint, listKey).then((items) => {
+        load().then((items) => {
           const match = items.find((item) => String(item.id) === String(entry.value));
           const input = field.querySelector('input');
           if (match && input.value === String(entry.value)) {
@@ -468,11 +474,21 @@
     });
   }
 
-  function renderStackSearchField(entry) {
+  function renderStackSearchField(entry, boardIdOf) {
     return renderBoardItemField(entry, {
       endpoint: 'api_stacks.php',
       listKey: 'stacks',
       placeholder: 'Spaltenname eingeben oder Spalten-Id direkt eintragen',
+      boardIdOf,
+    });
+  }
+
+  function renderBoardSearchField(entry) {
+    return renderBoardItemField(entry, {
+      endpoint: 'api_boards.php',
+      listKey: 'boards',
+      placeholder: 'Board-Name eingeben oder Board-Id direkt eintragen',
+      boardScoped: false,
     });
   }
 
@@ -780,8 +796,10 @@
       appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isBoardId) {
+      wrapper.appendChild(renderBoardSearchField(entry));
     } else if (opts.isStackId) {
-      wrapper.appendChild(renderStackSearchField(entry));
+      wrapper.appendChild(renderStackSearchField(entry, opts.stackBoardIdOf));
     } else if (opts.isLabelId) {
       wrapper.appendChild(renderLabelSearchField(entry));
     } else if (opts.isCalendarId) {
@@ -810,6 +828,11 @@
         isCalendarId: isCalendarIdField(step.module, key),
         isLabelId: isLabelIdField(step.module, key),
         isStackId: isStackIdField(step.module, key),
+        isBoardId: isBoardIdField(step.module, key),
+        // copy_card's target column belongs to its own target board, not the workflow's.
+        stackBoardIdOf: step.module === 'copy_card'
+          ? () => (step.params.target_board_id || {}).value
+          : undefined,
         formatHint: formatHintFor(step.module, key),
         germanDateTime: isGermanDateTimeField(step.module, key),
       })

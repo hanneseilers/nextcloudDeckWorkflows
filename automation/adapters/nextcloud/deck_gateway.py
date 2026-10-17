@@ -63,6 +63,22 @@ class NextcloudDeckGateway:
     def add_comment(self, card_id: int, message: str) -> None:
         self._client.post(f"{COMMENTS_API}/{card_id}", json={"message": message})
 
+    def create_card(self, board_id: int, stack_id: int, title: str, description: str = "") -> dict[str, Any]:
+        """Creates a fresh card - nothing but a title (and optionally a
+        description) is set, so a copy made this way carries no labels,
+        assignees or due date. The description is written with a follow-up
+        update instead of in the create call, since only title/type/order
+        are guaranteed create parameters across Deck versions."""
+
+        created = self._client.post(
+            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards",
+            json={"title": title, "type": "plain", "order": 0},
+        ) or {}
+        if description and created.get("id") is not None:
+            self.set_description(board_id, stack_id, created["id"], description)
+            created["description"] = description
+        return created
+
     def _update_card(self, board_id: int, stack_id: int, card_id: int, **fields: Any) -> None:
         # The Deck API's card update endpoint replaces the resource, so the current
         # card is fetched first and only the requested field(s) are changed on top -

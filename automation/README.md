@@ -18,7 +18,7 @@ index, e.g. "events.0.title"); `generate_random_number`/`forget_random_number`
 list, see "Random numbers" below); `format_text` ($placeholder substitution
 from explicit values/`$ref`s into one string, for modules that don't do
 their own substitution); `calculate` (add/subtract/multiply/divide two
-numbers); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
+numbers); `copy_card` (copies the card into a column of another board of the same instance - only title and description, optionally overridden; assignees, labels, due date etc. are not copied, see "Copying cards" below); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
@@ -307,6 +307,19 @@ server's behaviour, `calendar_gateway.py` is the place to fix it.
 With no calendar connection configured for an instance (e.g. the `--dry-run`
 smoke test), `calendar_lookup` raises a clear error instead of crashing -
 caught and logged like any other action's failure.
+
+## Copying cards
+
+`copy_card` creates a brand-new card in `target_stack_id` on `target_board_id`
+(any board of the same Nextcloud instance, including the workflow's own).
+The copy carries only a title and a description - assigned users, labels,
+due date, comments and attachments are not copied. `title`/`description`
+default to the original's current values (including changes earlier steps of
+the same run made); a non-empty value replaces it in the copy. The original is
+left untouched, and its output (`card_id`, `board_id`, `stack_id`) can be
+`$ref`'d by later steps. The new card is an ordinary new card, so a workflow
+triggered by "Karte erstellt" on the target board fires for it as well.
+The Deck API calls are not verified against a live Nextcloud instance.
 
 ## send_email
 

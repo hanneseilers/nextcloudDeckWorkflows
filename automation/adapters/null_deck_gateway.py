@@ -55,3 +55,6 @@ class NullDeckGateway:
 
     def add_comment(self, card_id: int, message: str) -> None:
         self._unsupported()
+
+    def create_card(self, board_id: int, stack_id: int, title: str, description: str = "") -> dict[str, Any]:
+        return self._unsupported()
