@@ -25,3 +25,7 @@ max_run_seconds: 240
 #   enabled: true
 #   secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
 #   fallback_poll_minutes: 15
+# Optional: where the website is reachable from outside (no trailing slash
+# needed). Needed by the "Einmal-Link erstellen" action (create_action_link),
+# which builds its links as <public_url>/link.php?h=<token>.
+# public_url: "https://example.com/deck-workflows/website"

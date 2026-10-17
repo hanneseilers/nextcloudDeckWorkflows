@@ -385,6 +385,9 @@
   }
 
   const PARAM_EXAMPLES = {
+    'create_action_link.action_params': 'Beispiel für die Action "Kommentar hinzufügen": {"message": "Per Link erledigt"} - die Felder der gewählten Action; Referenzen werden beim Erstellen des Links aufgelöst.',
+    'create_action_link.success_message': 'Text, der nach erfolgreicher Ausführung angezeigt wird - leer = Standardtext.',
+    'create_action_link.require_confirmation': 'An = die Seite zeigt zuerst einen Button "Jetzt ausführen" (schützt den Link vor Link-Vorschau-Bots).',
     'format_text.template': 'Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter "values" ersetzt.',
     'format_text.values': 'Beispiel: {"nummer": {"$ref": "schritt1.number"}, "titel": {"$ref": "card.title"}} - links der Platzhaltername, rechts der Wert (als Referenz auf einen Schritt oder die Karte).',
     'extract_field.data': 'Beispiel: Referenz auf Quelle "card", Feld "labels" - oder allgemein die gesamte Ausgabe eines früheren Schritts.',
@@ -393,6 +396,32 @@
 
   function isStackIdField(moduleName, key) {
     return (moduleName === 'move_card' || moduleName === 'copy_card') && key === 'target_stack_id';
+  }
+
+  function isActionNameField(moduleName, key) {
+    return moduleName === 'create_action_link' && key === 'action';
+  }
+
+  // The action an one-time link runs: a dropdown of every action (not the
+  // link action itself), value = the technical name.
+  function renderActionSelectField(entry) {
+    const select = document.createElement('select');
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '– Action wählen –';
+    select.appendChild(placeholder);
+    moduleNames.filter((name) => name !== 'create_action_link').forEach((name) => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = moduleLabel(name);
+      option.title = name;
+      option.selected = name === entry.value;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', () => {
+      entry.value = select.value;
+    });
+    return select;
   }
 
   function isBoardIdField(moduleName, key) {
@@ -796,6 +825,8 @@
       appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isActionName) {
+      wrapper.appendChild(renderActionSelectField(entry));
     } else if (opts.isBoardId) {
       wrapper.appendChild(renderBoardSearchField(entry));
     } else if (opts.isStackId) {
@@ -829,6 +860,7 @@
         isLabelId: isLabelIdField(step.module, key),
         isStackId: isStackIdField(step.module, key),
         isBoardId: isBoardIdField(step.module, key),
+        isActionName: isActionNameField(step.module, key),
         // copy_card's target column belongs to its own target board, not the workflow's.
         stackBoardIdOf: step.module === 'copy_card'
           ? () => (step.params.target_board_id || {}).value
