@@ -15,6 +15,7 @@ from automation.core.domain.models import (
     Workflow,
     WorkflowStep,
 )
+from automation.core.ports.action_link_store import ActionLinkStorePort
 from automation.core.ports.action_module import ActionContext, ActionModulePort
 from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
@@ -51,6 +52,8 @@ class WorkflowEngine:
         actions: ActionModulePort,
         execution_log: ExecutionLogPort,
         sequence_store: Optional[SequenceStorePort] = None,
+        link_store: Optional[ActionLinkStorePort] = None,
+        public_url: Optional[str] = None,
     ) -> None:
         self._workflows = workflows
         self._actions = actions
@@ -59,6 +62,8 @@ class WorkflowEngine:
         # instance), the sequence store is the same one store for this
         # engine's whole lifetime, so it's a constructor dependency instead.
         self._sequence_store = sequence_store
+        self._link_store = link_store
+        self._public_url = public_url
 
     def handle(
         self,
@@ -102,6 +107,43 @@ class WorkflowEngine:
         run_id = self._execution_log.record(result)
         return result, run_id
 
+    def run_link_action(
+        self,
+        workflow_id: str,
+        event: DeckEvent,
+        current_stack_id: int,
+        module: str,
+        params: dict[str, Any],
+        variables: dict[str, Any],
+        deck: DeckGatewayPort,
+        calendar: Optional[CalendarGatewayPort] = None,
+    ) -> tuple[ExecutionResult, str]:
+        """Runs one action on its own, in the context (card, stack, variables)
+        a one-time link captured when it was created - see create_action_link
+        and main.py::_process_action_links. Recorded to the execution log
+        like any other run, attributed to the workflow that created the link.
+        `params` were already $ref-resolved at link-creation time."""
+
+        context = ActionContext(
+            event=event,
+            deck=deck,
+            modules=self._actions,
+            variables=variables,
+            calendar=calendar,
+            sequence_store=self._sequence_store,
+            workflow_id=workflow_id,
+        )
+        context.current_stack_id = current_stack_id
+        result = ExecutionResult(workflow_id=workflow_id, event=event)
+        try:
+            self._actions.get(module).execute(context, params)
+            result.action_results.append(ActionResult(module=module, success=True))
+        except Exception as exc:
+            logger.exception("Link action '%s' failed for workflow '%s'", module, workflow_id)
+            result.action_results.append(ActionResult(module=module, success=False, error=str(exc)))
+        run_id = self._execution_log.record(result)
+        return result, run_id
+
     def _run(
         self,
         workflow: Workflow,
@@ -121,6 +163,9 @@ class WorkflowEngine:
             variables=variables,
             calendar=calendar,
             sequence_store=self._sequence_store,
+            workflow_id=workflow.id,
+            link_store=self._link_store,
+            public_url=self._public_url,
         )
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         # Seeded before any step runs: lets every step's params reference the

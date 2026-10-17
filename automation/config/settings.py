@@ -56,6 +56,9 @@ class Settings:
     max_run_seconds: float = 240.0
     error_notifications: Optional[ErrorNotificationConfig] = None
     webhooks: Optional[WebhookConfig] = None
+    # Base URL the website is reachable at (e.g. https://example.com/deck/website),
+    # used by create_action_link to build the links it hands out.
+    public_url: Optional[str] = None
 
 
 def load_settings(config_dir: Optional[Path] = None) -> Settings:
@@ -100,6 +103,7 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
         max_run_seconds=float(general.get("max_run_seconds", 240.0)),
         error_notifications=error_notifications,
         webhooks=webhooks,
+        public_url=(str(general["public_url"]).rstrip("/") if general.get("public_url") else None),
     )
 
 

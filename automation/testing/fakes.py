@@ -165,3 +165,14 @@ class InMemoryActionRegistry:
 
     def list_names(self) -> list[str]:
         return sorted(self._actions)
+
+
+class InMemoryActionLinkStore:
+    """Fake ActionLinkStorePort - remembers what create_link was asked for."""
+
+    def __init__(self) -> None:
+        self.links: list[dict[str, Any]] = []
+
+    def create_link(self, **kwargs: Any) -> str:
+        self.links.append(kwargs)
+        return f"token{len(self.links)}"

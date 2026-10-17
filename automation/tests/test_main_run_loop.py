@@ -391,3 +391,53 @@ def test_webhooks_enabled_still_polls_once_the_fallback_interval_elapses(tmp_pat
     with sqlite3.connect(settings.state_db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM execution_log WHERE workflow_id = 'wf-1'").fetchone()[0]
     assert count == 1  # fallback kicked in - polled and detected the move even with no ping
+
+
+def test_run_creates_a_link_and_executes_it_after_the_website_claims_it(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url, kwargs.get("json")))
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [{"id": 1, "title": "Card", "lastModified": 1}]}])
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="link-wf", name="Link", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(ActionStep(module="create_action_link", id="lnk", params={
+            "action": "add_comment", "action_params": {"message": "Per Link erledigt"},
+            "success_message": "Erledigt!",
+        }),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0, public_url="https://site.example/deck",
+    )
+    state_store = SqliteStateStore(settings.state_db_path)
+
+    run(settings)  # baseline poll: the existing card is "new" -> creates the link
+    with sqlite3.connect(settings.state_db_path) as conn:
+        rows = conn.execute("SELECT status, success_message FROM action_links").fetchall()
+    assert rows == [("open", "Erledigt!")]
+    assert not any("deckCard" in url for _, url, _ in calls)  # creating the link must not run the action
+
+    with sqlite3.connect(settings.state_db_path) as conn:  # website/link.php claims it
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+    run(settings)
+
+    assert ("POST", "https://cloud.example.com/ocs/v2.php/apps/comments/api/v1/deckCard/1",
+            {"message": "Per Link erledigt"}) in calls
+    with sqlite3.connect(settings.state_db_path) as conn:
+        status, error, payload = conn.execute("SELECT status, error, params_json FROM action_links").fetchone()
+        logged = conn.execute(
+            "SELECT workflow_id, module, success FROM execution_log WHERE module = 'add_comment'"
+        ).fetchall()
+    assert (status, error, payload) == ("done", None, None)
+    assert logged == [("link-wf", "add_comment", 1)]
+
+    run(settings)  # a done link never runs again
+    assert sum(1 for _, url, _ in calls if "deckCard" in url) == 1

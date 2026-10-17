@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Iterable, Optional, Protocol
 
 from automation.core.domain.models import DeckEvent
+from automation.core.ports.action_link_store import ActionLinkStorePort
 from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
 from automation.core.ports.sequence_store import SequenceStorePort
@@ -54,6 +55,12 @@ class ActionContext:
     variables: dict[str, Any] = field(default_factory=dict)
     calendar: Optional[CalendarGatewayPort] = None
     sequence_store: Optional[SequenceStorePort] = None
+    # create_action_link's dependencies: the workflow it runs in, where the
+    # links get stored, and the website's public base URL (config/settings.yaml
+    # `public_url`). None/empty where not set up (dry-run, most tests).
+    workflow_id: str = ""
+    link_store: Optional[ActionLinkStorePort] = None
+    public_url: Optional[str] = None
     current_stack_id: int = field(init=False)
 
     def __post_init__(self) -> None:

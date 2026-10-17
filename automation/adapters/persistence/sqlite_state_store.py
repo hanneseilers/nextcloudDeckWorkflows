@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from automation.core.domain.models import ExecutionResult
+from automation.core.domain.models import DeckEvent, EventType, ExecutionResult
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS board_snapshots (
@@ -64,6 +66,32 @@ CREATE TABLE IF NOT EXISTS board_activity (
     last_ping_at TEXT,
     last_polled_at TEXT,
     PRIMARY KEY (instance, board_id)
+);
+
+-- One-time action links (create_action_link). Only the SHA-256 of the
+-- secret token is stored. status: open -> claimed (website/link.php, atomic)
+-- -> running -> done|error (main.py); the payload columns are wiped once
+-- the link has been used.
+CREATE TABLE IF NOT EXISTS action_links (
+    token_hash TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    instance TEXT,
+    board_id INTEGER,
+    card_id INTEGER,
+    stack_id INTEGER,
+    current_stack_id INTEGER,
+    event_type TEXT,
+    card_json TEXT,
+    module TEXT,
+    params_json TEXT,
+    variables_json TEXT,
+    success_message TEXT NOT NULL DEFAULT '',
+    require_confirmation INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    claimed_at TEXT,
+    finished_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS test_runs (
@@ -379,3 +407,87 @@ class SqliteStateStore:
             (limit,),
         ).fetchall()
         return [{"instance": row[0], "board_id": row[1], "last_ping_at": row[2]} for row in rows]
+
+    # -- ActionLinkStorePort (one-time action links) -------------------------
+
+    def create_link(
+        self,
+        *,
+        workflow_id: str,
+        event: DeckEvent,
+        current_stack_id: int,
+        module: str,
+        params: dict[str, Any],
+        variables: dict[str, Any],
+        success_message: str,
+        require_confirmation: bool,
+    ) -> str:
+        token = secrets.token_urlsafe(32)
+        conn = self._connect()
+        conn.execute(
+            "INSERT INTO action_links (token_hash, workflow_id, instance, board_id, card_id, stack_id, "
+            "current_stack_id, event_type, card_json, module, params_json, variables_json, "
+            "success_message, require_confirmation, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            (
+                hashlib.sha256(token.encode()).hexdigest(), workflow_id, event.instance, event.board_id,
+                event.card_id, event.stack_id, current_stack_id, event.event_type.value,
+                json.dumps(event.card, default=str), module, json.dumps(params, default=str),
+                json.dumps(variables, default=str), success_message, int(require_confirmation),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+        return token
+
+    def claimed_links(self) -> list[dict[str, Any]]:
+        """Links the website has claimed (visited) that main.py hasn't run yet."""
+
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT token_hash, workflow_id, instance, board_id, card_id, stack_id, current_stack_id, "
+            "event_type, card_json, module, params_json, variables_json FROM action_links "
+            "WHERE status = 'claimed' ORDER BY claimed_at"
+        ).fetchall()
+        keys = ("token_hash", "workflow_id", "instance", "board_id", "card_id", "stack_id",
+                "current_stack_id", "event_type", "card", "module", "params", "variables")
+        links = []
+        for row in rows:
+            link = dict(zip(keys, row))
+            link["event_type"] = EventType(link["event_type"])
+            for key in ("card", "params", "variables"):
+                link[key] = json.loads(link[key]) if link[key] else {}
+            links.append(link)
+        return links
+
+    def begin_link_run(self, token_hash: str) -> bool:
+        """Atomically takes a claimed link for running - False if another
+        main.py invocation got it first (two runs can overlap, e.g. cron plus
+        a webhook-triggered run)."""
+
+        conn = self._connect()
+        cursor = conn.execute(
+            "UPDATE action_links SET status = 'running' WHERE token_hash = ? AND status = 'claimed'",
+            (token_hash,),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+    def finish_link(self, token_hash: str, error: Optional[str] = None) -> None:
+        """Marks the link done/error and wipes everything it needed to run."""
+
+        conn = self._connect()
+        conn.execute(
+            "UPDATE action_links SET status = ?, error = ?, finished_at = ?, card_json = NULL, "
+            "params_json = NULL, variables_json = NULL WHERE token_hash = ?",
+            ("error" if error else "done", error, datetime.now(timezone.utc).isoformat(), token_hash),
+        )
+        conn.commit()
+
+    def purge_finished_links(self, older_than_iso: str) -> None:
+        conn = self._connect()
+        conn.execute(
+            "DELETE FROM action_links WHERE status IN ('done', 'error') AND finished_at < ?",
+            (older_than_iso,),
+        )
+        conn.commit()

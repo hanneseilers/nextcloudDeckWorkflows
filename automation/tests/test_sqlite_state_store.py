@@ -320,3 +320,63 @@ def test_recent_webhook_pings_only_includes_boards_with_a_ping(tmp_path):
     pings = store.recent_webhook_pings()
 
     assert pings == [{"instance": "inst", "board_id": 2, "last_ping_at": "2026-01-05T09:05:00+00:00"}]
+
+
+def _link_event():
+    return DeckEvent(instance="prod", board_id=1, event_type=EventType.CARD_MOVED, card_id=7, stack_id=10,
+                     card={"id": 7, "title": "T"})
+
+
+def _make_link(store, **overrides):
+    kwargs = dict(workflow_id="wf", event=_link_event(), current_stack_id=20, module="add_comment",
+                  params={"message": "hi"}, variables={"a": 1}, success_message="ok", require_confirmation=False)
+    kwargs.update(overrides)
+    return store.create_link(**kwargs)
+
+
+def test_action_link_stores_only_the_hash_of_the_token(tmp_path):
+    import hashlib
+
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    token = _make_link(store)
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        stored = conn.execute("SELECT token_hash, status FROM action_links").fetchall()
+    assert stored == [(hashlib.sha256(token.encode()).hexdigest(), "open")]
+    assert token not in stored[0][0] and len(token) >= 40
+
+
+def test_action_link_lifecycle_claimed_running_done_wipes_the_payload(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    _make_link(store)
+    assert store.claimed_links() == []  # still "open" - nobody visited the page yet
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:  # what website/link.php does
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+
+    [link] = store.claimed_links()
+    assert (link["module"], link["params"], link["variables"], link["current_stack_id"]) == (
+        "add_comment", {"message": "hi"}, {"a": 1}, 20)
+    assert link["event_type"] == EventType.CARD_MOVED and link["card"] == {"id": 7, "title": "T"}
+
+    assert store.begin_link_run(link["token_hash"]) is True
+    assert store.begin_link_run(link["token_hash"]) is False  # a second run can't take it again
+    store.finish_link(link["token_hash"], error="boom")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        row = conn.execute("SELECT status, error, params_json, variables_json, card_json FROM action_links").fetchone()
+    assert row == ("error", "boom", None, None, None)
+
+
+def test_purge_removes_only_old_finished_links(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    _make_link(store)
+    _make_link(store)
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        hashes = [r[0] for r in conn.execute("SELECT token_hash FROM action_links")]
+    store.finish_link(hashes[0])
+
+    store.purge_finished_links("2999-01-01T00:00:00+00:00")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        assert [r[0] for r in conn.execute("SELECT token_hash FROM action_links")] == [hashes[1]]

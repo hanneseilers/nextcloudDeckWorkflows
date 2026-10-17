@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -60,9 +60,15 @@ def run(settings: Settings) -> None:
     state_store = SqliteStateStore(settings.state_db_path)
     action_loader = ModuleLoader(actions_registry)
     engine = WorkflowEngine(
-        workflows=workflows, actions=action_loader, execution_log=state_store, sequence_store=state_store
+        workflows=workflows,
+        actions=action_loader,
+        execution_log=state_store,
+        sequence_store=state_store,
+        link_store=state_store,
+        public_url=settings.public_url,
     )
 
+    _process_action_links(settings, state_store, engine)
     _process_test_runs(settings, workflows, state_store, engine)
     _process_schedules(workflows, state_store, engine)
 
@@ -245,6 +251,50 @@ def _process_test_runs(
         except Exception as exc:
             logger.exception("Test-run %s (workflow '%s') failed", test_run_id, workflow_id)
             state_store.complete_test_run(test_run_id, error=str(exc))
+
+
+def _process_action_links(settings: Settings, state_store: SqliteStateStore, engine: WorkflowEngine) -> None:
+    """Runs the one-time links visitors have claimed through website/link.php
+    (see create_action_link) - each one's action, against the card/context
+    captured when the link was created. Every failure is recorded on the
+    link itself, so the page the visitor is looking at always gets an answer.
+    Finished links older than a day are purged.
+    """
+
+    for link in state_store.claimed_links():
+        token_hash = link["token_hash"]
+        if not state_store.begin_link_run(token_hash):
+            continue  # another main.py invocation took it
+        try:
+            instance = settings.instances.get(link["instance"])
+            if instance is None:
+                raise RuntimeError(f"Nextcloud-Instanz '{link['instance']}' nicht konfiguriert")
+            client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
+            event = DeckEvent(
+                instance=link["instance"],
+                board_id=link["board_id"],
+                event_type=link["event_type"],
+                card_id=link["card_id"],
+                stack_id=link["stack_id"],
+                card=link["card"],
+            )
+            result, _ = engine.run_link_action(
+                workflow_id=link["workflow_id"],
+                event=event,
+                current_stack_id=link["current_stack_id"],
+                module=link["module"],
+                params=link["params"],
+                variables=link["variables"],
+                deck=NextcloudDeckGateway(client),
+                calendar=NextcloudCalendarGateway(client, instance.username),
+            )
+            failure = next((r.error for r in result.action_results if not r.success), None)
+            state_store.finish_link(token_hash, error=failure)
+        except Exception as exc:
+            logger.exception("One-time link for workflow '%s' failed", link["workflow_id"])
+            state_store.finish_link(token_hash, error=str(exc))
+
+    state_store.purge_finished_links((datetime.now(timezone.utc) - timedelta(days=1)).isoformat())
 
 
 def _find_card(deck: NextcloudDeckGateway, board_id: int, card_id: int) -> tuple[Optional[dict], Optional[int]]:
