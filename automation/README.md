@@ -18,7 +18,7 @@ index, e.g. "events.0.title"); `generate_random_number`/`forget_random_number`
 list, see "Random numbers" below); `format_text` ($placeholder substitution
 from explicit values/`$ref`s into one string, for modules that don't do
 their own substitution); `calculate` (add/subtract/multiply/divide two
-numbers); `copy_card` (copies the card into a column of another board of the same instance - only title and description, optionally overridden; assignees, labels, due date etc. are not copied, see "Copying cards" below); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
+numbers); `copy_card` (copies the card into a column of another board of the same instance - only title and description, optionally overridden; assignees, labels, due date etc. are not copied, see "Copying cards" below); `create_action_link` (a one-time link that runs any action for the current card, see "One-time action links" below); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
@@ -320,6 +320,40 @@ left untouched, and its output (`card_id`, `board_id`, `stack_id`) can be
 `$ref`'d by later steps. The new card is an ordinary new card, so a workflow
 triggered by "Karte erstellt" on the target board fires for it as well.
 The Deck API calls are not verified against a live Nextcloud instance.
+
+## One-time action links
+
+`create_action_link` creates a link such as
+`https://example.com/website/link.php?h=<long random token>` that runs one
+other action - for the card and workflow context it was created in - the
+first time it is opened. Typical use: `create_action_link` → `set_variable`
+(`name: linkurl`, `value: {$ref: <step>.url}`) → `add_comment`/`send_email`
+with `$linkurl`, so someone can e.g. confirm or move a card with one click.
+
+- **Setup:** `public_url` in `config/settings.yaml` (where `website/` lives),
+  and `link.php` must be reachable without the site's Basic Auth - see
+  `website/README.md`.
+- **Params:** `action` (any action but `create_action_link` itself),
+  `action_params` (its params; `$ref`s are resolved when the link is
+  *created*, so they capture that moment), `success_message` (shown on
+  success, empty = "Die Aktion wurde erfolgreich ausgeführt."),
+  `require_confirmation` (a GET only shows a "Jetzt ausführen" button - set
+  this if the link may pass through chat/mail systems whose link-preview or
+  virus-scanner bots would otherwise use it up by merely fetching it).
+- **One-time:** only the SHA-256 of the token is stored. The first visit
+  claims the link atomically; every later visit - even a concurrent one -
+  sees "ungültig oder bereits verwendet". A failed action also uses the link
+  up. Once run, the stored payload (params, card, variables) is wiped and
+  finished links are purged after a day. Links that are never opened stay
+  valid indefinitely.
+- **Execution:** the website never runs Python, so `link.php` claims the link,
+  asks for an immediate `python -m automation.main` run (best effort, same
+  mechanism as `webhook.php`) and waits up to 25 s for the result: the page
+  then shows the success text, or a generic error text (the real error is in
+  the history, not on a page anyone holding the link can read). If the run
+  can't be started (`proc_open` disabled), the page says the action was
+  accepted and it runs with the next cron invocation.
+- The run is recorded in the history under the workflow that created the link.
 
 ## send_email
 
