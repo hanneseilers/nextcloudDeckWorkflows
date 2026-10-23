@@ -14,8 +14,9 @@ def test_modules_snapshot_describes_every_registered_module():
     send_email = next(m for m in snapshot["modules"] if m["name"] == "send_email")
     assert send_email["input"] == {
         "to": "", "subject": "", "body": "", "template": None, "template_data": {},
+        "dedupe_minutes": 15,
     }
-    assert send_email["output"] == {}
+    assert send_email["output"] == {"sent": True}
     assert send_email["requires"] == []
 
 

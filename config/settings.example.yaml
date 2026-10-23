@@ -6,7 +6,9 @@ log_level: INFO
 # workflows for as long as the previous pass triggered at least one of them
 # (so a workflow's own actions - e.g. moving a card - can trigger another
 # workflow), up to this many seconds. Keep comfortably below your cron
-# interval so runs don't overlap.
+# interval so runs don't overlap - and below the time limit your host puts on
+# cron jobs (a run that gets killed anyway is repeated by the next one, see
+# automation/README.md "If a run is killed").
 max_run_seconds: 240
 # Optional: email `to` once a workflow has failed `threshold` times in a
 # row (and again each time it recovers and then fails that many times

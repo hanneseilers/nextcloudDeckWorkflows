@@ -183,3 +183,16 @@ class InMemoryActionLinkStore:
     def create_link(self, **kwargs: Any) -> str:
         self.links.append(kwargs)
         return f"token{len(self.links)}"
+
+
+class InMemoryDuplicateGuard:
+    """Fake DuplicateGuardPort - remembers keys forever (tests don't age them)."""
+
+    def __init__(self) -> None:
+        self.keys: set[str] = set()
+
+    def seen_within(self, key: str, minutes: float) -> bool:
+        return key in self.keys
+
+    def remember(self, key: str) -> None:
+        self.keys.add(key)

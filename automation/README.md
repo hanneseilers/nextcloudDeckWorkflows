@@ -203,15 +203,11 @@ as the *previous* pass triggered at least one of them, up to `max_run_seconds`
 interval). Once a pass detects nothing new, or the time limit is hit, the run
 ends; a limit hit just means "pick this up again next time", not an error.
 
-This only works safely because `PollingEventSource.poll()` no longer saves
-its new snapshot by itself - `main.py` calls `commit()` only after every
-event from that poll has been fully handled. If the process dies in between
-(SIGKILL included), the snapshot stays at its old value, so the next run (or
-the next loop iteration) detects the exact same events again and reruns their
-workflows - "at least once", not "exactly once": a rare crash mid-run can mean
-a workflow's actions run twice (e.g. a duplicate email) but never that an
-event is silently dropped. No separate "which iteration were we on" state
-needs to survive a crash - the snapshot itself *is* that state.
+This only works safely because `PollingEventSource.poll()` doesn't save its new
+snapshot by itself - `main.py` stores each card's new state (`advance()`) only
+after all of that card's events have been handled, and commits the board's full
+snapshot after the last one. See "If a run is killed" below for what that
+means when the process dies in between.
 
 ### A workflow doesn't re-trigger itself
 
@@ -234,6 +230,35 @@ Known trade-offs, kept on purpose to stay simple:
 - A second, genuine change to the same card in the same column within one
   run (a person editing twice within the run) is picked up by the next run
   rather than the current one.
+
+## If a run is killed (cron timeout)
+
+Shared hosts often kill a cron job that runs too long and start it again
+later. What the automation does about that:
+
+- **One run at a time.** `main.py` takes an exclusive lock on
+  `automation/var/run.lock`; a second invocation exits right away (the
+  operating system drops the lock when a process dies, so a killed run never
+  leaves a stale one). The immediate runs the website starts for webhooks and
+  one-time links use `--wait-lock 120` instead: they wait for a running job to
+  finish, so the ping/link is still handled.
+- **Progress is saved card by card.** After all events of a card are handled,
+  its new state is stored; a kill only repeats the card that was in flight,
+  not the whole batch. Events are "at least once": the in-flight workflow may
+  run its actions a second time.
+- **The time budget is checked between events.** Once `max_run_seconds` has
+  passed no new event is started (the rest is detected again next run). Set it
+  comfortably below your host's limit - a single slow API call can still
+  overrun it, and a run that is killed anyway is covered by the points above.
+- **`send_email` doesn't repeat an identical email** (same workflow, card,
+  recipient, subject and body) within `dedupe_minutes` (default 15, 0 = off) -
+  the mail is remembered after it was sent, so a kill right after sending
+  doesn't send it again. Other actions (comments, copies, ...) have no such
+  guard; a kill in the middle of a workflow can run its earlier steps again.
+- A one-time link left "running" by a kill is marked failed after 15 minutes
+  instead of being re-run (see "One-time action links").
+- A SIGTERM is not handled specially (no graceful shutdown); a hard SIGKILL
+  couldn't be caught anyway.
 
 ## Running
 

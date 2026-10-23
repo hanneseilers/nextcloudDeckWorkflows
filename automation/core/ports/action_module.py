@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Iterable, Optional, Protocol
 from automation.core.domain.models import DeckEvent
 from automation.core.ports.action_link_store import ActionLinkStorePort
 from automation.core.ports.calendar_gateway import CalendarGatewayPort
+from automation.core.ports.duplicate_guard import DuplicateGuardPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
 from automation.core.ports.sequence_store import SequenceStorePort
 
@@ -61,6 +62,8 @@ class ActionContext:
     workflow_id: str = ""
     link_store: Optional[ActionLinkStorePort] = None
     public_url: Optional[str] = None
+    # send_email's "already sent recently" memory; None where not set up.
+    dedupe_store: Optional[DuplicateGuardPort] = None
     current_stack_id: int = field(init=False)
 
     def __post_init__(self) -> None:

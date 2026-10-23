@@ -19,6 +19,7 @@ from automation.core.ports.action_link_store import ActionLinkStorePort
 from automation.core.ports.action_module import ActionContext, ActionModulePort
 from automation.core.ports.calendar_gateway import CalendarGatewayPort
 from automation.core.ports.deck_gateway import DeckGatewayPort
+from automation.core.ports.duplicate_guard import DuplicateGuardPort
 from automation.core.ports.execution_log import ExecutionLogPort
 from automation.core.ports.sequence_store import SequenceStorePort
 from automation.core.ports.workflow_repository import WorkflowRepositoryPort
@@ -54,6 +55,7 @@ class WorkflowEngine:
         sequence_store: Optional[SequenceStorePort] = None,
         link_store: Optional[ActionLinkStorePort] = None,
         public_url: Optional[str] = None,
+        dedupe_store: Optional[DuplicateGuardPort] = None,
     ) -> None:
         self._workflows = workflows
         self._actions = actions
@@ -64,6 +66,7 @@ class WorkflowEngine:
         self._sequence_store = sequence_store
         self._link_store = link_store
         self._public_url = public_url
+        self._dedupe_store = dedupe_store
         # (workflow id, card id, column id) combinations handle() already ran
         # during this engine's lifetime - main.run() builds a fresh engine per
         # invocation, so this is "once per run". See handle().
@@ -153,6 +156,7 @@ class WorkflowEngine:
             calendar=calendar,
             sequence_store=self._sequence_store,
             workflow_id=workflow_id,
+            dedupe_store=self._dedupe_store,
         )
         context.current_stack_id = current_stack_id
         result = ExecutionResult(workflow_id=workflow_id, event=event)
@@ -187,6 +191,7 @@ class WorkflowEngine:
             workflow_id=workflow.id,
             link_store=self._link_store,
             public_url=self._public_url,
+            dedupe_store=self._dedupe_store,
         )
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         # Seeded before any step runs: lets every step's params reference the

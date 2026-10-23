@@ -5,7 +5,7 @@ import json
 import secrets
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS action_links (
     claimed_at TEXT,
     running_at TEXT,
     finished_at TEXT
+);
+
+-- "Already done recently" memory (DuplicateGuardPort) - e.g. an email sent.
+CREATE TABLE IF NOT EXISTS dedupe_keys (
+    key TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS test_runs (
@@ -518,4 +524,25 @@ class SqliteStateStore:
             "DELETE FROM action_links WHERE status IN ('done', 'error') AND finished_at < ?",
             (older_than_iso,),
         )
+        conn.commit()
+
+    # -- DuplicateGuardPort ----------------------------------------------------
+
+    def seen_within(self, key: str, minutes: float) -> bool:
+        conn = self._connect()
+        row = conn.execute("SELECT created_at FROM dedupe_keys WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            return False
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(row[0])
+        return age.total_seconds() < minutes * 60
+
+    def remember(self, key: str) -> None:
+        conn = self._connect()
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            "INSERT INTO dedupe_keys (key, created_at) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET created_at = excluded.created_at",
+            (key, now.isoformat()),
+        )
+        conn.execute("DELETE FROM dedupe_keys WHERE created_at < ?", ((now - timedelta(days=1)).isoformat(),))
         conn.commit()

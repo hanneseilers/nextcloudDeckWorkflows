@@ -67,6 +67,7 @@ def run(settings: Settings) -> None:
         sequence_store=state_store,
         link_store=state_store,
         public_url=settings.public_url,
+        dedupe_store=state_store,
     )
 
     _process_action_links(settings, state_store, engine)

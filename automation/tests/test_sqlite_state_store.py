@@ -380,3 +380,16 @@ def test_purge_removes_only_old_finished_links(tmp_path):
 
     with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
         assert [r[0] for r in conn.execute("SELECT token_hash FROM action_links")] == [hashes[1]]
+
+
+def test_duplicate_guard_remembers_a_key_only_for_the_given_window(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    assert store.seen_within("k", 15) is False
+    store.remember("k")
+    assert store.seen_within("k", 15) is True
+    assert store.seen_within("other", 15) is False
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        conn.execute("UPDATE dedupe_keys SET created_at = '2000-01-01T00:00:00+00:00'")
+    assert store.seen_within("k", 15) is False  # long ago: outside the window
