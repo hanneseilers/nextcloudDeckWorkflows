@@ -23,8 +23,11 @@ class AutomationRunner
             // detached from this PHP process, so `sh -c` itself returns
             // almost immediately regardless of how long the automation run
             // takes - this call must not make the caller's response slow.
+            // --wait-lock: if a run (e.g. cron) is already in progress, wait
+            // for it to finish instead of giving up, so the link/ping that
+            // asked for this run is still handled.
             $shellCommand = 'cd ' . escapeshellarg($repoRoot) . ' && '
-                . escapeshellarg($python) . ' -m automation.main > /dev/null 2>&1 &';
+                . escapeshellarg($python) . ' -m automation.main --wait-lock 120 > /dev/null 2>&1 &';
             $process = @proc_open(
                 ['/bin/sh', '-c', $shellCommand],
                 [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],

@@ -24,6 +24,7 @@ from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
 from automation.adapters.nextcloud.event_source import PollingEventSource
 from automation.adapters.null_deck_gateway import NullDeckGateway
 from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
+from automation.adapters.run_lock import RunLock
 from automation.adapters.smtp_config import load_smtp_config, send_email as smtp_send
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
 from automation.config.settings import REPO_ROOT, Settings, load_settings
@@ -516,6 +517,11 @@ def main() -> None:
         help="Run the wiring against in-memory fakes instead of real config/Nextcloud",
     )
     parser.add_argument(
+        "--wait-lock", type=float, default=0.0, metavar="SECONDS",
+        help="If another run is in progress, wait up to this long for it to finish "
+             "instead of exiting right away (used for the immediate runs the website starts)",
+    )
+    parser.add_argument(
         "--list-modules", action="store_true",
         help="Print the available action modules (name, requires, input/output shape) as JSON and exit",
     )
@@ -547,10 +553,19 @@ def main() -> None:
 
     logging.getLogger().setLevel(args.log_level or settings.log_level)
 
+    # One run at a time: an overlapping invocation (cron firing again before
+    # the previous run finished, or a webhook/link-triggered one) would handle
+    # the same events twice. The OS drops the lock if this process is killed.
+    lock = RunLock(settings.state_db_path.parent / "run.lock")
+    if not lock.acquire(args.wait_lock):
+        logger.info("Another run is in progress - exiting; the next invocation picks up what is left")
+        return
     try:
         run(settings)
     except Exception:
         logger.exception("Unhandled error - stopping this run without crashing the process")
+    finally:
+        lock.release()
 
 
 if __name__ == "__main__":
