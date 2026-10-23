@@ -5,6 +5,8 @@ from automation.adapters.actions.simple_card_action import make_simple_card_acti
 SetDueDateAction = make_simple_card_action(
     action_name="set_due_date",
     label="Fälligkeitsdatum setzen",
+    description="Setzt (oder löscht, wenn leer) das Fälligkeitsdatum der Karte.",
+    param_label="Fälligkeitsdatum",
     param_name="due_date",
     default_value=None,
     deck_method="set_due_date",

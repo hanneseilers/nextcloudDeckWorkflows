@@ -15,6 +15,8 @@ class LogAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "log_action"
     LABEL: ClassVar[str] = "Eintrag protokollieren"
+    DESCRIPTION: ClassVar[str] = "Schreibt nur einen Eintrag ins Protokoll - zum Testen."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"message": "Text"}
 
     def default_input(self) -> dict[str, Any]:
         return {"message": ""}

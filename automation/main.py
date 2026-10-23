@@ -510,6 +510,10 @@ def _modules_snapshot() -> dict[str, Any]:
         modules.append({
             "name": name,
             "label": getattr(action, "LABEL", "") or name,
+            "description": getattr(action, "DESCRIPTION", ""),
+            "param_labels": dict(getattr(action, "PARAM_LABELS", {})),
+            "param_help": dict(getattr(action, "PARAM_HELP", {})),
+            "output_labels": dict(getattr(action, "OUTPUT_LABELS", {})),
             "requires": list(getattr(action, "REQUIRES", ())),
             "input": action.default_input(),
             "output": action.default_output(),

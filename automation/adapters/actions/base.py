@@ -27,6 +27,12 @@ class WorkflowAction(ABC):
     ACTION_NAME: ClassVar[str]
     # German display name shown in the website; falls back to ACTION_NAME.
     LABEL: ClassVar[str] = ""
+    # For the website: one German sentence on what the action does, German
+    # names for its input/output fields and optional help per input field.
+    DESCRIPTION: ClassVar[str] = ""
+    PARAM_LABELS: ClassVar[dict[str, str]] = {}
+    PARAM_HELP: ClassVar[dict[str, str]] = {}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {}
     REQUIRES: ClassVar[tuple[str, ...]] = ()
 
     def default_input(self) -> dict[str, Any]:

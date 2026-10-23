@@ -16,6 +16,9 @@ class MoveCardAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "move_card"
     LABEL: ClassVar[str] = "Karte verschieben"
+    DESCRIPTION: ClassVar[str] = "Verschiebt die Karte in eine andere Spalte desselben Boards."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"target_stack_id": "Ziel-Spalte", "order": "Position"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"order": "Position in der Spalte (0 = ganz oben)."}
 
     def default_input(self) -> dict[str, Any]:
         return {"target_stack_id": 0, "order": 0}
