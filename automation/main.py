@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from automation import actions_registry
 from automation.adapters.actions.loader import ModuleLoader
@@ -72,6 +72,7 @@ def run(settings: Settings) -> None:
         link_store=state_store,
         public_url=settings.public_url,
         dedupe_store=state_store,
+        copy_store=state_store,
     )
 
     try:
@@ -108,6 +109,15 @@ def run(settings: Settings) -> None:
 
     targets = _apply_webhook_gate(settings, state_store, targets)
 
+    def mark_unfinished(target: BoardTarget) -> None:
+        # The webhook gate already marked this board as polled; without a
+        # fresh "ping" the next runs would skip it until fallback_poll_minutes
+        # passes, leaving the events the time budget didn't reach waiting.
+        if settings.webhooks is not None and settings.webhooks.enabled:
+            state_store.record_webhook_ping(
+                target.instance_name, target.board_id, datetime.now(timezone.utc).isoformat()
+            )
+
     # A workflow's own actions (move a card, change its due date, ...) can be
     # exactly what triggers another workflow - so keep re-polling and
     # re-running for as long as the previous pass found at least one event,
@@ -129,7 +139,7 @@ def run(settings: Settings) -> None:
                 logger.exception("Could not process one-time links - continuing with the rest of the run")
         any_triggered = False
         for target in targets:
-            if _process_board(engine, target, deadline):
+            if _process_board(engine, target, deadline, on_unfinished=mark_unfinished):
                 any_triggered = True
 
         if not any_triggered:
@@ -145,6 +155,12 @@ def run(settings: Settings) -> None:
             break
 
     _process_failure_notifications(settings, workflows, state_store)
+    try:
+        state_store.purge_history(
+            (datetime.now(timezone.utc) - timedelta(days=settings.history_retention_days)).isoformat()
+        )
+    except Exception:
+        logger.exception("Could not purge old history")
     # Only reached if everything above completed without an unhandled
     # exception - the website's health check reads this to tell "cron is
     # actually still running" from "it crashed/stopped being invoked". UTC,
@@ -190,7 +206,12 @@ def _apply_webhook_gate(
     return kept
 
 
-def _process_board(engine: WorkflowEngine, target: BoardTarget, deadline: float) -> bool:
+def _process_board(
+    engine: WorkflowEngine,
+    target: BoardTarget,
+    deadline: float,
+    on_unfinished: Optional[Callable[[BoardTarget], None]] = None,
+) -> bool:
     """One instance being unreachable or one board having disappeared must not stop
     the rest of the run - polling errors here are logged and this board is skipped.
 
@@ -210,6 +231,8 @@ def _process_board(engine: WorkflowEngine, target: BoardTarget, deadline: float)
     """
 
     if time.monotonic() >= deadline:
+        if on_unfinished is not None:
+            on_unfinished(target)
         return True  # out of time before even polling - the caller's deadline check ends the run
 
     try:
@@ -230,6 +253,8 @@ def _process_board(engine: WorkflowEngine, target: BoardTarget, deadline: float)
                 "Time budget used up on board %s (instance '%s') - %d event(s) left for the next run",
                 target.board_id, target.instance_name, len(events) - index,
             )
+            if on_unfinished is not None:
+                on_unfinished(target)
             return True
         logger.info(
             "Detected %s on card %s (instance=%s board=%s)",

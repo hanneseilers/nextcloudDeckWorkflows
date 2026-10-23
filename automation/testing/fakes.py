@@ -196,3 +196,16 @@ class InMemoryDuplicateGuard:
 
     def remember(self, key: str) -> None:
         self.keys.add(key)
+
+
+class InMemoryCopyStore:
+    """Fake CopyStorePort."""
+
+    def __init__(self) -> None:
+        self.copies: dict[tuple[str, int, int], tuple[str, int]] = {}
+
+    def record_copy(self, instance: str, board_id: int, card_id: int, workflow_id: str, depth: int) -> None:
+        self.copies[(instance, board_id, card_id)] = (workflow_id, depth)
+
+    def copy_info(self, instance: str, board_id: int, card_id: int) -> Optional[tuple[str, int]]:
+        return self.copies.get((instance, board_id, card_id))

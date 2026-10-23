@@ -16,6 +16,8 @@ max_run_seconds: 600
 # minutes. STRATO's cron jobs can only run hourly or slower (and may be delayed
 # by up to 4 hours), so use e.g. 90 for hourly or 1560 for daily.
 # health_stale_minutes: 90
+# Execution history (Historie, Statusseite) is kept this many days, then deleted.
+# history_retention_days: 90
 # Optional: email `to` once a workflow has failed `threshold` times in a
 # row (and again each time it recovers and then fails that many times
 # again) - uses config/smtp.yaml, so that must be set up too. Omit this

@@ -247,13 +247,18 @@ later. What the automation does about that:
   not the whole batch. Events are "at least once": the in-flight workflow may
   run its actions a second time.
 - **The time budget is checked between events.** Once `max_run_seconds` has
-  passed no new event is started (the rest is detected again next run). Set it
+  passed no new event is started (the rest is detected again next run - with
+  webhooks enabled, the board is flagged so that run polls it even without a
+  new ping). Set it
   comfortably below your host's limit - a single slow API call can still
   overrun it, and a run that is killed anyway is covered by the points above.
-- **`send_email` doesn't repeat an identical email** (same workflow, card,
-  recipient, subject and body) within `dedupe_minutes` (default 360 = 6 hours, 0 = off; raise it - up to 7 days - if your host restarts the job only daily) -
-  the mail is remembered after it was sent, so a kill right after sending
-  doesn't send it again. Other actions (comments, copies, ...) have no such
+- **`send_email` doesn't repeat an email for the same event.** When a killed
+  run is repeated, the identical email for the identical triggering change
+  (same workflow, card, the card's state before the event, recipient, subject
+  and body) is not sent again within `dedupe_minutes` (default 10080 = 7 days,
+  0 = off). A new change on the card is a new event and sends normally; test
+  runs, schedules and one-time links always send. The mail is remembered
+  after it was sent, so a kill right after sending doesn't send it again. Other actions (comments, copies, ...) have no such
   guard; a kill in the middle of a workflow can run its earlier steps again.
 - A one-time link left "running" by a kill is marked failed after 15 minutes
   instead of being re-run (see "One-time action links").
@@ -288,10 +293,10 @@ What that means for the settings here (defaults changed accordingly):
 - `health_stale_minutes`: raise it to the cron interval plus slack (e.g. 90
   for hourly, 1560 for daily), otherwise `health.php` reports the automation
   as stopped between runs.
-- `dedupe_minutes` of `send_email` (default **360**): a killed run is
-  restarted at the next scheduled slot, which can be hours later - the window
-  must cover that (up to 10080 = 7 days) to keep a repeated run from sending
-  the same email again.
+- `dedupe_minutes` of `send_email` (default **10080 = 7 days**): a killed
+  run is restarted at the next scheduled slot, hours or a day later - the
+  window covers that. It only matches the very same event, so the long
+  default doesn't swallow legitimate later emails.
 - Reaction time is the cron interval (hours at worst), so on STRATO workflows
   react quickly only through the website's immediate runs (webhooks, one-time
   links) - if `proc_open` is available there. Otherwise they wait for the next
@@ -403,7 +408,12 @@ default to the original's current values (including changes earlier steps of
 the same run made); a non-empty value replaces it in the copy. The original is
 left untouched, and its output (`card_id`, `board_id`, `stack_id`) can be
 `$ref`'d by later steps. The new card is an ordinary new card, so a workflow
-triggered by "Karte erstellt" on the target board fires for it as well.
+triggered by "Karte erstellt" on the target board fires for it as well -
+except the workflow that made the copy: it never reacts to its own copies, so
+copying into the column it watches makes one copy, not an endless chain. A
+copy of a copy is allowed up to 5 levels; beyond that `copy_card` fails (in
+the history as a failed step), which cuts off a copy loop between two
+workflows (A copies X to Y, B copies Y back to X).
 The Deck API calls are not verified against a live Nextcloud instance.
 
 ## One-time action links
@@ -558,7 +568,9 @@ times again.
 heartbeat above - stale after `health_stale_minutes` from `config/settings.yaml`,
 default 15; raise it if your host starts the job less often, e.g. 90 for hourly)
 and simple
-run statistics for the last 24 hours, overall and per workflow.
+run statistics for the last 24 hours, overall and per workflow. The history is
+kept `history_retention_days` (default 90) and then deleted at the end of a
+run, so the database doesn't grow forever.
 `health.php?format=json` returns the same data as JSON with an HTTP status
 code (200 healthy, 503 not) an external uptime monitor can check directly
 without parsing HTML.

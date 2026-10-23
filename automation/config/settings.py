@@ -59,6 +59,9 @@ class Settings:
     # Base URL the website is reachable at (e.g. https://example.com/deck/website),
     # used by create_action_link to build the links it hands out.
     public_url: Optional[str] = None
+    # Execution history (website/history.php, failure notifications) older
+    # than this is deleted at the end of each run.
+    history_retention_days: float = 90.0
 
 
 def load_settings(config_dir: Optional[Path] = None) -> Settings:
@@ -104,6 +107,7 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
         error_notifications=error_notifications,
         webhooks=webhooks,
         public_url=(str(general["public_url"]).rstrip("/") if general.get("public_url") else None),
+        history_retention_days=float(general.get("history_retention_days", 90.0)),
     )
 
 

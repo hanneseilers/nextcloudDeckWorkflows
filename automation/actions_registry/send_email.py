@@ -14,7 +14,7 @@ from automation.core.ports.action_module import ActionContext
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DEDUPE_MINUTES = 360
+DEFAULT_DEDUPE_MINUTES = 10080  # 7 days - long enough for any cron restart
 
 TEMPLATES_DIR = REPO_ROOT / "config" / "email_templates"
 
@@ -51,12 +51,14 @@ class SendEmailAction(WorkflowAction):
       template: str (optional) - name of a file in config/email_templates/
       subject, body: str (optional) - used instead of `template`
       template_data: dict (optional) - values substituted into subject/body
-      dedupe_minutes: number (optional, default 360 = 6 hours) - an identical email (same
-        workflow, card, recipient, subject and body) is not sent a second time
-        within this many minutes; 0 turns this off. Protects against a run
-        that was killed right after sending being repeated by the next one -
-        which, on a host that only starts the job hourly or daily, can be
-        hours later (raise it, up to 10080 = 7 days, if yours is slower).
+      dedupe_minutes: number (optional, default 10080 = 7 days) - when a run
+        is killed right after sending and the next run repeats the same event,
+        the identical email (same workflow, card, triggering change,
+        recipient, subject and body) is not sent again within this many
+        minutes; 0 turns this off. "Same triggering change" means the card's
+        state before the event, so a new event on the card (moved again,
+        edited again) sends normally. Only event-triggered runs use it - test
+        runs, schedules and one-time links always send.
 
     output:
       sent: bool - false if the email was skipped as a recent duplicate
@@ -98,7 +100,10 @@ class SendEmailAction(WorkflowAction):
         key = None
         if guard is not None:
             key = "email:" + hashlib.sha256(json.dumps(
-                [context.workflow_id, context.event.card_id, params["to"], subject, body]
+                [
+                    context.workflow_id, context.event.card_id, context.event.event_type.value,
+                    context.event.previous_last_modified, params["to"], subject, body,
+                ]
             ).encode()).hexdigest()
             if guard.seen_within(key, minutes):
                 logger.warning(

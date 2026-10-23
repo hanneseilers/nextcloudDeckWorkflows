@@ -393,3 +393,37 @@ def test_duplicate_guard_remembers_a_key_only_for_the_given_window(tmp_path):
     with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
         conn.execute("UPDATE dedupe_keys SET created_at = '2000-01-01T00:00:00+00:00'")
     assert store.seen_within("k", 15) is False  # long ago: outside the window
+
+
+def test_history_indexes_exist_and_purge_drops_only_old_rows(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    event = DeckEvent(instance="i", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+    store.record(ExecutionResult(workflow_id="w", event=event, action_results=[ActionResult(module="m", success=True)]))
+    store.record(ExecutionResult(workflow_id="w", event=event, action_results=[ActionResult(module="m", success=True)]))
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        conn.execute("UPDATE execution_log SET created_at = '2000-01-01T00:00:00+00:00' WHERE id = 1")
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"execution_log_workflow", "execution_log_run", "execution_log_created"} <= names
+
+    store.purge_history("2020-01-01T00:00:00+00:00")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        assert [r[0] for r in conn.execute("SELECT id FROM execution_log")] == [2]
+
+
+def test_indexes_are_created_on_a_legacy_database_without_run_id(tmp_path):
+    db = tmp_path / "state.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE execution_log (id INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT NOT NULL, "
+                     "event_type TEXT NOT NULL, card_id INTEGER NOT NULL, success INTEGER NOT NULL, error TEXT, "
+                     "created_at TEXT NOT NULL)")
+    SqliteStateStore(db)  # must migrate (add run_id) before indexing it
+    with sqlite3.connect(db) as conn:
+        assert "run_id" in [r[1] for r in conn.execute("PRAGMA table_info(execution_log)")]
+
+
+def test_copy_store_roundtrip(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    assert store.copy_info("i", 1, 5) is None
+    store.record_copy("i", 1, 5, "wf", 2)
+    assert store.copy_info("i", 1, 5) == ("wf", 2)

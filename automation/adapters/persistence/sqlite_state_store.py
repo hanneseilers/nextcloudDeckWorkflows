@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS action_links (
     finished_at TEXT
 );
 
+-- Cards copy_card created (CopyStorePort): which workflow, how deep a copy.
+CREATE TABLE IF NOT EXISTS copied_cards (
+    instance TEXT NOT NULL,
+    board_id INTEGER NOT NULL,
+    card_id INTEGER NOT NULL,
+    workflow_id TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (instance, board_id, card_id)
+);
+
 -- "Already done recently" memory (DuplicateGuardPort) - e.g. an email sent.
 CREATE TABLE IF NOT EXISTS dedupe_keys (
     key TEXT PRIMARY KEY,
@@ -173,6 +184,14 @@ class SqliteStateStore:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
             except sqlite3.OperationalError:
                 pass  # column already exists (or table was just created with it - either is fine)
+        # After the migrations above: run_id may only exist from here on.
+        # execution_log grows with every run; the history/health pages and
+        # the failure-notification check filter it by these columns.
+        conn.executescript(
+            "CREATE INDEX IF NOT EXISTS execution_log_workflow ON execution_log (workflow_id, id);"
+            "CREATE INDEX IF NOT EXISTS execution_log_run ON execution_log (run_id);"
+            "CREATE INDEX IF NOT EXISTS execution_log_created ON execution_log (created_at);"
+        )
         conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -544,5 +563,37 @@ class SqliteStateStore:
             "ON CONFLICT(key) DO UPDATE SET created_at = excluded.created_at",
             (key, now.isoformat()),
         )
-        conn.execute("DELETE FROM dedupe_keys WHERE created_at < ?", ((now - timedelta(days=7)).isoformat(),))
+        conn.execute("DELETE FROM dedupe_keys WHERE created_at < ?", ((now - timedelta(days=8)).isoformat(),))
+        conn.commit()
+
+    # -- CopyStorePort -----------------------------------------------------------
+
+    def record_copy(self, instance: str, board_id: int, card_id: int, workflow_id: str, depth: int) -> None:
+        conn = self._connect()
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            "INSERT OR REPLACE INTO copied_cards (instance, board_id, card_id, workflow_id, depth, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (instance, board_id, card_id, workflow_id, depth, now.isoformat()),
+        )
+        conn.commit()
+
+    def copy_info(self, instance: str, board_id: int, card_id: int) -> Optional[tuple[str, int]]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT workflow_id, depth FROM copied_cards WHERE instance = ? AND board_id = ? AND card_id = ?",
+            (instance, board_id, card_id),
+        ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    # -- retention -----------------------------------------------------------------
+
+    def purge_history(self, older_than_iso: str) -> None:
+        """Drops execution-log rows, finished test runs and copy records older
+        than the cutoff - without this the database grows with every run."""
+
+        conn = self._connect()
+        conn.execute("DELETE FROM execution_log WHERE created_at < ?", (older_than_iso,))
+        conn.execute("DELETE FROM test_runs WHERE status != 'pending' AND created_at < ?", (older_than_iso,))
+        conn.execute("DELETE FROM copied_cards WHERE created_at < ?", (older_than_iso,))
         conn.commit()

@@ -145,6 +145,7 @@ class PollingEventSource:
                     stack_id=state["stack_id"],
                     previous_stack_id=prev_state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             prev_assignees = set(prev_state.get("assignee_ids") or [])
@@ -158,6 +159,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if prev_state.get("duedate") != state["duedate"]:
@@ -168,6 +170,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if prev_state.get("description") != state["description"]:
@@ -178,6 +181,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if set(state["label_ids"]) != set(prev_state.get("label_ids") or []):
@@ -190,6 +194,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if prev_state["last_modified"] != state["last_modified"]:
@@ -203,6 +208,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
         for card_id, prev_state in previous.items():

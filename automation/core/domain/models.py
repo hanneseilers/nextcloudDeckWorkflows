@@ -33,6 +33,9 @@ class DeckEvent:
     stack_id: int
     previous_stack_id: Optional[int] = None
     card: dict = field(default_factory=dict)
+    # The card's lastModified as of the previous poll (None for a new card) -
+    # identifies "this exact change" again when a killed run is repeated.
+    previous_last_modified: Optional[int] = None
 
 
 @dataclass(frozen=True)

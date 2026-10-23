@@ -58,3 +58,20 @@ def test_empty_overrides_keep_the_original_values():
 def test_unknown_target_stack_raises():
     with pytest.raises(KeyError):
         CopyCardAction().execute(make(make_deck()), {"target_board_id": 2, "target_stack_id": 999})
+
+
+def test_copy_depth_is_recorded_and_capped():
+    from automation.actions_registry.copy_card import MAX_COPY_DEPTH
+    from automation.testing.fakes import InMemoryCopyStore
+
+    deck = make_deck()
+    ctx = make(deck)
+    ctx.copy_store = InMemoryCopyStore()
+    ctx.workflow_id = "wf"
+
+    out = CopyCardAction().execute(ctx, {"target_board_id": 2, "target_stack_id": 20})
+    assert ctx.copy_store.copy_info("t", 2, out["card_id"]) == ("wf", 1)
+
+    ctx.copy_store.record_copy("t", 1, 100, "other", MAX_COPY_DEPTH)  # the source is already deep in a chain
+    with pytest.raises(RuntimeError, match="copy loop"):
+        CopyCardAction().execute(ctx, {"target_board_id": 2, "target_stack_id": 20})

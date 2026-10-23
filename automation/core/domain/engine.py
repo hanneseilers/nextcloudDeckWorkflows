@@ -10,6 +10,7 @@ from automation.core.domain.models import (
     ActionStep,
     ComparisonOp,
     DeckEvent,
+    EventType,
     ExecutionResult,
     IfStep,
     Workflow,
@@ -18,6 +19,7 @@ from automation.core.domain.models import (
 from automation.core.ports.action_link_store import ActionLinkStorePort
 from automation.core.ports.action_module import ActionContext, ActionModulePort
 from automation.core.ports.calendar_gateway import CalendarGatewayPort
+from automation.core.ports.copy_store import CopyStorePort
 from automation.core.ports.deck_gateway import DeckGatewayPort
 from automation.core.ports.duplicate_guard import DuplicateGuardPort
 from automation.core.ports.execution_log import ExecutionLogPort
@@ -56,6 +58,7 @@ class WorkflowEngine:
         link_store: Optional[ActionLinkStorePort] = None,
         public_url: Optional[str] = None,
         dedupe_store: Optional[DuplicateGuardPort] = None,
+        copy_store: Optional[CopyStorePort] = None,
     ) -> None:
         self._workflows = workflows
         self._actions = actions
@@ -67,6 +70,7 @@ class WorkflowEngine:
         self._link_store = link_store
         self._public_url = public_url
         self._dedupe_store = dedupe_store
+        self._copy_store = copy_store
         # (workflow id, card id, column id) combinations handle() already ran
         # during this engine's lifetime - main.run() builds a fresh engine per
         # invocation, so this is "once per run". See handle().
@@ -98,8 +102,16 @@ class WorkflowEngine:
                     workflow.id, event.card_id, event.stack_id,
                 )
                 continue
+            if self._is_own_copy(workflow, event):
+                logger.info(
+                    "Skipping workflow '%s' for card %s: the card is its own copy (copy_card)",
+                    workflow.id, event.card_id,
+                )
+                continue
             self._handled.add(key)
-            result = self._run(workflow, event, deck, calendar)
+            # Only event-triggered runs use send_email's duplicate guard: a
+            # test run, schedule or link is a deliberate new run every time.
+            result = self._run(workflow, event, deck, calendar, dedupe=True)
             try:
                 self._execution_log.record(result)
             except Exception:
@@ -156,7 +168,7 @@ class WorkflowEngine:
             calendar=calendar,
             sequence_store=self._sequence_store,
             workflow_id=workflow_id,
-            dedupe_store=self._dedupe_store,
+            copy_store=self._copy_store,
         )
         context.current_stack_id = current_stack_id
         result = ExecutionResult(workflow_id=workflow_id, event=event)
@@ -169,12 +181,23 @@ class WorkflowEngine:
         run_id = self._execution_log.record(result)
         return result, run_id
 
+    def _is_own_copy(self, workflow: Workflow, event: DeckEvent) -> bool:
+        if self._copy_store is None or event.event_type != EventType.CARD_CREATED:
+            return False
+        try:
+            info = self._copy_store.copy_info(event.instance, event.board_id, event.card_id)
+        except Exception:
+            logger.exception("Could not look up copy information for card %s", event.card_id)
+            return False
+        return info is not None and info[0] == workflow.id
+
     def _run(
         self,
         workflow: Workflow,
         event: DeckEvent,
         deck: DeckGatewayPort,
         calendar: Optional[CalendarGatewayPort],
+        dedupe: bool = False,
     ) -> ExecutionResult:
         # Shared with ActionContext.variables (same dict object, not a copy) so
         # a SetVariableAction's writes show up immediately both via
@@ -191,7 +214,8 @@ class WorkflowEngine:
             workflow_id=workflow.id,
             link_store=self._link_store,
             public_url=self._public_url,
-            dedupe_store=self._dedupe_store,
+            dedupe_store=self._dedupe_store if dedupe else None,
+            copy_store=self._copy_store,
         )
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         # Seeded before any step runs: lets every step's params reference the
