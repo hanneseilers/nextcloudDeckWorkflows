@@ -1,0 +1,11 @@
+# Apache: never serve anything from this folder over HTTP - it holds
+# credentials/runtime state and is only read by the scripts themselves.
+<IfModule mod_authz_core.c>
+    # Apache >= 2.4
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    # Apache < 2.4
+    Order allow,deny
+    Deny from all
+</IfModule>

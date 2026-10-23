@@ -239,7 +239,6 @@ class NextcloudApi
         $body = curl_exec($handle);
         $error = curl_error($handle);
         $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
-        curl_close($handle);
 
         if ($body === false) {
             throw new \RuntimeException("$errorContext failed: $error");
