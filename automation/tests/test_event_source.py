@@ -200,3 +200,33 @@ def test_deleted_card_is_detected():
     assert len(events) == 1
     assert events[0].event_type == EventType.CARD_DELETED
     assert events[0].card_id == 100
+
+
+def test_advance_stores_one_cards_state_so_a_killed_batch_only_repeats_the_unfinished_cards():
+    store = InMemorySnapshotStore()
+    deck = InMemoryDeckGateway({1: [{"id": 10, "cards": [
+        {"id": 1, "lastModified": 1}, {"id": 2, "lastModified": 1},
+    ]}]})
+    first = PollingEventSource(deck, store)
+
+    events = first.poll("inst", 1)
+    assert {e.card_id for e in events} == {1, 2}
+    first.advance("inst", 1, 1)  # card 1 fully handled, then the process is killed (no commit)
+
+    second = PollingEventSource(deck, store)  # the next run
+    assert {e.card_id for e in second.poll("inst", 1)} == {2}
+
+
+def test_advance_removes_a_deleted_card_from_the_stored_snapshot():
+    store = InMemorySnapshotStore()
+    deck = InMemoryDeckGateway({1: [{"id": 10, "cards": [{"id": 1, "lastModified": 1}]}]})
+    source = PollingEventSource(deck, store)
+    source.poll("inst", 1)
+    source.commit("inst", 1)
+
+    deck.stacks[1][0]["cards"].clear()
+    events = source.poll("inst", 1)
+    assert [e.event_type for e in events] == [EventType.CARD_DELETED]
+    source.advance("inst", 1, 1)
+
+    assert store.load("inst", 1) == {}

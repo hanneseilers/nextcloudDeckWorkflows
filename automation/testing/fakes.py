@@ -130,6 +130,13 @@ class InMemorySnapshotStore:
     def save(self, instance: str, board_id: int, snapshot: dict[int, dict[str, Any]]) -> None:
         self._snapshots[(instance, board_id)] = snapshot
 
+    def save_card(self, instance: str, board_id: int, card_id: int, state: Optional[dict[str, Any]]) -> None:
+        board = self._snapshots.setdefault((instance, board_id), {})
+        if state is None:
+            board.pop(card_id, None)
+        else:
+            board[card_id] = state
+
 
 class InMemoryExecutionLog:
     def __init__(self) -> None:

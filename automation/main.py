@@ -112,7 +112,7 @@ def run(settings: Settings) -> None:
         iteration += 1
         any_triggered = False
         for target in targets:
-            if _process_board(engine, target):
+            if _process_board(engine, target, deadline):
                 any_triggered = True
 
         if not any_triggered:
@@ -173,19 +173,30 @@ def _apply_webhook_gate(
     return kept
 
 
-def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:
+def _process_board(engine: WorkflowEngine, target: BoardTarget, deadline: float) -> bool:
     """One instance being unreachable or one board having disappeared must not stop
     the rest of the run - polling errors here are logged and this board is skipped.
 
-    Only commits the new snapshot after every detected event has been fully
-    handled (not inside poll() itself) - if the process dies partway through
-    handling, the next run re-detects and reruns the same events rather than
-    silently losing them. Returns whether at least one event was handled, so
-    the caller's fixed-point loop knows whether to poll again.
+    Progress is saved card by card: once every event of a card has been
+    handled, that card's new state is stored right away (see
+    PollingEventSource.advance), and the board's full snapshot is committed
+    after the last one. If the process dies partway through (SIGKILL
+    included), the next run re-detects only the cards not yet advanced -
+    their events are rerun rather than silently lost ("at least once"), but
+    the cards already done are not repeated.
+
+    Stops starting new events once `deadline` (time.monotonic) has passed -
+    the unhandled ones are simply detected again by the next run - and then
+    returns True so the caller's loop ends on its own time check. Returns
+    whether at least one event was handled, so the caller's fixed-point loop
+    knows whether to poll again.
     """
 
+    if time.monotonic() >= deadline:
+        return True  # out of time before even polling - the caller's deadline check ends the run
+
     try:
-        events = target.event_source.poll(target.instance_name, target.board_id)
+        events = list(target.event_source.poll(target.instance_name, target.board_id))
     except Exception:
         logger.exception(
             "Skipping board %s on instance '%s': could not poll for events",
@@ -193,12 +204,23 @@ def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:
         )
         return False
 
-    for event in events:
+    # Events of one card are consecutive (see PollingEventSource._diff), so a
+    # card is done once its last event has been handled.
+    last_event_of_card = {event.card_id: index for index, event in enumerate(events)}
+    for index, event in enumerate(events):
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "Time budget used up on board %s (instance '%s') - %d event(s) left for the next run",
+                target.board_id, target.instance_name, len(events) - index,
+            )
+            return True
         logger.info(
             "Detected %s on card %s (instance=%s board=%s)",
             event.event_type.value, event.card_id, target.instance_name, target.board_id,
         )
         engine.handle(event, target.deck, target.calendar)
+        if last_event_of_card[event.card_id] == index:
+            target.event_source.advance(target.instance_name, target.board_id, event.card_id)
 
     target.event_source.commit(target.instance_name, target.board_id)
     return len(events) > 0

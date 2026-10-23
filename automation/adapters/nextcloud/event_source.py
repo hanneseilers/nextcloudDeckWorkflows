@@ -43,6 +43,19 @@ def _label_ids(card: dict[str, Any]) -> set[str]:
     return ids
 
 
+def _storable(state: dict[str, Any]) -> dict[str, Any]:
+    """The part of a card's polled state that is persisted between runs."""
+
+    return {
+        "stack_id": state["stack_id"],
+        "last_modified": state["last_modified"],
+        "duedate": state["duedate"],
+        "description": state["description"],
+        "assignee_ids": sorted(state["assignee_ids"]),
+        "label_ids": sorted(state["label_ids"]),
+    }
+
+
 class PollingEventSource:
     """Implements EventSourcePort by diffing the current board state against the
     snapshot from the previous run. Needed because a shared-webspace cron job has no
@@ -61,29 +74,43 @@ class PollingEventSource:
         self._deck = deck
         self._snapshots = snapshots
         self._pending: dict[tuple[str, int], dict[int, dict[str, Any]]] = {}
+        # The stored snapshot as advanced so far for the poll in flight - see advance().
+        self._working: dict[tuple[str, int], dict[int, dict[str, Any]]] = {}
 
     def poll(self, instance: str, board_id: int) -> list[DeckEvent]:
         current = self._fetch_current(board_id)
         previous = self._snapshots.load(instance, board_id)
         events = list(self._diff(instance, board_id, previous, current))
         self._pending[(instance, board_id)] = current
+        self._working[(instance, board_id)] = dict(previous)
         return events
 
+    def advance(self, instance: str, board_id: int, card_id: int) -> None:
+        """Records that every event of this card from the current poll has
+        been handled: stores the card's new state right away (or removes it,
+        for a deleted card). If the process is killed later in the same
+        batch, only the cards not yet advanced are detected again next run -
+        not the whole batch."""
+
+        key = (instance, board_id)
+        current = self._pending.get(key)
+        if current is None:
+            return
+        state = _storable(current[card_id]) if card_id in current else None
+        self._snapshots.save_card(instance, board_id, card_id, state)
+        working = self._working.get(key)
+        if working is not None:
+            if state is None:
+                working.pop(card_id, None)
+            else:
+                working[card_id] = state
+
     def commit(self, instance: str, board_id: int) -> None:
+        self._working.pop((instance, board_id), None)
         current = self._pending.pop((instance, board_id), None)
         if current is None:
             return
-        self._snapshots.save(instance, board_id, {
-            card_id: {
-                "stack_id": state["stack_id"],
-                "last_modified": state["last_modified"],
-                "duedate": state["duedate"],
-                "description": state["description"],
-                "assignee_ids": sorted(state["assignee_ids"]),
-                "label_ids": sorted(state["label_ids"]),
-            }
-            for card_id, state in current.items()
-        })
+        self._snapshots.save(instance, board_id, {card_id: _storable(state) for card_id, state in current.items()})
 
     def _fetch_current(self, board_id: int) -> dict[int, dict[str, Any]]:
         snapshot: dict[int, dict[str, Any]] = {}

@@ -570,3 +570,62 @@ def test_run_marks_a_link_left_running_by_a_killed_process_as_failed_instead_of_
     assert "abgebrochen" in error
     assert logged == [("link-wf", "add_comment", 0, error)]
     assert not any("deckCard" in url for _, url in calls)  # nothing was re-executed
+
+
+def _two_new_cards_environment(tmp_path, monkeypatch):
+    cards = [{"id": 1, "title": "A", "lastModified": 1}, {"id": 2, "title": "B", "lastModified": 1}]
+    comments = []
+
+    def fake_request(self, method, url, **kwargs):
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [dict(c) for c in cards]}])
+        if method == "POST" and "deckCard" in url:
+            comments.append(url.rsplit("/", 1)[1])
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="hello", name="hello", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(ActionStep(module="add_comment", params={"message": "hi"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+    return settings, comments
+
+
+def test_a_killed_run_only_repeats_the_card_it_was_in_the_middle_of(tmp_path, monkeypatch):
+    from automation.core.domain.engine import WorkflowEngine
+
+    settings, comments = _two_new_cards_environment(tmp_path, monkeypatch)
+    real_handle = WorkflowEngine.handle
+
+    def dying_handle(self, event, deck, calendar=None):
+        if event.card_id == 2:
+            raise SystemExit("killed")  # like a SIGKILL right while card 2 is being handled
+        return real_handle(self, event, deck, calendar)
+
+    monkeypatch.setattr(WorkflowEngine, "handle", dying_handle)
+    try:
+        run(settings)
+    except SystemExit:
+        pass
+    assert comments == ["1"]  # card 1 was handled and advanced before the kill
+
+    monkeypatch.setattr(WorkflowEngine, "handle", real_handle)
+    run(settings)  # the next run
+    assert comments == ["1", "2"]  # card 1 is NOT run a second time
+
+
+def test_a_run_out_of_time_budget_leaves_unhandled_events_for_the_next_run(tmp_path, monkeypatch):
+    settings, comments = _two_new_cards_environment(tmp_path, monkeypatch)
+    from dataclasses import replace
+
+    run(replace(settings, max_run_seconds=0.0))  # no time at all: nothing is polled or consumed
+    assert comments == []
+
+    run(settings)
+    assert comments == ["1", "2"]

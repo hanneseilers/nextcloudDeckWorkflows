@@ -121,6 +121,23 @@ _RUN_ID_COLUMN = "run_id"
 _MODULE_COLUMN = "module"
 
 
+_INSERT_SNAPSHOT_ROW = (
+    f"INSERT INTO board_snapshots (instance, board_id, card_id, stack_id, last_modified, {_EXTRA_COLUMN}) "
+    "VALUES (?, ?, ?, ?, ?, ?)"
+)
+
+
+def _snapshot_row(instance: str, board_id: int, card_id: int, state: dict[str, Any]) -> tuple:
+    return (
+        instance,
+        board_id,
+        card_id,
+        state["stack_id"],
+        state["last_modified"],
+        json.dumps({k: v for k, v in state.items() if k not in ("stack_id", "last_modified")}),
+    )
+
+
 class SqliteStateStore:
     """Implements SnapshotStorePort (board diffing state), ExecutionLogPort
     (workflow run history) and SequenceStorePort (generate_random_number's
@@ -189,20 +206,19 @@ class SqliteStateStore:
             (instance, board_id),
         )
         conn.executemany(
-            f"INSERT INTO board_snapshots (instance, board_id, card_id, stack_id, last_modified, {_EXTRA_COLUMN}) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    instance,
-                    board_id,
-                    card_id,
-                    state["stack_id"],
-                    state["last_modified"],
-                    json.dumps({k: v for k, v in state.items() if k not in ("stack_id", "last_modified")}),
-                )
-                for card_id, state in snapshot.items()
-            ],
+            _INSERT_SNAPSHOT_ROW,
+            [_snapshot_row(instance, board_id, card_id, state) for card_id, state in snapshot.items()],
         )
+        conn.commit()
+
+    def save_card(self, instance: str, board_id: int, card_id: int, state: Optional[dict[str, Any]]) -> None:
+        conn = self._connect()
+        conn.execute(
+            "DELETE FROM board_snapshots WHERE instance = ? AND board_id = ? AND card_id = ?",
+            (instance, board_id, card_id),
+        )
+        if state is not None:
+            conn.execute(_INSERT_SNAPSHOT_ROW, _snapshot_row(instance, board_id, card_id, state))
         conn.commit()
 
     # -- ExecutionLogPort -------------------------------------------------------
