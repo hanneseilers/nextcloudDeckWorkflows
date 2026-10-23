@@ -28,6 +28,8 @@ class ForgetRandomNumberAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "forget_random_number"
     LABEL: ClassVar[str] = "Zufallszahl entfernen"
+    DESCRIPTION: ClassVar[str] = "Gibt eine zuvor erzeugte Zufallszahl wieder frei, damit sie erneut vergeben werden kann."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"list_name": "Liste", "number": "Zahl"}
 
     def default_input(self) -> dict[str, Any]:
         return {"list_name": "default", "number": ""}

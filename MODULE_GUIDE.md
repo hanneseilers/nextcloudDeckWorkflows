@@ -36,6 +36,10 @@ class UppercaseTextAction(WorkflowAction):
     """
 
     ACTION_NAME: ClassVar[str] = "uppercase_text"
+    LABEL: ClassVar[str] = "Text in Großbuchstaben"
+    DESCRIPTION: ClassVar[str] = "Wandelt einen Text in Großbuchstaben um."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"text": "Text"}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"text": "Text in Großbuchstaben"}
 
     def default_input(self) -> dict[str, Any]:
         return {"text": ""}
@@ -51,6 +55,12 @@ What each piece is for:
 
 - **`ACTION_NAME`** — the id a workflow's `module:` field references. Must
   be unique across all modules.
+- **`LABEL`, `DESCRIPTION`, `PARAM_LABELS`, `OUTPUT_LABELS`** (and optional
+  `PARAM_HELP`, a help text per input field) — what the website shows: the
+  German name in the action list, one sentence under it, German names for
+  every input/output field. Required in practice: a test
+  (`test_action_labels.py`) fails if an action lacks a label, a description
+  or a German name for one of its fields.
 - **`default_input()`/`default_output()`** — an *example* object documenting
   the shapes `params`/the return value are expected to have. This is what
   the website reads to render the module's parameter form and to offer its

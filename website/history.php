@@ -3,6 +3,7 @@
 require __DIR__ . '/vendor/autoload.php';
 
 use NextcloudDeckWorkflows\Config;
+use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ExecutionLog;
 use NextcloudDeckWorkflows\ModuleRegistry;
@@ -38,23 +39,8 @@ foreach ($workflows->listAll() as $workflow) {
     }
 }
 
-function h(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
 ?>
-<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8">
-<title>Ausführungs-Historie — Nextcloud Deck Workflows</title>
-<link rel="stylesheet" href="assets/style.css">
-</head>
-<body>
-<header>
-    <h1>Ausführungs-Historie</h1>
-    <a href="index.php">&larr; Übersicht</a>
-</header>
+<?php Layout::start('Historie', 'Ausführungs-Historie', 'history'); ?>
 
 <?php if ($pendingTestRun !== null && $pendingTestRun['status'] === 'pending'): ?>
     <p class="notice">Testlauf angefragt - wird beim nächsten Lauf von
@@ -98,7 +84,7 @@ function h(string $value): string
 <tbody>
 <?php foreach ($runs as $run): ?>
 <tr class="<?= $run['success'] ? '' : 'run-failed' ?>">
-    <td><?= h($run['created_at']) ?></td>
+    <td><?= Layout::dateTime($run['created_at']) ?></td>
     <td>
         <a href="history.php?workflow_id=<?= urlencode($run['workflow_id']) ?>">
             <?= h($workflowNames[$run['workflow_id']] ?? $run['workflow_id']) ?>
@@ -126,5 +112,4 @@ function h(string $value): string
 <?php endif; ?>
 <?php endif; ?>
 
-</body>
-</html>
+<?php Layout::end(); ?>

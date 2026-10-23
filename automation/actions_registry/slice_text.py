@@ -31,6 +31,10 @@ class SliceTextAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "slice_text"
     LABEL: ClassVar[str] = "Text ausschneiden"
+    DESCRIPTION: ClassVar[str] = "Schneidet den Text zwischen zwei Markierungen aus."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"text": "Text", "start": "Beginnt nach", "end": "Endet vor"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"start": "Leer = ab Textanfang.", "end": "Leer = bis Textende."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"text": "Ausschnitt"}
 
     def default_input(self) -> dict[str, Any]:
         return {"text": "", "start": None, "end": None}

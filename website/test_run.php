@@ -3,6 +3,7 @@
 require __DIR__ . '/vendor/autoload.php';
 
 use NextcloudDeckWorkflows\Config;
+use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
@@ -16,23 +17,8 @@ try {
     $workflow = null;
 }
 
-function h(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
 ?>
-<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8">
-<title>Testlauf — Nextcloud Deck Workflows</title>
-<link rel="stylesheet" href="assets/style.css">
-</head>
-<body>
-<header>
-    <h1>Testlauf: <?= h($workflow['name'] ?? $workflowId) ?></h1>
-    <a href="index.php">&larr; Übersicht</a>
-</header>
+<?php Layout::start('Testlauf', 'Testlauf: ' . (string) ($workflow['name'] ?? $workflowId)); ?>
 
 <?php if ($workflow === null): ?>
     <p class="notice error">Workflow '<?= h($workflowId) ?>' nicht gefunden.</p>
@@ -62,5 +48,4 @@ der <a href="history.php">Historie</a>.</p>
 <script src="assets/test_run.js"></script>
 <?php endif; ?>
 
-</body>
-</html>
+<?php Layout::end(); ?>

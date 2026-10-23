@@ -5,6 +5,8 @@ from automation.adapters.actions.simple_card_action import make_simple_card_acti
 AssignUserAction = make_simple_card_action(
     action_name="assign_user",
     label="Zuständigen Benutzer zuweisen",
+    description="Trägt einen Benutzer als zuständig für die Karte ein.",
+    param_label="Benutzer",
     param_name="user_id",
     default_value="",
     deck_method="assign_user",

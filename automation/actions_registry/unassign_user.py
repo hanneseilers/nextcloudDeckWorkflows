@@ -5,6 +5,8 @@ from automation.adapters.actions.simple_card_action import make_simple_card_acti
 UnassignUserAction = make_simple_card_action(
     action_name="unassign_user",
     label="Zuständigen Benutzer entfernen",
+    description="Entfernt einen zuständigen Benutzer von der Karte.",
+    param_label="Benutzer",
     param_name="user_id",
     default_value="",
     deck_method="unassign_user",

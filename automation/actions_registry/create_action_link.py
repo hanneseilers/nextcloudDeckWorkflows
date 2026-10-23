@@ -43,6 +43,10 @@ class CreateActionLinkAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "create_action_link"
     LABEL: ClassVar[str] = "Einmal-Link erstellen"
+    DESCRIPTION: ClassVar[str] = "Erstellt einen Link, der beim ersten Aufruf eine Action für diese Karte ausführt."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"action": "Auszuführende Action", "action_params": "Felder der Action", "success_message": "Text bei Erfolg", "require_confirmation": "Erst bestätigen lassen"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"action_params": "Beispiel für \"Kommentar hinzufügen\": {\"message\": \"Per Link erledigt\"} - Referenzen werden beim Erstellen des Links aufgelöst.", "success_message": "Wird nach erfolgreicher Ausführung angezeigt - leer = Standardtext.", "require_confirmation": "An = die Seite zeigt zuerst einen Button \"Jetzt ausführen\" (schützt den Link vor Link-Vorschau-Bots)."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"url": "Link"}
 
     def default_input(self) -> dict[str, Any]:
         return {"action": "", "action_params": {}, "success_message": "", "require_confirmation": False}

@@ -20,6 +20,9 @@ class AddCommentAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "add_comment"
     LABEL: ClassVar[str] = "Kommentar hinzufügen"
+    DESCRIPTION: ClassVar[str] = "Schreibt einen Kommentar an die Karte. $name im Text wird durch eine Variable ersetzt."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"message": "Variablen aus \"Variable setzen\" mit $name einsetzen, z. B. Ticket $nummer."}
 
     def default_input(self) -> dict[str, Any]:
         return {"message": ""}

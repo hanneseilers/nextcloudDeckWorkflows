@@ -47,6 +47,10 @@ class CopyCardAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "copy_card"
     LABEL: ClassVar[str] = "Karte kopieren"
+    DESCRIPTION: ClassVar[str] = "Kopiert die Karte (nur Titel und Beschreibung) in eine Spalte eines Boards."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"target_board_id": "Ziel-Board", "target_stack_id": "Ziel-Spalte", "title": "Titel der Kopie", "description": "Beschreibung der Kopie"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"title": "Leer = Titel der Originalkarte.", "description": "Leer = Beschreibung der Originalkarte."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"card_id": "Id der Kopie", "board_id": "Board der Kopie", "stack_id": "Spalte der Kopie"}
 
     def default_input(self) -> dict[str, Any]:
         return {"target_board_id": 0, "target_stack_id": 0, "title": "", "description": ""}

@@ -66,6 +66,10 @@ class SendEmailAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "send_email"
     LABEL: ClassVar[str] = "E-Mail senden"
+    DESCRIPTION: ClassVar[str] = "Verschickt eine E-Mail über den eingerichteten SMTP-Server."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"to": "Empfänger", "subject": "Betreff", "body": "Text", "template": "Vorlage (optional)", "template_data": "Werte für die Vorlage", "dedupe_minutes": "Doppelversand-Schutz (Minuten)"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"template": "Name einer Datei aus config/email_templates/ - ersetzt Betreff und Text.", "dedupe_minutes": "Wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis innerhalb dieser Minuten nicht noch einmal raus. Neue Ereignisse, Testläufe und Zeitpläne senden immer. 0 = aus."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"sent": "Gesendet"}
 
     def default_input(self) -> dict[str, Any]:
         return {

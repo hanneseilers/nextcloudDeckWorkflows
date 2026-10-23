@@ -26,10 +26,6 @@ header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex');
 set_time_limit(WAIT_SECONDS + 15);
 
-function h(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
 
 function page(int $status, string $kind, string $message, string $extra = ''): never
 {

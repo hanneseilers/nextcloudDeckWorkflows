@@ -53,6 +53,10 @@ class ExtractFieldAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "extract_field"
     LABEL: ClassVar[str] = "Feld extrahieren"
+    DESCRIPTION: ClassVar[str] = "Holt einen Wert aus einer verschachtelten Ausgabe heraus (auch aus Listen)."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"data": "Daten", "path": "Pfad"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"data": "Beispiel: Referenz auf Karte → Labels - oder die gesamte Ausgabe eines früheren Schritts.", "path": "Beispiel: 0.title - nimmt aus einer Liste den ersten Eintrag (0) und davon das Feld title. Ebenen mit Punkt trennen, Listen beginnen bei 0."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"value": "Wert"}
 
     def default_input(self) -> dict[str, Any]:
         return {"data": {}, "path": ""}

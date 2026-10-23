@@ -23,6 +23,10 @@ class SetVariableAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "set_variable"
     LABEL: ClassVar[str] = "Variable setzen"
+    DESCRIPTION: ClassVar[str] = "Merkt sich einen Wert unter einem Namen - in Texten als $name nutzbar."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"name": "Name", "value": "Wert"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"name": "Ohne $ und Leerzeichen, z. B. nummer."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"name": "Name", "value": "Wert"}
 
     def default_input(self) -> dict[str, Any]:
         return {"name": "", "value": None}

@@ -5,6 +5,8 @@ from automation.adapters.actions.simple_card_action import make_simple_card_acti
 AddLabelAction = make_simple_card_action(
     action_name="add_label",
     label="Label hinzufügen",
+    description="Fügt der Karte ein vorhandenes Label des Boards hinzu.",
+    param_label="Label",
     param_name="label_id",
     default_value=0,
     deck_method="add_label",

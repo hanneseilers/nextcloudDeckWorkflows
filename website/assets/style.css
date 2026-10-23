@@ -367,3 +367,137 @@ fieldset .weekday-checkboxes input[type="checkbox"] {
     color: var(--danger);
     font-size: 0.85rem;
 }
+
+/* -- shared navigation (src/Layout.php) ------------------------------------- */
+
+.topnav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding-bottom: 0.75rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.topnav .brand {
+    font-weight: 700;
+    color: inherit;
+    text-decoration: none;
+}
+
+.topnav .nav-links {
+    display: flex;
+    gap: 0.25rem;
+    flex: 1;
+    flex-wrap: wrap;
+}
+
+.topnav .nav-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 4px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.topnav .nav-links a:hover {
+    background: #f0f0f0;
+}
+
+.topnav .nav-links a.active {
+    background: #e6f4ea;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* -- overview -------------------------------------------------------------- */
+
+.workflow-name {
+    font-weight: 600;
+    color: inherit;
+}
+
+.small {
+    font-size: 0.85rem;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+}
+
+.badge-on {
+    background: #e6f4ea;
+    color: var(--accent);
+}
+
+.badge-off {
+    background: #f0f0f0;
+    color: #666;
+}
+
+tr.is-disabled td:not(.actions) {
+    color: #888;
+}
+
+.empty-state {
+    max-width: 40rem;
+    padding: 1.5rem;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+}
+
+/* -- editor ---------------------------------------------------------------- */
+
+.step-number {
+    font-weight: 700;
+    min-width: 2rem;
+}
+
+.step-description {
+    margin: -0.25rem 0 0.5rem 2.5rem;
+    font-size: 0.9rem;
+}
+
+.step-controls {
+    display: inline-flex;
+    gap: 0.25rem;
+    margin-left: auto;
+}
+
+.step-advanced,
+details.advanced {
+    margin: 0.25rem 0 0 2.5rem;
+    font-size: 0.9rem;
+}
+
+details.advanced {
+    margin-left: 0;
+}
+
+.step-advanced summary,
+details.advanced summary {
+    cursor: pointer;
+    color: #666;
+}
+
+button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+@media (max-width: 640px) {
+    .step-description,
+    .step-advanced {
+        margin-left: 0;
+    }
+    .workflow-table th:nth-child(2),
+    .workflow-table td:nth-child(2) {
+        display: none;
+    }
+}

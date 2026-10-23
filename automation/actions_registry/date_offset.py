@@ -23,6 +23,10 @@ class DateOffsetAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "date_offset"
     LABEL: ClassVar[str] = "Datum verschieben"
+    DESCRIPTION: ClassVar[str] = "Rechnet ein Datum plus/minus Tage aus, z. B. für eine Fälligkeit in 3 Tagen."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"base": "Ausgangsdatum", "days": "Tage"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"base": "Leer = jetzt. Sonst ein ISO-Zeitpunkt oder eine Referenz (z. B. Karte → Fälligkeitsdatum).", "days": "Negativ = zurück in die Vergangenheit."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"date": "Datum"}
 
     def default_input(self) -> dict[str, Any]:
         return {"base": None, "days": 0}

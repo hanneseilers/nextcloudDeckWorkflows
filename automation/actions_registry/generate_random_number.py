@@ -35,6 +35,10 @@ class GenerateRandomNumberAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "generate_random_number"
     LABEL: ClassVar[str] = "Zufallszahl erzeugen"
+    DESCRIPTION: ClassVar[str] = "Erzeugt eine eindeutige Zufallszahl, die in dieser Liste noch nicht vergeben wurde."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"list_name": "Liste", "min_digits": "Mindest-Stellen", "save": "Als vergeben merken"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"list_name": "Verschiedene Listen vergeben unabhängig voneinander."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"number": "Zahl"}
 
     # After this many consecutive collisions at the current digit width,
     # widen by one digit and start a fresh attempt round.

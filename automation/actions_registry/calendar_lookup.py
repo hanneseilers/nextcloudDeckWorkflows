@@ -26,6 +26,9 @@ class CalendarLookupAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "calendar_lookup"
     LABEL: ClassVar[str] = "Kalender abfragen"
+    DESCRIPTION: ClassVar[str] = "Sucht im Nextcloud-Kalender den nächsten Termin, dessen Titel einen Text enthält."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"calendar_id": "Kalender", "title_contains": "Titel enthält"}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"title": "Titel", "start": "Beginn", "end": "Ende", "location": "Ort"}
 
     def default_input(self) -> dict[str, Any]:
         return {"calendar_id": "", "title_contains": ""}

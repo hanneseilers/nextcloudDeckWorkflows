@@ -27,6 +27,9 @@ class AddChecklistItemAction(WorkflowAction):
 
     ACTION_NAME: ClassVar[str] = "add_checklist_item"
     LABEL: ClassVar[str] = "Checklisten-Punkt hinzufügen"
+    DESCRIPTION: ClassVar[str] = "Hängt einen Checklisten-Punkt (- [ ] Text) an die Beschreibung der Karte an."
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"text": "Text des Punkts"}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"description": "Neue Beschreibung"}
 
     def default_input(self) -> dict[str, Any]:
         return {"text": ""}

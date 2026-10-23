@@ -3,6 +3,7 @@
 require __DIR__ . '/vendor/autoload.php';
 
 use NextcloudDeckWorkflows\Config;
+use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ModuleRegistry;
@@ -23,23 +24,8 @@ if ($editId !== '') {
 }
 $isEdit = $editId !== '' && $existingWorkflow !== null;
 
-function h(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
 ?>
-<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8">
-<title><?= $isEdit ? 'Workflow bearbeiten' : 'Neuer Workflow' ?> — Nextcloud Deck Workflows</title>
-<link rel="stylesheet" href="assets/style.css">
-</head>
-<body>
-<header>
-    <h1><?= $isEdit ? 'Workflow bearbeiten: ' . h((string) $existingWorkflow['name']) : 'Neuer Workflow' ?></h1>
-    <a href="index.php">&larr; Übersicht</a>
-</header>
+<?php Layout::start($isEdit ? 'Workflow bearbeiten' : 'Neuer Workflow', $isEdit ? 'Workflow bearbeiten: ' . (string) $existingWorkflow['name'] : 'Neuer Workflow'); ?>
 
 <?php if ($editId !== '' && $existingWorkflow === null): ?>
     <p class="notice error">Workflow '<?= h($editId) ?>' nicht gefunden.</p>
@@ -58,7 +44,20 @@ function h(string $value): string
 <input type="hidden" name="payload" id="payload">
 
 <fieldset>
-<legend>Wo?</legend>
+<legend>1. Name</legend>
+<label>Wie soll der Workflow heißen?
+    <input type="text" id="name" required placeholder="z. B. Neue Tickets bestätigen">
+</label>
+<details class="advanced">
+    <summary>Erweitert</summary>
+    <label>Id (technischer Name, Dateiname in <code>workflows/</code> - wird aus dem Namen erzeugt)
+        <input type="text" id="workflow-id" pattern="[a-z0-9\-]+" <?= $isEdit ? 'readonly' : '' ?>>
+    </label>
+</details>
+</fieldset>
+
+<fieldset>
+<legend>2. Wo? Auf welchem Board</legend>
 
 <label>Nextcloud-Instanz
     <select id="instance" required>
@@ -69,19 +68,19 @@ function h(string $value): string
     </select>
 </label>
 
-<label>Board (Deck)
+<label>Board
     <span id="board-field" class="muted">– zuerst Instanz wählen –</span>
     <input type="hidden" id="board">
 </label>
 
-<label id="stack-label">Spalte (optional - leer/"Alle Spalten" lässt den Workflow auf jede Spalte reagieren)
+<label id="stack-label">Spalte (optional - leer = jede Spalte)
     <span id="stack-field" class="muted">– zuerst Board wählen –</span>
     <input type="hidden" id="stack">
 </label>
 </fieldset>
 
 <fieldset>
-<legend>Wann?</legend>
+<legend>3. Wann? Was löst den Workflow aus</legend>
 <label>Trigger-Art
     <select id="trigger-kind">
         <option value="event">Nextcloud-Event</option>
@@ -101,8 +100,7 @@ function h(string $value): string
 
 <div id="schedule-trigger-fields" hidden>
 <p class="muted">Läuft unabhängig von Karten-Events zur angegebenen Zeit - nutze dafür
-Module ohne Kartenbezug (z. B. <code>send_email</code>, <code>log_action</code>,
-<code>generate_random_number</code>, <code>calculate</code>).</p>
+Schritte ohne Kartenbezug (z. B. „E-Mail senden", „Zufallszahl erzeugen", „Berechnen").</p>
 <label>Uhrzeit
     <input type="time" id="schedule-time">
 </label>
@@ -116,20 +114,10 @@ Module ohne Kartenbezug (z. B. <code>send_email</code>, <code>log_action</code>,
 </div>
 </fieldset>
 
-<fieldset>
-<legend>Workflow</legend>
-<label>Name
-    <input type="text" id="name" required>
-</label>
-<label>Id (technischer Name, Dateiname in <code>workflows/</code>)
-    <input type="text" id="workflow-id" pattern="[a-z0-9\-]+" required <?= $isEdit ? 'readonly' : '' ?>>
-</label>
-</fieldset>
 
 <fieldset>
-<legend>Was passiert? (Module in Reihenfolge)</legend>
+<legend>4. Was passiert? Schritte in Reihenfolge</legend>
 <div id="steps"></div>
-<button type="button" id="add-step">+ Schritt hinzufügen</button>
 </fieldset>
 
 <button type="submit" class="button"><?= $isEdit ? 'Änderungen speichern' : 'Workflow speichern' ?></button>
@@ -143,5 +131,4 @@ Module ohne Kartenbezug (z. B. <code>send_email</code>, <code>log_action</code>,
 <script src="assets/builder.js"></script>
 <?php endif; ?>
 
-</body>
-</html>
+<?php Layout::end(); ?>

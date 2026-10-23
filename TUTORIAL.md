@@ -59,13 +59,13 @@ hinterlassen werden, der bestätigt, dass das Ticket erfasst wurde.
 ### In der Website
 
 1. Übersicht (`index.php`) → **+ Neuer Workflow**.
-2. Unter **Wo?**: Nextcloud-Instanz wählen, dann das Board "Support" (Name
+2. Unter **2. Wo?**: Nextcloud-Instanz wählen, dann das Board "Support" (Name
    eintippen, aus der Liste auswählen). Spalte leer lassen - das Ticket
    kann in jeder Spalte landen.
-3. Unter **Wann?**: Event = `Karte erstellt`.
+3. Unter **3. Wann?**: Event = `Karte erstellt`.
 4. Unter **Workflow**: Name = "Ticket-Eingangsbestätigung", Id wird daraus
    automatisch vorgeschlagen (z. B. `ticket-eingangsbestaetigung`).
-5. Unter **Was passiert?**: **+ Schritt hinzufügen**, als Modul
+5. Unter **4. Was passiert?**: **+ Schritt**, als Modul
    `add_comment` wählen, Feld `message` = `Ticket wurde erfasst.`
 6. **Workflow speichern**.
 
@@ -95,7 +95,7 @@ Das ist bereits ein vollständiger, funktionierender Workflow.
 einen generischen Text.
 
 Jede Karte, die einen Workflow auslöst, ist automatisch unter der
-reservierten Quelle `card` verfügbar (`card.title`, `card.description`,
+reservierten Quelle „Karte“ verfügbar (`card.title`, `card.description`,
 `card.duedate`, ...) - dafür ist kein zusätzlicher Schritt nötig. Um einen
 Kartenwert in einem **Freitext** wie `add_comment`s `message` zu verwenden,
 geht man über eine **globale Variable**: `set_variable` liest den Wert
@@ -104,13 +104,13 @@ werden.
 
 ### In der Website
 
-Im Workflow aus Schritt 1, unter **Was passiert?**:
+Im Workflow aus Schritt 1, unter **4. Was passiert?**:
 
-1. **+ Schritt hinzufügen** (vor dem bestehenden `add_comment`-Schritt per
-   ↑ nach oben verschieben), Modul `set_variable`:
-   - Id des Schritts: `titel` (wird gleich referenziert)
-   - Feld `name`: `titel`
-   - Feld `value`: auf **Referenz** umschalten, Quelle `card`,
+1. **+ Schritt** (vor dem bestehenden `add_comment`-Schritt per
+   ↑ nach oben verschieben), Modul „Variable setzen“ (`set_variable`):
+   - unter „Erweitert“ die Schritt-Id `titel` eintragen (darauf verweisen spätere Schritte)
+   - Feld „Name“ (`name`): `titel`
+   - Feld „Wert“ (`value`): auf **Wert übernehmen** umschalten, Quelle „Karte“,
      Ausgabefeld `title`
 2. Im bestehenden `add_comment`-Schritt, Feld `message` ändern zu:
    `Ticket zu '$titel' wurde erfasst.`
@@ -144,11 +144,11 @@ eine Fälligkeit von 3 Tagen gesetzt werden.
 
 ### In der Website
 
-1. Unter **Wo?**: Spalte jetzt auf "Neu" setzen (statt "Alle Spalten").
-2. Unter **Was passiert?**, zwei neue Schritte am Ende hinzufügen:
-   - Modul `date_offset`, Id `faellig`, Feld `days` = `3` (Feld `base`
+1. Unter **2. Wo?**: Spalte jetzt auf "Neu" setzen (statt "Alle Spalten").
+2. Unter **4. Was passiert?**, zwei neue Schritte am Ende hinzufügen:
+   - Modul „Datum verschieben“ (`date_offset`), Id `faellig`, Feld „Tage“ (`days`) = `3` (Feld „Ausgangsdatum“ (`base`)
      leer lassen - dann wird ab heute gerechnet)
-   - Modul `set_due_date`, Feld `due_date` auf **Referenz** umschalten,
+   - Modul „Fälligkeitsdatum setzen“ (`set_due_date`), Feld „Fälligkeitsdatum“ (`due_date`) auf **Wert übernehmen** umschalten,
      Quelle `faellig`, Ausgabefeld `date`
 3. **Workflow speichern**.
 
@@ -191,13 +191,13 @@ zugewiesen werden - sonst dem normalen Erstsupport.
 
 ### In der Website
 
-Unter **Was passiert?**, am Ende **+ Wenn/Sonst** hinzufügen:
+Unter **4. Was passiert?**, am Ende **+ Wenn/Sonst** hinzufügen:
 
-1. Bedingung: linke Seite auf **Referenz** umschalten, Quelle `card`,
+1. Bedingung: linke Seite auf **Wert übernehmen** umschalten, Quelle „Karte“,
    Ausgabefeld `title`; Operator `enthält`; rechte Seite (Fester Wert)
    `dringend`.
-2. Im **Dann:**-Zweig, zwei Schritte: `add_label` (Feld `label_id`: die Id
-   des Prioritäts-Labels, z. B. `99`) und `assign_user` (Feld `user_id`:
+2. Im **Dann:**-Zweig, zwei Schritte: `add_label` (Feld „Label“ (`label_id`): die Id
+   des Prioritäts-Labels, z. B. `99`) und `assign_user` (Feld „Benutzer“ (`user_id`):
    Name eintippen und auswählen - z. B. eine zweite Support-Ebene).
 3. Im **Sonst:**-Zweig: `assign_user` mit dem Erstsupport-Benutzer.
 4. **Workflow speichern**.
@@ -244,14 +244,14 @@ gespeicherte Liste geprüft, siehe automation/README.md).
 
 Am Ende der Schrittliste:
 
-1. Modul `generate_random_number`, Id `nummer`. Felder: `list_name` =
+1. Modul „Zufallszahl erzeugen“ (`generate_random_number`), Id `nummer`. Felder: `list_name` =
    `tickets`, `min_digits` = `4` (also mind. 4-stellig, z. B. "0273"),
    `save` = aktiviert (Standard - die Nummer wird als "vergeben"
    gespeichert).
-2. Modul `set_variable`, Id `nummer_var`: `name` = `ticket_nr`, `value`
-   per Referenz von `nummer`, Feld `number`.
-3. Modul `set_description`, Feld `description` per Referenz von `nummer`,
-   Feld `number` - die Nummer wird so direkt auf der Karte gespeichert,
+2. Modul „Variable setzen“ (`set_variable`), Id `nummer_var`: `name` = `ticket_nr`, `value`
+   per Referenz von `nummer`, Feld „Zahl“ (`number`).
+3. Modul „Beschreibung setzen“ (`set_description`), Feld `description` per Referenz von `nummer`,
+   Feld „Zahl“ (`number`) - die Nummer wird so direkt auf der Karte gespeichert,
    nicht nur in diesem einen Workflow-Lauf.
 4. Im bestehenden `add_comment`-Schritt die Nachricht erweitern, z. B.
    `Ticket-Nr: $ticket_nr. Ticket zu '$titel' wurde erfasst.`
@@ -305,7 +305,7 @@ Auslöser-Kontext vom ersten Workflow.
 
 1. **Wo?**: dieselbe Instanz/Board, Spalte jetzt "Erledigt".
 2. **Wann?**: Event = `Karte verschoben`.
-3. **Was passiert?**: Modul `forget_random_number`, Felder: `list_name` =
+3. **Was passiert?**: Modul „Zufallszahl entfernen“ (`forget_random_number`), Felder: `list_name` =
    `tickets`, `number` per Referenz von `card`, Feld `description` (dort
    hatte Schritt 5 die Nummer gespeichert).
 4. **Workflow speichern**.

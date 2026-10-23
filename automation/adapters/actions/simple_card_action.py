@@ -10,6 +10,8 @@ def make_simple_card_action(
     *,
     action_name: str,
     label: str,
+    description: str,
+    param_label: str,
     param_name: str,
     default_value: Any,
     deck_method: str,
@@ -30,6 +32,8 @@ def make_simple_card_action(
     class _SimpleCardAction(WorkflowAction):
         ACTION_NAME: ClassVar[str] = action_name
         LABEL: ClassVar[str] = label
+        DESCRIPTION: ClassVar[str] = description
+        PARAM_LABELS: ClassVar[dict[str, str]] = {param_name: param_label}
 
         def default_input(self) -> dict[str, Any]:
             return {param_name: default_value}
