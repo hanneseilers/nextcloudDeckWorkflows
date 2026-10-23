@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS action_links (
     error TEXT,
     created_at TEXT NOT NULL,
     claimed_at TEXT,
+    running_at TEXT,
     finished_at TEXT
 );
 
@@ -143,6 +144,7 @@ class SqliteStateStore:
             ("board_snapshots", _EXTRA_COLUMN, "TEXT"),
             ("execution_log", _RUN_ID_COLUMN, "TEXT"),
             ("execution_log", _MODULE_COLUMN, "TEXT"),
+            ("action_links", "running_at", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
@@ -443,11 +445,21 @@ class SqliteStateStore:
     def claimed_links(self) -> list[dict[str, Any]]:
         """Links the website has claimed (visited) that main.py hasn't run yet."""
 
+        return self._links_where("status = 'claimed' ORDER BY claimed_at", ())
+
+    def stale_running_links(self, started_before_iso: str) -> list[dict[str, Any]]:
+        """Links a main.py invocation took for running but never finished -
+        the process was killed (cron timeout) in between."""
+
+        return self._links_where("status = 'running' AND running_at < ?", (started_before_iso,))
+
+    def _links_where(self, where: str, args: tuple) -> list[dict[str, Any]]:
         conn = self._connect()
         rows = conn.execute(
             "SELECT token_hash, workflow_id, instance, board_id, card_id, stack_id, current_stack_id, "
             "event_type, card_json, module, params_json, variables_json FROM action_links "
-            "WHERE status = 'claimed' ORDER BY claimed_at"
+            f"WHERE {where}",
+            args,
         ).fetchall()
         keys = ("token_hash", "workflow_id", "instance", "board_id", "card_id", "stack_id",
                 "current_stack_id", "event_type", "card", "module", "params", "variables")
@@ -467,8 +479,8 @@ class SqliteStateStore:
 
         conn = self._connect()
         cursor = conn.execute(
-            "UPDATE action_links SET status = 'running' WHERE token_hash = ? AND status = 'claimed'",
-            (token_hash,),
+            "UPDATE action_links SET status = 'running', running_at = ? WHERE token_hash = ? AND status = 'claimed'",
+            (datetime.now(timezone.utc).isoformat(), token_hash),
         )
         conn.commit()
         return cursor.rowcount == 1

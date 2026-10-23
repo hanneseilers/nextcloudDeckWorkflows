@@ -28,7 +28,7 @@ from automation.adapters.smtp_config import load_smtp_config, send_email as smtp
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
 from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
-from automation.core.domain.models import DeckEvent, EventType
+from automation.core.domain.models import ActionResult, DeckEvent, EventType, ExecutionResult
 from automation.core.domain.schedule import should_fire
 from automation.core.domain.webhook_gate import should_poll_now
 
@@ -253,6 +253,21 @@ def _process_test_runs(
             state_store.complete_test_run(test_run_id, error=str(exc))
 
 
+# A link still "running" after this long was left behind by a killed process.
+STALE_LINK_RUN_MINUTES = 15
+
+
+def _link_event(link: dict[str, Any]) -> DeckEvent:
+    return DeckEvent(
+        instance=link["instance"],
+        board_id=link["board_id"],
+        event_type=link["event_type"],
+        card_id=link["card_id"],
+        stack_id=link["stack_id"],
+        card=link["card"],
+    )
+
+
 def _process_action_links(settings: Settings, state_store: SqliteStateStore, engine: WorkflowEngine) -> None:
     """Runs the one-time links visitors have claimed through website/link.php
     (see create_action_link) - each one's action, against the card/context
@@ -260,6 +275,24 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
     link itself, so the page the visitor is looking at always gets an answer.
     Finished links older than a day are purged.
     """
+
+    # A link left in "running" by a killed process (cron timeout) is NOT
+    # re-run - that could execute its action twice (a duplicate email or
+    # comment); it is marked failed and shows up as a failed run in the
+    # history instead, so someone can decide whether to create a new link.
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=STALE_LINK_RUN_MINUTES)).isoformat()
+    for link in state_store.stale_running_links(stale_cutoff):
+        message = "Verarbeitung abgebrochen: der Prozess wurde vor Abschluss beendet (z. B. Cron-Timeout)"
+        logger.warning("One-time link for workflow '%s' was left running - marking it failed", link["workflow_id"])
+        try:
+            state_store.record(ExecutionResult(
+                workflow_id=link["workflow_id"],
+                event=_link_event(link),
+                action_results=[ActionResult(module=link["module"], success=False, error=message)],
+            ))
+        except Exception:
+            logger.exception("Could not record the aborted link run")
+        state_store.finish_link(link["token_hash"], error=message)
 
     for link in state_store.claimed_links():
         token_hash = link["token_hash"]
@@ -270,17 +303,9 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
             if instance is None:
                 raise RuntimeError(f"Nextcloud-Instanz '{link['instance']}' nicht konfiguriert")
             client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
-            event = DeckEvent(
-                instance=link["instance"],
-                board_id=link["board_id"],
-                event_type=link["event_type"],
-                card_id=link["card_id"],
-                stack_id=link["stack_id"],
-                card=link["card"],
-            )
             result, _ = engine.run_link_action(
                 workflow_id=link["workflow_id"],
-                event=event,
+                event=_link_event(link),
                 current_stack_id=link["current_stack_id"],
                 module=link["module"],
                 params=link["params"],

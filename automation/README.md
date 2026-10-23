@@ -376,6 +376,10 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   can't be started (`proc_open` disabled), the page says the action was
   accepted and it runs with the next cron invocation.
 - The run is recorded in the history under the workflow that created the link.
+- If the process is killed while running a link (cron timeout), the link
+  stays "running"; the next invocation marks one that has been running for
+  more than 15 minutes as failed (history entry "Verarbeitung abgebrochen")
+  instead of running it again - a rerun could execute the action twice.
 
 ## send_email
 

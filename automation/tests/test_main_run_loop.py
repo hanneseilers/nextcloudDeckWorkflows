@@ -521,3 +521,52 @@ def test_run_creates_a_link_and_executes_it_after_the_website_claims_it(tmp_path
 
     run(settings)  # a done link never runs again
     assert sum(1 for _, url, _ in calls if "deckCard" in url) == 1
+
+
+def _insert_running_link(db_path, token_hash, running_at):
+    store = SqliteStateStore(db_path)
+    from automation.core.domain.models import DeckEvent as _E
+    token = store.create_link(
+        workflow_id="link-wf",
+        event=_E(instance="prod", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10, card={"id": 1}),
+        current_stack_id=10, module="add_comment", params={"message": "x"}, variables={},
+        success_message="ok", require_confirmation=False,
+    )
+    import hashlib
+    real_hash = hashlib.sha256(token.encode()).hexdigest()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE action_links SET token_hash = ?, status = 'running', running_at = ? WHERE token_hash = ?",
+            (token_hash, running_at, real_hash),
+        )
+
+
+def test_run_marks_a_link_left_running_by_a_killed_process_as_failed_instead_of_rerunning_it(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url))
+        return FakeResponse([])
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir)
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+    long_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    just_now = datetime.now(timezone.utc).isoformat()
+    _insert_running_link(settings.state_db_path, "stale", long_ago)
+    _insert_running_link(settings.state_db_path, "fresh", just_now)
+
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        statuses = dict(conn.execute("SELECT token_hash, status FROM action_links"))
+        error = conn.execute("SELECT error FROM action_links WHERE token_hash = 'stale'").fetchone()[0]
+        logged = conn.execute("SELECT workflow_id, module, success, error FROM execution_log").fetchall()
+    assert statuses == {"stale": "error", "fresh": "running"}  # a recent one may still be running elsewhere
+    assert "abgebrochen" in error
+    assert logged == [("link-wf", "add_comment", 0, error)]
+    assert not any("deckCard" in url for _, url in calls)  # nothing was re-executed
