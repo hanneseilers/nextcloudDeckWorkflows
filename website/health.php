@@ -3,6 +3,7 @@
 require __DIR__ . '/vendor/autoload.php';
 
 use NextcloudDeckWorkflows\Config;
+use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\HealthStatus;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
@@ -22,10 +23,6 @@ foreach ($workflows->listAll() as $workflow) {
     $workflowNames[$workflow['id']] = $workflow['name'] ?? $workflow['id'];
 }
 
-function h(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
 
 // Machine-readable form for external uptime monitoring - checks the HTTP
 // status code (200 healthy, 503 not) without needing to parse HTML.
@@ -42,18 +39,7 @@ if (($_GET['format'] ?? '') === 'json') {
     exit;
 }
 ?>
-<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8">
-<title>Status — Nextcloud Deck Workflows</title>
-<link rel="stylesheet" href="assets/style.css">
-</head>
-<body>
-<header>
-    <h1>Status</h1>
-    <a href="index.php">&larr; Übersicht</a>
-</header>
+<?php Layout::start('Status', 'Status', 'health'); ?>
 
 <?php if (!$health->isAvailable()): ?>
     <p class="notice">Noch keine <code>automation/var/state.sqlite3</code> gefunden - sie entsteht
@@ -62,13 +48,13 @@ if (($_GET['format'] ?? '') === 'json') {
 
 <?php if ($health->isHealthy()): ?>
     <p class="notice" style="background:#e6f4ea;border-color:var(--accent);">
-        ✓ Letzter Automatisierungs-Lauf: <?= h((string) $health->lastRunAt()) ?>
+        ✓ Letzter Automatisierungs-Lauf: <?= Layout::dateTime($health->lastRunAt()) ?>
         (vor <?= (int) round($health->minutesSinceLastRun()) ?> Minuten)
     </p>
 <?php else: ?>
     <p class="notice error">
         ✗ Kein aktueller Automatisierungs-Lauf gefunden<?php if ($health->lastRunAt() !== null): ?>
-        - letzter Lauf: <?= h((string) $health->lastRunAt()) ?>
+        - letzter Lauf: <?= Layout::dateTime($health->lastRunAt()) ?>
         (vor <?= (int) round($health->minutesSinceLastRun()) ?> Minuten)
         <?php endif; ?>. Läuft der Cron-Job noch?
     </p>
@@ -122,7 +108,7 @@ if (($_GET['format'] ?? '') === 'json') {
 <tr>
     <td><?= h($ping['instance']) ?></td>
     <td><?= (int) $ping['board_id'] ?></td>
-    <td><?= h($ping['last_ping_at']) ?></td>
+    <td><?= Layout::dateTime($ping['last_ping_at']) ?></td>
 </tr>
 <?php endforeach; ?>
 </tbody>
@@ -132,5 +118,4 @@ if (($_GET['format'] ?? '') === 'json') {
 
 <?php endif; ?>
 
-</body>
-</html>
+<?php Layout::end(); ?>

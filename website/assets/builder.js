@@ -74,6 +74,22 @@
   ];
 
   const state = { steps: [] };
+  // Unsaved-changes guard: set by any edit once the page has finished
+  // loading (see the end of this file), cleared by a successful submit.
+  let loaded = false;
+  let dirty = false;
+  let submitting = false;
+  function markDirty() {
+    if (loaded) {
+      dirty = true;
+    }
+  }
+  window.addEventListener('beforeunload', (event) => {
+    if (dirty && !submitting) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  });
   let idManuallyEdited = false;
   let stepCounter = 1; // unique default step ids regardless of nesting/removal
 
@@ -83,6 +99,7 @@
   function showError(message) {
     errorEl.textContent = message;
     errorEl.hidden = false;
+    errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function hideError() {
@@ -311,6 +328,22 @@
     return result;
   }
 
+  // How a value source reads in the "Wert übernehmen" dropdown.
+  function sourceLabel(source) {
+    if (source.id === 'card') {
+      return 'Karte (die den Workflow ausgelöst hat)';
+    }
+    if (source.id === 'vars') {
+      return 'Variablen';
+    }
+    return 'Schritt ' + stepNumber(source) + ': ' + moduleLabel(source.module);
+  }
+
+  // "2" or "3.1" - the number shown in front of a step (see renderStepList).
+  function stepNumber(node) {
+    return node.displayNumber || node.id;
+  }
+
   function collectVariableNames(list) {
     return collectAllSteps(list)
       .filter((node) => node.module === 'set_variable' && node.params.name && node.params.name.source === 'literal')
@@ -378,22 +411,9 @@
     if (moduleName === 'set_due_date' && key === 'due_date') {
       return 'Format: TT.MM.JJJJ hh:mm';
     }
-    if (moduleName === 'move_card' && key === 'order') {
-      return 'Position in der Spalte (0 = ganz oben)';
-    }
     return '';
   }
 
-  const PARAM_EXAMPLES = {
-    'send_email.dedupe_minutes': 'Schutz vor Doppelversand: wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis (gleiche Karte, gleiche Änderung) innerhalb dieser Minuten nicht noch einmal raus. Ein neues Ereignis an der Karte sendet normal; Testläufe und Zeitpläne senden immer. Standard 10080 = 7 Tage, 0 = aus.',
-    'create_action_link.action_params': 'Beispiel für die Action "Kommentar hinzufügen": {"message": "Per Link erledigt"} - die Felder der gewählten Action; Referenzen werden beim Erstellen des Links aufgelöst.',
-    'create_action_link.success_message': 'Text, der nach erfolgreicher Ausführung angezeigt wird - leer = Standardtext.',
-    'create_action_link.require_confirmation': 'An = die Seite zeigt zuerst einen Button "Jetzt ausführen" (schützt den Link vor Link-Vorschau-Bots).',
-    'format_text.template': 'Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter "values" ersetzt.',
-    'format_text.values': 'Beispiel: {"nummer": {"$ref": "schritt1.number"}, "titel": {"$ref": "card.title"}} - links der Platzhaltername, rechts der Wert (als Referenz auf einen Schritt oder die Karte).',
-    'extract_field.data': 'Beispiel: Referenz auf Quelle "card", Feld "labels" - oder allgemein die gesamte Ausgabe eines früheren Schritts.',
-    'extract_field.path': 'Beispiel: 0.title - nimmt aus einer Liste den ersten Eintrag (0) und davon das Feld "title". Ebenen werden mit Punkten getrennt, Listen-Positionen beginnen bei 0.',
-  };
 
   function isStackIdField(moduleName, key) {
     return (moduleName === 'move_card' || moduleName === 'copy_card') && key === 'target_stack_id';
@@ -582,7 +602,8 @@
     refSources.forEach((source) => {
       const option = document.createElement('option');
       option.value = source.id;
-      option.textContent = source.module ? source.id + ' (' + moduleLabel(source.module) + ')' : source.id;
+      option.textContent = sourceLabel(source);
+      option.title = source.id;
       option.selected = source.id === entry.refStep;
       refSelect.appendChild(option);
     });
@@ -601,7 +622,8 @@
       }
       const refStepObj = refSources.find((s) => s.id === stepId);
       const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
-      return Object.keys((refModule && refModule.output) || {}).map((name) => [name, name]);
+      const outputLabels = (refModule && refModule.output_labels) || {};
+      return Object.keys((refModule && refModule.output) || {}).map((name) => [name, outputLabels[name] || name]);
     };
 
     const renderFieldPicker = () => {
@@ -812,7 +834,7 @@
     ['literal', 'ref'].forEach((source) => {
       const option = document.createElement('option');
       option.value = source;
-      option.textContent = source === 'literal' ? 'Fester Wert' : 'Referenz';
+      option.textContent = source === 'literal' ? 'Fester Wert' : 'Wert übernehmen';
       option.selected = entry.source === source;
       sourceSelect.appendChild(option);
     });
@@ -849,8 +871,10 @@
     const row = document.createElement('div');
     row.className = 'param-row';
 
+    const module = modulesByName[step.module] || {};
     const label = document.createElement('label');
-    label.textContent = key;
+    label.textContent = (module.param_labels || {})[key] || key;
+    label.title = key; // the technical name, as stored in the YAML
     row.appendChild(label);
 
     row.appendChild(
@@ -871,7 +895,7 @@
       })
     );
 
-    const example = PARAM_EXAMPLES[step.module + '.' + key];
+    const example = (module.param_help || {})[key];
     if (example) {
       const exampleEl = document.createElement('div');
       exampleEl.className = 'param-example muted';
@@ -939,16 +963,13 @@
     const header = document.createElement('div');
     header.className = 'step-header';
 
-    const idInput = document.createElement('input');
-    idInput.type = 'text';
-    idInput.value = step.id;
-    idInput.title = 'Schritt-Id (für $ref aus anderen Schritten)';
-    idInput.addEventListener('input', () => {
-      step.id = idInput.value;
-    });
-    header.appendChild(idInput);
+    const number = document.createElement('span');
+    number.className = 'step-number';
+    number.textContent = step.displayNumber + '.';
+    header.appendChild(number);
 
     const moduleSelect = document.createElement('select');
+    moduleSelect.className = 'module-select';
     moduleNames.forEach((name) => {
       const option = document.createElement('option');
       option.value = name;
@@ -968,6 +989,12 @@
     wrapper.appendChild(header);
 
     const module = modulesByName[step.module];
+    if (module && module.description) {
+      const description = document.createElement('p');
+      description.className = 'step-description muted';
+      description.textContent = module.description;
+      wrapper.appendChild(description);
+    }
     const paramsEl = document.createElement('div');
     paramsEl.className = 'params';
 
@@ -989,30 +1016,46 @@
     }
     wrapper.appendChild(paramsEl);
 
+    // Rarely needed, so out of the way: the name later steps use to refer to
+    // this step's output (the "Wert übernehmen" list shows it as "Schritt N").
+    const advanced = document.createElement('details');
+    advanced.className = 'step-advanced';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Erweitert';
+    advanced.appendChild(summary);
+    const idLabel = document.createElement('label');
+    idLabel.textContent = 'Schritt-Id (technischer Name für Verweise) ';
+    const idInput = document.createElement('input');
+    idInput.type = 'text';
+    idInput.value = step.id;
+    idInput.addEventListener('input', () => {
+      step.id = idInput.value;
+    });
+    idLabel.appendChild(idInput);
+    advanced.appendChild(idLabel);
+    wrapper.appendChild(advanced);
+
     return wrapper;
   }
 
   function renderMoveRemoveControls(list, index) {
     const controls = document.createElement('span');
-
-    const upBtn = document.createElement('button');
-    upBtn.type = 'button';
-    upBtn.textContent = '↑';
-    upBtn.addEventListener('click', () => moveNode(list, index, -1));
-    controls.appendChild(upBtn);
-
-    const downBtn = document.createElement('button');
-    downBtn.type = 'button';
-    downBtn.textContent = '↓';
-    downBtn.addEventListener('click', () => moveNode(list, index, 1));
-    controls.appendChild(downBtn);
-
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.textContent = 'Entfernen';
-    removeBtn.addEventListener('click', () => removeNode(list, index));
-    controls.appendChild(removeBtn);
-
+    controls.className = 'step-controls';
+    [
+      ['↑', 'Nach oben', () => moveNode(list, index, -1), index === 0],
+      ['↓', 'Nach unten', () => moveNode(list, index, 1), index === list.length - 1],
+      ['✕', 'Schritt entfernen', () => removeNode(list, index), false],
+    ].forEach(([text, title, onClick, disabled]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'icon-btn' + (text === '✕' ? ' danger' : '');
+      button.textContent = text;
+      button.title = title;
+      button.setAttribute('aria-label', title);
+      button.disabled = disabled;
+      button.addEventListener('click', onClick);
+      controls.appendChild(button);
+    });
     return controls;
   }
 
@@ -1024,7 +1067,7 @@
     header.className = 'step-header';
 
     const label = document.createElement('strong');
-    label.textContent = 'Wenn';
+    label.textContent = node.displayNumber + '. Wenn';
     header.appendChild(label);
 
     header.appendChild(renderMoveRemoveControls(list, index));
@@ -1087,6 +1130,7 @@
     const addStepBtn = document.createElement('button');
     addStepBtn.type = 'button';
     addStepBtn.textContent = '+ Schritt';
+    addStepBtn.title = 'Eine weitere Action an dieser Stelle anhängen';
     addStepBtn.addEventListener('click', () => {
       list.push(makeActionNode());
       render();
@@ -1096,6 +1140,7 @@
     const addIfBtn = document.createElement('button');
     addIfBtn.type = 'button';
     addIfBtn.textContent = '+ Wenn/Sonst';
+    addIfBtn.title = 'Eine Bedingung einfügen: Schritte nur ausführen, wenn sie zutrifft';
     addIfBtn.addEventListener('click', () => {
       list.push(makeIfNode());
       render();
@@ -1106,6 +1151,11 @@
   }
 
   function removeNode(list, index) {
+    const node = list[index];
+    const hasContent = node.kind === 'if' ? node.then.length + node.else.length > 0 : false;
+    if (hasContent && !confirm('Diesen Wenn/Sonst-Block samt allen Schritten darin entfernen?')) {
+      return;
+    }
     list.splice(index, 1);
     render();
   }
@@ -1120,9 +1170,23 @@
     render();
   }
 
+  // Display numbers ("2", "3.1", "3.s1" for an else branch) - assigned
+  // before rendering, so every "Wert übernehmen" list can name any step.
+  function assignNumbers(list, prefix) {
+    list.forEach((node, index) => {
+      node.displayNumber = prefix + (index + 1);
+      if (node.kind === 'if') {
+        assignNumbers(node.then, node.displayNumber + '.');
+        assignNumbers(node.else, node.displayNumber + '.s');
+      }
+    });
+  }
+
   function render() {
+    assignNumbers(state.steps, '');
     stepsEl.innerHTML = '';
     renderStepList(state.steps, stepsEl);
+    markDirty();
   }
 
   // -- assembling the payload for save.php ----------------------------------
@@ -1184,6 +1248,11 @@
     return Number(value);
   }
 
+  function shownText(fieldEl) {
+    const input = fieldEl.querySelector('input');
+    return input ? input.value.trim() : '';
+  }
+
   function collectPayload() {
     if (!instanceEl.value) {
       throw new Error('Bitte Instanz auswählen.');
@@ -1192,8 +1261,15 @@
     if (boardId === null) {
       throw new Error('Bitte ein Board aus der Liste auswählen.');
     }
-    if (!nameEl.value.trim() || !idEl.value.trim()) {
-      throw new Error('Bitte Name und Id des Workflows angeben.');
+    if (!nameEl.value.trim()) {
+      throw new Error('Bitte einen Namen für den Workflow angeben.');
+    }
+    if (!/^[a-z0-9-]+$/.test(idEl.value.trim())) {
+      const advanced = idEl.closest('details');
+      if (advanced) {
+        advanced.open = true;
+      }
+      throw new Error('Die Id (unter „Erweitert") darf nur a-z, 0-9 und - enthalten.');
     }
     if (state.steps.length === 0) {
       throw new Error('Bitte mindestens einen Schritt hinzufügen.');
@@ -1211,6 +1287,8 @@
       board_id: boardId,
       name: nameEl.value.trim(),
       id: idEl.value.trim(),
+      // Display names for the overview, so it needn't ask Nextcloud for them.
+      board_title: shownText(boardFieldEl),
       steps: collectSteps(state.steps, new Set()),
     };
 
@@ -1224,6 +1302,7 @@
       };
     } else {
       payload.stack_id = parseId(stackEl.value, 'Spalte');
+      payload.stack_title = payload.stack_id === null ? '' : shownText(stackFieldEl);
       payload.event = document.getElementById('event-type').value;
     }
 
@@ -1235,6 +1314,7 @@
     try {
       const payload = collectPayload();
       document.getElementById('payload').value = JSON.stringify(payload);
+      submitting = true;
     } catch (e) {
       event.preventDefault();
       showError(e.message);
@@ -1319,4 +1399,8 @@
     state.steps.push(makeActionNode());
     render();
   }
+  const formEl = document.getElementById('workflow-form');
+  formEl.addEventListener('input', markDirty);
+  formEl.addEventListener('change', markDirty);
+  loaded = true;
 })();

@@ -1,5 +1,11 @@
 <?php
 
+/** HTML-escapes a value for output in a page. */
+function h(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+}
+
 // Loaded automatically with vendor/autoload.php (composer.json "files"), so
 // every page gets these before any output.
 

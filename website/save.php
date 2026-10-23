@@ -8,10 +8,6 @@ use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
-function h(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
 
 function fail(array $errors): void
 {
@@ -195,6 +191,14 @@ $workflow = [
     'trigger' => $trigger,
     'actions' => $actions,
 ];
+
+// Display-only names (shown in the overview instead of bare ids, without a
+// Nextcloud request per page view); the automation ignores them.
+foreach (['board_title' => $payload['board_title'] ?? null, 'stack_title' => $payload['stack_title'] ?? null] as $key => $title) {
+    if (is_string($title) && trim($title) !== '') {
+        $workflow[$key] = mb_substr(trim($title), 0, 200);
+    }
+}
 
 $workflows->save($workflow);
 

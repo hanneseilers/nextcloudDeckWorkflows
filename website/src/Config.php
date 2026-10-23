@@ -40,6 +40,13 @@ class Config
             ? $stateDbPath
             : dirname($configDir) . '/' . $stateDbPath;
 
+        // Display only (every stored timestamp is UTC and compared as such):
+        // the timezone the pages show times in.
+        $timezone = (string) ($settings['timezone'] ?? 'Europe/Berlin');
+        if (in_array($timezone, \DateTimeZone::listIdentifiers(), true)) {
+            date_default_timezone_set($timezone);
+        }
+
         if (isset($settings['health_stale_minutes']) && (float) $settings['health_stale_minutes'] > 0) {
             $this->healthStaleMinutes = (float) $settings['health_stale_minutes'];
         }
