@@ -88,8 +88,12 @@ rm -rf \
 
 cp "$SCRIPT_DIR/install.sh" "$TARGET_DIR/install.sh"
 chmod +x "$TARGET_DIR/install.sh"
+# Voraussetzungs-Check für den Webspace (per SSH vor/nach der Installation).
+cp "$SCRIPT_DIR/check_server.sh" "$TARGET_DIR/check_server.sh"
+chmod +x "$TARGET_DIR/check_server.sh"
 
 # -- PHP-Abhängigkeiten bündeln -------------------------------------------------
+# (vendor/ bekommt danach ein .htaccess, das direkten HTTP-Zugriff sperrt.)
 
 if command -v composer >/dev/null 2>&1; then
     log "Installiere PHP-Abhängigkeiten (composer install --no-dev) ..."
@@ -98,6 +102,9 @@ if command -v composer >/dev/null 2>&1; then
     fi
 else
     warn "composer ist nicht installiert - website/vendor/ fehlt im Build. install.sh versucht es serverseitig (falls composer dort verfügbar ist), sonst manuell nachholen."
+fi
+if [ -d "$TARGET_DIR/website/vendor" ]; then
+    cp "$TARGET_DIR/website/src/.htaccess" "$TARGET_DIR/website/vendor/.htaccess"
 fi
 
 # -- Python-Abhängigkeiten als portablen Vendor-Ordner bündeln -----------------
