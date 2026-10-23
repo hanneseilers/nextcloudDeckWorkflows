@@ -93,7 +93,7 @@ def test_run_reprocesses_within_one_invocation_when_an_action_triggers_another_w
     assert workflow_ids == {"w1", "w2"}
 
 
-def test_run_stops_at_max_run_seconds_instead_of_looping_forever(tmp_path, monkeypatch, caplog):
+def test_run_ends_a_ping_pong_between_columns_on_its_own(tmp_path, monkeypatch, caplog):
     state = {"stack_id": 10}
     monkeypatch.setattr("requests.Session.request", fake_requests_for(state))
 
@@ -120,12 +120,92 @@ def test_run_stops_at_max_run_seconds_instead_of_looping_forever(tmp_path, monke
         state_db_path=tmp_path / "state.sqlite3",
         log_level="INFO",
         instances=make_instances(),
-        max_run_seconds=0.05,
+        max_run_seconds=5.0,
+    )
+
+    caplog.set_level(logging.INFO, logger="automation")
+    run(settings)
+
+    # Each workflow runs at most once per (card, column) per invocation, so
+    # the bounce stops by itself instead of running into max_run_seconds.
+    assert not any("max_run_seconds" in record.message for record in caplog.records)
+    with sqlite3.connect(settings.state_db_path) as conn:
+        ran = conn.execute(
+            "SELECT workflow_id, COUNT(*) FROM execution_log GROUP BY workflow_id"
+        ).fetchall()
+    assert all(count == 1 for _, count in ran)
+
+
+def test_run_does_not_retrigger_a_workflow_on_its_own_change(tmp_path, monkeypatch):
+    state = {"title": "Card", "modified": 1, "puts": 0}
+
+    def fake_request(self, method, url, **kwargs):
+        card = {"id": 1, "title": state["title"], "lastModified": state["modified"]}
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [card]}])
+        if method == "GET" and "/cards/1" in url:
+            return FakeResponse(card)
+        if method == "PUT" and "/cards/1" in url:
+            state["puts"] += 1
+            state["title"] = kwargs["json"]["title"]
+            state["modified"] += 1  # every write bumps lastModified, like Deck does
+            return FakeResponse(card)
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="retitle", name="retitle", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_UPDATED),
+        actions=(ActionStep(module="set_title", params={"title": "Neuer Titel"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+
+    run(settings)  # baseline: the card is new -> card_created, no card_updated workflow matches
+    state["modified"] += 1  # someone else edits the card
+    run(settings)
+
+    assert state["puts"] == 1  # ran for the edit, but not again for its own change
+
+    state["modified"] += 1  # a later, separate edit is a new event in a new run -> runs again
+    run(settings)
+    assert state["puts"] == 2
+
+
+def test_run_stops_at_max_run_seconds_instead_of_looping_forever(tmp_path, monkeypatch, caplog):
+    cards = [{"id": 1, "title": "Card", "lastModified": 1}]
+
+    def fake_request(self, method, url, **kwargs):
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": list(cards)}])
+        if method == "GET" and "/cards/" in url:
+            return FakeResponse(cards[0])
+        if method == "POST" and url.endswith("/stacks/10/cards"):
+            new = {"id": len(cards) + 1, "title": kwargs["json"]["title"], "lastModified": 1}
+            cards.append(new)  # every copy is a brand-new card -> a new card_created event, forever
+            return FakeResponse(new)
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="breed", name="breed", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED, stack_id=10),
+        actions=(ActionStep(module="copy_card", params={"target_board_id": 1, "target_stack_id": 10}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=0.05,
     )
 
     caplog.set_level(logging.WARNING, logger="automation.main")
 
-    run(settings)  # must return promptly - ping/pong would bounce forever otherwise
+    run(settings)  # must return promptly - endlessly created cards would otherwise loop forever
 
     assert any("max_run_seconds" in record.message for record in caplog.records)
 

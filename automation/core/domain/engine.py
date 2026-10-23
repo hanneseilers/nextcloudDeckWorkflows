@@ -64,6 +64,10 @@ class WorkflowEngine:
         self._sequence_store = sequence_store
         self._link_store = link_store
         self._public_url = public_url
+        # (workflow id, card id, column id) combinations handle() already ran
+        # during this engine's lifetime - main.run() builds a fresh engine per
+        # invocation, so this is "once per run". See handle().
+        self._handled: set[tuple[str, int, int]] = set()
 
     def handle(
         self,
@@ -75,6 +79,23 @@ class WorkflowEngine:
         for workflow in self._workflows.list_enabled():
             if not workflow.matches(event):
                 continue
+            # A workflow that changes a card makes the very next poll see that
+            # change as a new event - which would run the same workflow again,
+            # and again. So each (workflow, card, column) combination runs at
+            # most once per invocation; a different workflow, or the same one
+            # for the card in a different column, still runs. Known trade-offs
+            # (kept on purpose): a workflow whose own action moves the card to
+            # another column can run once more there, and a workflow that
+            # already ran for this card/column earlier in the same invocation
+            # is not triggered again by another workflow's later change.
+            key = (workflow.id, event.card_id, event.stack_id)
+            if key in self._handled:
+                logger.info(
+                    "Skipping workflow '%s' for card %s in column %s: already ran for it during this run",
+                    workflow.id, event.card_id, event.stack_id,
+                )
+                continue
+            self._handled.add(key)
             result = self._run(workflow, event, deck, calendar)
             try:
                 self._execution_log.record(result)

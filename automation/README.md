@@ -213,6 +213,28 @@ a workflow's actions run twice (e.g. a duplicate email) but never that an
 event is silently dropped. No separate "which iteration were we on" state
 needs to survive a crash - the snapshot itself *is* that state.
 
+### A workflow doesn't re-trigger itself
+
+A workflow that changes a card makes the very next poll see that change as a
+new event - which would match the same workflow again, and again. So within
+one invocation each **(workflow, card, column)** combination runs at most
+once (`WorkflowEngine.handle`); the memory is per run, so the next cron run
+starts fresh and a later, genuinely new event runs normally. A *different*
+workflow still runs for the changed card, and the same workflow still runs for
+the card in a *different* column - which also ends a ping-pong between
+workflows that move a card back and forth on its own (each combination runs
+once). Test runs and one-time links are not subject to this rule.
+
+Known trade-offs, kept on purpose to stay simple:
+
+- A workflow whose own action moves the card to another column can run once
+  more there (the new column is a new combination).
+- A workflow that already ran for a card/column earlier in the same run is
+  not triggered again by *another* workflow's later change of that card.
+- A second, genuine change to the same card in the same column within one
+  run (a person editing twice within the run) is picked up by the next run
+  rather than the current one.
+
 ## Running
 
 ```bash

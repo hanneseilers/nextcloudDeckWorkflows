@@ -471,3 +471,59 @@ def test_run_single_runs_a_workflow_even_if_disabled_and_event_does_not_match():
     assert run_id
     assert execution_log.results == [result]
 
+
+
+def test_a_workflow_runs_at_most_once_per_card_and_column_per_engine_lifetime():
+    action = RecordingAction()
+    log = InMemoryExecutionLog()
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([make_workflow(trigger=Trigger(event_type=EventType.CARD_UPDATED))]),
+        actions=InMemoryActionRegistry({"recording": action}),
+        execution_log=log,
+    )
+    deck = InMemoryDeckGateway()
+    event = make_event(event_type=EventType.CARD_UPDATED)
+
+    first = engine.handle(event, deck)
+    second = engine.handle(event, deck)  # e.g. the next poll seeing the workflow's own change
+
+    assert len(first) == 1 and second == []
+    assert len(action.calls) == 1 and len(log.results) == 1
+
+
+def test_the_once_per_run_rule_is_per_workflow_card_and_column():
+    action = RecordingAction()
+    trigger = Trigger(event_type=EventType.CARD_UPDATED)
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([
+            make_workflow(id="a", trigger=trigger), make_workflow(id="b", trigger=trigger),
+        ]),
+        actions=InMemoryActionRegistry({"recording": action}),
+        execution_log=InMemoryExecutionLog(),
+    )
+    deck = InMemoryDeckGateway()
+
+    engine.handle(make_event(event_type=EventType.CARD_UPDATED, card_id=1, stack_id=10), deck)  # a and b
+    engine.handle(make_event(event_type=EventType.CARD_UPDATED, card_id=1, stack_id=10), deck)  # both skipped
+    engine.handle(make_event(event_type=EventType.CARD_UPDATED, card_id=1, stack_id=20), deck)  # other column
+    engine.handle(make_event(event_type=EventType.CARD_UPDATED, card_id=2, stack_id=10), deck)  # other card
+
+    assert len(action.calls) == 6  # 2 + 0 + 2 + 2
+
+
+def test_test_runs_and_single_runs_are_not_subject_to_the_once_per_run_rule():
+    action = RecordingAction()
+    workflow = make_workflow(trigger=Trigger(event_type=EventType.CARD_UPDATED))
+    engine = WorkflowEngine(
+        workflows=InMemoryWorkflowRepository([workflow]),
+        actions=InMemoryActionRegistry({"recording": action}),
+        execution_log=InMemoryExecutionLog(),
+    )
+    deck = InMemoryDeckGateway()
+    event = make_event(event_type=EventType.CARD_UPDATED)
+
+    engine.handle(event, deck)
+    engine.run_single(workflow, event, deck)
+    engine.run_single(workflow, event, deck)
+
+    assert len(action.calls) == 3
