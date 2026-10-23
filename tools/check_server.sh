@@ -21,7 +21,7 @@
 set -u
 
 MIN_PHP="8.2"      # symfony/yaml 7.4 (website/composer.lock) braucht PHP >= 8.2
-MIN_PYTHON="3.9"
+MIN_PYTHON="3.9"   # automation/vendor (tools/build.sh) ist für 3.9+ gebaut und dort getestet
 MIN_SQLITE="3.24.0" # ON CONFLICT ... DO UPDATE (Upserts) in Python und PHP
 CRON_LIMIT_HINT=900 # STRATO beendet Cron-Jobs nach 15 Minuten
 
