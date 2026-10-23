@@ -74,15 +74,12 @@ class PollingEventSource:
         self._deck = deck
         self._snapshots = snapshots
         self._pending: dict[tuple[str, int], dict[int, dict[str, Any]]] = {}
-        # The stored snapshot as advanced so far for the poll in flight - see advance().
-        self._working: dict[tuple[str, int], dict[int, dict[str, Any]]] = {}
 
     def poll(self, instance: str, board_id: int) -> list[DeckEvent]:
         current = self._fetch_current(board_id)
         previous = self._snapshots.load(instance, board_id)
         events = list(self._diff(instance, board_id, previous, current))
         self._pending[(instance, board_id)] = current
-        self._working[(instance, board_id)] = dict(previous)
         return events
 
     def advance(self, instance: str, board_id: int, card_id: int) -> None:
@@ -92,21 +89,13 @@ class PollingEventSource:
         batch, only the cards not yet advanced are detected again next run -
         not the whole batch."""
 
-        key = (instance, board_id)
-        current = self._pending.get(key)
+        current = self._pending.get((instance, board_id))
         if current is None:
             return
         state = _storable(current[card_id]) if card_id in current else None
         self._snapshots.save_card(instance, board_id, card_id, state)
-        working = self._working.get(key)
-        if working is not None:
-            if state is None:
-                working.pop(card_id, None)
-            else:
-                working[card_id] = state
 
     def commit(self, instance: str, board_id: int) -> None:
-        self._working.pop((instance, board_id), None)
         current = self._pending.pop((instance, board_id), None)
         if current is None:
             return

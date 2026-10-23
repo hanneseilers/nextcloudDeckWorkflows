@@ -629,3 +629,40 @@ def test_a_run_out_of_time_budget_leaves_unhandled_events_for_the_next_run(tmp_p
 
     run(settings)
     assert comments == ["1", "2"]
+
+
+def test_a_claimed_link_runs_against_the_column_the_card_is_in_now(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url))
+        if method == "GET" and url.endswith("/stacks"):
+            # The card was in column 10 when the link was created, it is in 20 now.
+            return FakeResponse([
+                {"id": 10, "cards": []},
+                {"id": 20, "cards": [{"id": 1, "title": "Card", "lastModified": 1}]},
+            ])
+        return FakeResponse({"id": 1, "title": "Card"})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir)
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+    store = SqliteStateStore(settings.state_db_path)
+    from automation.core.domain.models import DeckEvent as _E
+    store.create_link(
+        workflow_id="link-wf",
+        event=_E(instance="prod", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10, card={"id": 1}),
+        current_stack_id=10, module="set_title", params={"title": "Neu"}, variables={},
+        success_message="ok", require_confirmation=False,
+    )
+    with sqlite3.connect(settings.state_db_path) as conn:
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+
+    run(settings)
+
+    puts = [url for method, url in calls if method == "PUT"]
+    assert puts == ["https://cloud.example.com/index.php/apps/deck/api/v1.1/boards/1/stacks/20/cards/1"]

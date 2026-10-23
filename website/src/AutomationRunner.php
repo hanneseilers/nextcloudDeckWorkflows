@@ -24,8 +24,9 @@ class AutomationRunner
             // almost immediately regardless of how long the automation run
             // takes - this call must not make the caller's response slow.
             // --wait-lock: if a run (e.g. cron) is already in progress, wait
-            // for it to finish instead of giving up, so the link/ping that
-            // asked for this run is still handled.
+            // up to 120 s for it to finish instead of giving up (only one
+            // such waiter is kept - see automation/main.py). A longer run
+            // picks up claimed links itself between its polling passes.
             $shellCommand = 'cd ' . escapeshellarg($repoRoot) . ' && '
                 . escapeshellarg($python) . ' -m automation.main --wait-lock 120 > /dev/null 2>&1 &';
             $process = @proc_open(

@@ -76,3 +76,24 @@ def test_main_with_wait_lock_waits_for_the_running_process(tmp_path, monkeypatch
     main_module.main()
 
     assert ran == [settings]
+
+
+def test_main_with_wait_lock_exits_when_another_invocation_is_already_waiting(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    ran = []
+    monkeypatch.setattr(main_module, "load_settings", lambda config_dir=None: settings)
+    monkeypatch.setattr(main_module, "run", lambda s: ran.append(s))
+    monkeypatch.setattr(main_module, "_write_modules_snapshot", lambda path: None)
+    monkeypatch.setattr(sys, "argv", ["main", "--wait-lock", "5"])
+
+    holder = RunLock(tmp_path / "var" / "run.lock")
+    holder.acquire()
+    waiter = RunLock(tmp_path / "var" / "run.queue.lock")  # an earlier immediate run already queued
+    waiter.acquire()
+
+    started = time.monotonic()
+    main_module.main()
+    assert ran == []
+    assert time.monotonic() - started < 1  # did not sit waiting as a second queued process
+    waiter.release()
+    holder.release()

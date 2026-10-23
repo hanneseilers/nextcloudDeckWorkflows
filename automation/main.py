@@ -57,6 +57,10 @@ class BoardTarget:
 
 
 def run(settings: Settings) -> None:
+    # Started before anything else: max_run_seconds has to stay below the
+    # host's cron kill limit, so the links/test runs/schedules handled before
+    # polling count against it too.
+    deadline = time.monotonic() + settings.max_run_seconds
     workflows = YamlWorkflowRepository(settings.workflows_dir)
     state_store = SqliteStateStore(settings.state_db_path)
     action_loader = ModuleLoader(actions_registry)
@@ -70,7 +74,11 @@ def run(settings: Settings) -> None:
         dedupe_store=state_store,
     )
 
-    _process_action_links(settings, state_store, engine)
+    try:
+        _process_action_links(settings, state_store, engine)
+    except Exception:
+        # Degrade, don't crash: a broken link row must not stop every board's polling.
+        logger.exception("Could not process one-time links - continuing with the rest of the run")
     _process_test_runs(settings, workflows, state_store, engine)
     _process_schedules(workflows, state_store, engine)
 
@@ -108,10 +116,17 @@ def run(settings: Settings) -> None:
     # nothing already-committed gets reprocessed, and anything still pending
     # gets picked up again on the very next cron invocation - no separate
     # "which iteration were we on" state needs to survive a crash.
-    deadline = time.monotonic() + settings.max_run_seconds
     iteration = 0
     while True:
         iteration += 1
+        if iteration > 1:
+            # A link visited while this (possibly long) run is going can't get
+            # its own immediate run - the run lock is held - so pick it up
+            # here instead of leaving it for the next cron invocation.
+            try:
+                _run_claimed_links(settings, state_store, engine)
+            except Exception:
+                logger.exception("Could not process one-time links - continuing with the rest of the run")
         any_triggered = False
         for target in targets:
             if _process_board(engine, target, deadline):
@@ -318,6 +333,22 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
             logger.exception("Could not record the aborted link run")
         state_store.finish_link(link["token_hash"], error=message)
 
+    _run_claimed_links(settings, state_store, engine)
+
+    state_store.purge_finished_links((datetime.now(timezone.utc) - timedelta(days=1)).isoformat())
+
+
+def _run_claimed_links(settings: Settings, state_store: SqliteStateStore, engine: WorkflowEngine) -> None:
+    """Runs every claimed, not yet started link - see _process_action_links.
+
+    The card's column is looked up again right before the action runs: a link
+    is often opened hours after it was created, and the card may have been
+    moved since. The Deck card-update route carries the stack id, so running
+    against the column captured at creation could fail, or (unverified) put
+    the card back into that old column. Falls back to the captured column if
+    the card can't be found on the board (deleted, or a card-less schedule).
+    """
+
     for link in state_store.claimed_links():
         token_hash = link["token_hash"]
         if not state_store.begin_link_run(token_hash):
@@ -327,14 +358,20 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
             if instance is None:
                 raise RuntimeError(f"Nextcloud-Instanz '{link['instance']}' nicht konfiguriert")
             client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
+            deck = NextcloudDeckGateway(client)
+            current_stack_id = link["current_stack_id"]
+            if link["card_id"]:
+                _, live_stack_id = _find_card(deck, link["board_id"], link["card_id"])
+                if live_stack_id is not None:
+                    current_stack_id = live_stack_id
             result, _ = engine.run_link_action(
                 workflow_id=link["workflow_id"],
                 event=_link_event(link),
-                current_stack_id=link["current_stack_id"],
+                current_stack_id=current_stack_id,
                 module=link["module"],
                 params=link["params"],
                 variables=link["variables"],
-                deck=NextcloudDeckGateway(client),
+                deck=deck,
                 calendar=NextcloudCalendarGateway(client, instance.username),
             )
             failure = next((r.error for r in result.action_results if not r.success), None)
@@ -342,8 +379,6 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
         except Exception as exc:
             logger.exception("One-time link for workflow '%s' failed", link["workflow_id"])
             state_store.finish_link(token_hash, error=str(exc))
-
-    state_store.purge_finished_links((datetime.now(timezone.utc) - timedelta(days=1)).isoformat())
 
 
 def _find_card(deck: NextcloudDeckGateway, board_id: int, card_id: int) -> tuple[Optional[dict], Optional[int]]:
@@ -558,9 +593,25 @@ def main() -> None:
     # the previous run finished, or a webhook/link-triggered one) would handle
     # the same events twice. The OS drops the lock if this process is killed.
     lock = RunLock(settings.state_db_path.parent / "run.lock")
-    if not lock.acquire(args.wait_lock):
-        logger.info("Another run is in progress - exiting; the next invocation picks up what is left")
-        return
+    if not lock.acquire():
+        if args.wait_lock <= 0:
+            logger.info("Another run is in progress - exiting; the next invocation picks up what is left")
+            return
+        # Only one invocation needs to queue behind the running one: the run it
+        # makes afterwards covers every link/ping that came in meanwhile. Any
+        # further immediate run (a burst of webhook pings) exits right away
+        # instead of each holding a process for up to --wait-lock seconds.
+        queue = RunLock(settings.state_db_path.parent / "run.queue.lock")
+        if not queue.acquire():
+            logger.info("Another run is in progress and one is already waiting for it - exiting")
+            return
+        try:
+            acquired = lock.acquire(args.wait_lock)
+        finally:
+            queue.release()
+        if not acquired:
+            logger.info("Another run is still in progress - exiting; the next invocation picks up what is left")
+            return
     try:
         run(settings)
     except Exception:
