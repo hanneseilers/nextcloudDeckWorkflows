@@ -5,9 +5,19 @@ log_level: INFO
 # One run of `python -m automation.main` keeps re-polling and re-running
 # workflows for as long as the previous pass triggered at least one of them
 # (so a workflow's own actions - e.g. moving a card - can trigger another
-# workflow), up to this many seconds. Keep comfortably below your cron
-# interval so runs don't overlap.
-max_run_seconds: 240
+# workflow), and stops starting new events after this many seconds. Keep it
+# below the time limit your host puts on cron jobs, with room for the event
+# that is still running when the budget ends: STRATO kills cron jobs after 15
+# minutes (900 s), so 600 is a safe value there. On a host that runs the job
+# every few minutes, use less than that interval.
+max_run_seconds: 600
+# How old the last completed run may be before website/health.php reports the
+# automation as stopped (HTTP 503). Default 15 fits a job started every few
+# minutes. STRATO's cron jobs can only run hourly or slower (and may be delayed
+# by up to 4 hours), so use e.g. 90 for hourly or 1560 for daily.
+# health_stale_minutes: 90
+# Execution history (Historie, Statusseite) is kept this many days, then deleted.
+# history_retention_days: 90
 # Optional: email `to` once a workflow has failed `threshold` times in a
 # row (and again each time it recovers and then fails that many times
 # again) - uses config/smtp.yaml, so that must be set up too. Omit this
@@ -25,3 +35,7 @@ max_run_seconds: 240
 #   enabled: true
 #   secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
 #   fallback_poll_minutes: 15
+# Optional: where the website is reachable from outside (no trailing slash
+# needed). Needed by the "Einmal-Link erstellen" action (create_action_link),
+# which builds its links as <public_url>/link.php?h=<token>.
+# public_url: "https://example.com/deck-workflows/website"

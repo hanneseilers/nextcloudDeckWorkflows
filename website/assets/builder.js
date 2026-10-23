@@ -385,6 +385,10 @@
   }
 
   const PARAM_EXAMPLES = {
+    'send_email.dedupe_minutes': 'Schutz vor Doppelversand: wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis (gleiche Karte, gleiche Änderung) innerhalb dieser Minuten nicht noch einmal raus. Ein neues Ereignis an der Karte sendet normal; Testläufe und Zeitpläne senden immer. Standard 10080 = 7 Tage, 0 = aus.',
+    'create_action_link.action_params': 'Beispiel für die Action "Kommentar hinzufügen": {"message": "Per Link erledigt"} - die Felder der gewählten Action; Referenzen werden beim Erstellen des Links aufgelöst.',
+    'create_action_link.success_message': 'Text, der nach erfolgreicher Ausführung angezeigt wird - leer = Standardtext.',
+    'create_action_link.require_confirmation': 'An = die Seite zeigt zuerst einen Button "Jetzt ausführen" (schützt den Link vor Link-Vorschau-Bots).',
     'format_text.template': 'Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter "values" ersetzt.',
     'format_text.values': 'Beispiel: {"nummer": {"$ref": "schritt1.number"}, "titel": {"$ref": "card.title"}} - links der Platzhaltername, rechts der Wert (als Referenz auf einen Schritt oder die Karte).',
     'extract_field.data': 'Beispiel: Referenz auf Quelle "card", Feld "labels" - oder allgemein die gesamte Ausgabe eines früheren Schritts.',
@@ -392,34 +396,66 @@
   };
 
   function isStackIdField(moduleName, key) {
-    return moduleName === 'move_card' && key === 'target_stack_id';
+    return (moduleName === 'move_card' || moduleName === 'copy_card') && key === 'target_stack_id';
+  }
+
+  function isActionNameField(moduleName, key) {
+    return moduleName === 'create_action_link' && key === 'action';
+  }
+
+  // The action an one-time link runs: a dropdown of every action (not the
+  // link action itself), value = the technical name.
+  function renderActionSelectField(entry) {
+    const select = document.createElement('select');
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '– Action wählen –';
+    select.appendChild(placeholder);
+    moduleNames.filter((name) => name !== 'create_action_link').forEach((name) => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = moduleLabel(name);
+      option.title = name;
+      option.selected = name === entry.value;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', () => {
+      entry.value = select.value;
+    });
+    return select;
+  }
+
+  function isBoardIdField(moduleName, key) {
+    return moduleName === 'copy_card' && key === 'target_board_id';
   }
 
   function isLabelIdField(moduleName, key) {
     return moduleName === 'add_label' && key === 'label_id';
   }
 
-  // Labels and stacks both belong to the currently selected board: fetched
-  // once per board (cached), filtered client-side as the user types, saved as
-  // the numeric id - a typed id still works. A saved id is shown as its name.
+  // Labels, stacks and boards: fetched once (cached), filtered client-side as
+  // the user types, saved as the numeric id - a typed id still works. A saved
+  // id is shown as its name. Labels/stacks belong to a board - by default the
+  // workflow's own, or whichever `boardIdOf()` returns (copy_card's target
+  // board); `boardScoped: false` is for the per-instance board list itself.
   const boardItemsCache = {};
 
-  async function loadBoardItems(endpoint, listKey) {
-    const boardId = boardEl.value;
-    if (!instanceEl.value || !/^\d+$/.test(boardId)) {
+  async function loadScopedItems(endpoint, listKey, boardId, boardScoped) {
+    if (!instanceEl.value || (boardScoped && !/^\d+$/.test(String(boardId)))) {
       return [];
     }
-    const key = endpoint + ':' + instanceEl.value + ':' + boardId;
+    const query = '?instance=' + encodeURIComponent(instanceEl.value)
+      + (boardScoped ? '&board_id=' + encodeURIComponent(boardId) : '');
+    const key = endpoint + query;
     if (!boardItemsCache[key]) {
-      const data = await fetchJSON(
-        endpoint + '?instance=' + encodeURIComponent(instanceEl.value) + '&board_id=' + encodeURIComponent(boardId)
-      );
+      const data = await fetchJSON(endpoint + query);
       boardItemsCache[key] = data[listKey] || [];
     }
     return boardItemsCache[key];
   }
 
-  function renderBoardItemField(entry, { endpoint, listKey, placeholder }) {
+  function renderBoardItemField(entry, { endpoint, listKey, placeholder, boardScoped = true, boardIdOf = () => boardEl.value }) {
+    const load = () => loadScopedItems(endpoint, listKey, boardIdOf(), boardScoped);
     const field = renderTypeahead({
       value: entry.value ? String(entry.value) : '',
       setValue: (value) => {
@@ -433,7 +469,7 @@
         }
       },
       placeholder,
-      loadOptions: async (query) => filterByTitle(await loadBoardItems(endpoint, listKey), query),
+      loadOptions: async (query) => filterByTitle(await load(), query),
     });
     addSyntaxErrorDisplay(field.querySelector('input'), field);
     // In edit mode the board is restored asynchronously after the steps
@@ -441,13 +477,13 @@
     if (entry.value) {
       let attempts = 0;
       const resolveTitle = () => {
-        if (!/^\d+$/.test(boardEl.value)) {
+        if (boardScoped && !/^\d+$/.test(String(boardIdOf()))) {
           if (++attempts < 20) {
             setTimeout(resolveTitle, 250);
           }
           return;
         }
-        loadBoardItems(endpoint, listKey).then((items) => {
+        load().then((items) => {
           const match = items.find((item) => String(item.id) === String(entry.value));
           const input = field.querySelector('input');
           if (match && input.value === String(entry.value)) {
@@ -468,11 +504,21 @@
     });
   }
 
-  function renderStackSearchField(entry) {
+  function renderStackSearchField(entry, boardIdOf) {
     return renderBoardItemField(entry, {
       endpoint: 'api_stacks.php',
       listKey: 'stacks',
       placeholder: 'Spaltenname eingeben oder Spalten-Id direkt eintragen',
+      boardIdOf,
+    });
+  }
+
+  function renderBoardSearchField(entry) {
+    return renderBoardItemField(entry, {
+      endpoint: 'api_boards.php',
+      listKey: 'boards',
+      placeholder: 'Board-Name eingeben oder Board-Id direkt eintragen',
+      boardScoped: false,
     });
   }
 
@@ -780,8 +826,12 @@
       appendRefOperandFields(wrapper, entry);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isActionName) {
+      wrapper.appendChild(renderActionSelectField(entry));
+    } else if (opts.isBoardId) {
+      wrapper.appendChild(renderBoardSearchField(entry));
     } else if (opts.isStackId) {
-      wrapper.appendChild(renderStackSearchField(entry));
+      wrapper.appendChild(renderStackSearchField(entry, opts.stackBoardIdOf));
     } else if (opts.isLabelId) {
       wrapper.appendChild(renderLabelSearchField(entry));
     } else if (opts.isCalendarId) {
@@ -810,6 +860,12 @@
         isCalendarId: isCalendarIdField(step.module, key),
         isLabelId: isLabelIdField(step.module, key),
         isStackId: isStackIdField(step.module, key),
+        isBoardId: isBoardIdField(step.module, key),
+        isActionName: isActionNameField(step.module, key),
+        // copy_card's target column belongs to its own target board, not the workflow's.
+        stackBoardIdOf: step.module === 'copy_card'
+          ? () => (step.params.target_board_id || {}).value
+          : undefined,
         formatHint: formatHintFor(step.module, key),
         germanDateTime: isGermanDateTimeField(step.module, key),
       })

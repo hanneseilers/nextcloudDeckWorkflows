@@ -320,3 +320,110 @@ def test_recent_webhook_pings_only_includes_boards_with_a_ping(tmp_path):
     pings = store.recent_webhook_pings()
 
     assert pings == [{"instance": "inst", "board_id": 2, "last_ping_at": "2026-01-05T09:05:00+00:00"}]
+
+
+def _link_event():
+    return DeckEvent(instance="prod", board_id=1, event_type=EventType.CARD_MOVED, card_id=7, stack_id=10,
+                     card={"id": 7, "title": "T"})
+
+
+def _make_link(store, **overrides):
+    kwargs = dict(workflow_id="wf", event=_link_event(), current_stack_id=20, module="add_comment",
+                  params={"message": "hi"}, variables={"a": 1}, success_message="ok", require_confirmation=False)
+    kwargs.update(overrides)
+    return store.create_link(**kwargs)
+
+
+def test_action_link_stores_only_the_hash_of_the_token(tmp_path):
+    import hashlib
+
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    token = _make_link(store)
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        stored = conn.execute("SELECT token_hash, status FROM action_links").fetchall()
+    assert stored == [(hashlib.sha256(token.encode()).hexdigest(), "open")]
+    assert token not in stored[0][0] and len(token) >= 40
+
+
+def test_action_link_lifecycle_claimed_running_done_wipes_the_payload(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    _make_link(store)
+    assert store.claimed_links() == []  # still "open" - nobody visited the page yet
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:  # what website/link.php does
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+
+    [link] = store.claimed_links()
+    assert (link["module"], link["params"], link["variables"], link["current_stack_id"]) == (
+        "add_comment", {"message": "hi"}, {"a": 1}, 20)
+    assert link["event_type"] == EventType.CARD_MOVED and link["card"] == {"id": 7, "title": "T"}
+
+    assert store.begin_link_run(link["token_hash"]) is True
+    assert store.begin_link_run(link["token_hash"]) is False  # a second run can't take it again
+    store.finish_link(link["token_hash"], error="boom")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        row = conn.execute("SELECT status, error, params_json, variables_json, card_json FROM action_links").fetchone()
+    assert row == ("error", "boom", None, None, None)
+
+
+def test_purge_removes_only_old_finished_links(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    _make_link(store)
+    _make_link(store)
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        hashes = [r[0] for r in conn.execute("SELECT token_hash FROM action_links")]
+    store.finish_link(hashes[0])
+
+    store.purge_finished_links("2999-01-01T00:00:00+00:00")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        assert [r[0] for r in conn.execute("SELECT token_hash FROM action_links")] == [hashes[1]]
+
+
+def test_duplicate_guard_remembers_a_key_only_for_the_given_window(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+
+    assert store.seen_within("k", 15) is False
+    store.remember("k")
+    assert store.seen_within("k", 15) is True
+    assert store.seen_within("other", 15) is False
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        conn.execute("UPDATE dedupe_keys SET created_at = '2000-01-01T00:00:00+00:00'")
+    assert store.seen_within("k", 15) is False  # long ago: outside the window
+
+
+def test_history_indexes_exist_and_purge_drops_only_old_rows(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    event = DeckEvent(instance="i", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+    store.record(ExecutionResult(workflow_id="w", event=event, action_results=[ActionResult(module="m", success=True)]))
+    store.record(ExecutionResult(workflow_id="w", event=event, action_results=[ActionResult(module="m", success=True)]))
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        conn.execute("UPDATE execution_log SET created_at = '2000-01-01T00:00:00+00:00' WHERE id = 1")
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"execution_log_workflow", "execution_log_run", "execution_log_created"} <= names
+
+    store.purge_history("2020-01-01T00:00:00+00:00")
+
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        assert [r[0] for r in conn.execute("SELECT id FROM execution_log")] == [2]
+
+
+def test_indexes_are_created_on_a_legacy_database_without_run_id(tmp_path):
+    db = tmp_path / "state.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE execution_log (id INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT NOT NULL, "
+                     "event_type TEXT NOT NULL, card_id INTEGER NOT NULL, success INTEGER NOT NULL, error TEXT, "
+                     "created_at TEXT NOT NULL)")
+    SqliteStateStore(db)  # must migrate (add run_id) before indexing it
+    with sqlite3.connect(db) as conn:
+        assert "run_id" in [r[1] for r in conn.execute("PRAGMA table_info(execution_log)")]
+
+
+def test_copy_store_roundtrip(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    assert store.copy_info("i", 1, 5) is None
+    store.record_copy("i", 1, 5, "wf", 2)
+    assert store.copy_info("i", 1, 5) == ("wf", 2)

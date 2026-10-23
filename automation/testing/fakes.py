@@ -83,6 +83,16 @@ class InMemoryDeckGateway:
     def add_comment(self, card_id: int, message: str) -> None:
         self.calls.append(("add_comment", card_id, message))
 
+    def create_card(self, board_id: int, stack_id: int, title: str, description: str = "") -> dict[str, Any]:
+        self.calls.append(("create_card", board_id, stack_id, title, description))
+        existing_ids = [c["id"] for stacks in self.stacks.values() for st in stacks for c in st.get("cards", [])]
+        card = {"id": max(existing_ids, default=0) + 1, "title": title, "description": description, "lastModified": 1}
+        for stack in self.list_stacks(board_id):
+            if stack["id"] == stack_id:
+                stack.setdefault("cards", []).append(card)
+                return dict(card)
+        raise KeyError(f"no stack {stack_id} on board {board_id}")
+
     def _find_card(self, board_id: int, stack_id: int, card_id: int) -> Optional[dict[str, Any]]:
         for stack in self.list_stacks(board_id):
             if stack["id"] != stack_id:
@@ -120,6 +130,13 @@ class InMemorySnapshotStore:
     def save(self, instance: str, board_id: int, snapshot: dict[int, dict[str, Any]]) -> None:
         self._snapshots[(instance, board_id)] = snapshot
 
+    def save_card(self, instance: str, board_id: int, card_id: int, state: Optional[dict[str, Any]]) -> None:
+        board = self._snapshots.setdefault((instance, board_id), {})
+        if state is None:
+            board.pop(card_id, None)
+        else:
+            board[card_id] = state
+
 
 class InMemoryExecutionLog:
     def __init__(self) -> None:
@@ -155,3 +172,40 @@ class InMemoryActionRegistry:
 
     def list_names(self) -> list[str]:
         return sorted(self._actions)
+
+
+class InMemoryActionLinkStore:
+    """Fake ActionLinkStorePort - remembers what create_link was asked for."""
+
+    def __init__(self) -> None:
+        self.links: list[dict[str, Any]] = []
+
+    def create_link(self, **kwargs: Any) -> str:
+        self.links.append(kwargs)
+        return f"token{len(self.links)}"
+
+
+class InMemoryDuplicateGuard:
+    """Fake DuplicateGuardPort - remembers keys forever (tests don't age them)."""
+
+    def __init__(self) -> None:
+        self.keys: set[str] = set()
+
+    def seen_within(self, key: str, minutes: float) -> bool:
+        return key in self.keys
+
+    def remember(self, key: str) -> None:
+        self.keys.add(key)
+
+
+class InMemoryCopyStore:
+    """Fake CopyStorePort."""
+
+    def __init__(self) -> None:
+        self.copies: dict[tuple[str, int, int], tuple[str, int]] = {}
+
+    def record_copy(self, instance: str, board_id: int, card_id: int, workflow_id: str, depth: int) -> None:
+        self.copies[(instance, board_id, card_id)] = (workflow_id, depth)
+
+    def copy_info(self, instance: str, board_id: int, card_id: int) -> Optional[tuple[str, int]]:
+        return self.copies.get((instance, board_id, card_id))

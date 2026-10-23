@@ -42,7 +42,10 @@ class WorkflowRepository
                 // resilience as the Python side's YamlWorkflowRepository.
                 continue;
             }
-            if (is_array($data)) {
+            // Without a valid id the overview can't link to it (and every
+            // page would emit "undefined array key" notices) - skip it like a
+            // malformed file, same as the Python side does.
+            if (is_array($data) && is_string($data['id'] ?? null) && preg_match('/^[a-z0-9\-]+$/', $data['id'])) {
                 $workflows[] = $data;
             }
         }
@@ -61,7 +64,11 @@ class WorkflowRepository
         if (!is_file($path)) {
             return null;
         }
-        $data = Yaml::parseFile($path);
+        try {
+            $data = Yaml::parseFile($path);
+        } catch (\Throwable $e) {
+            return null; // malformed file: treat as "not found" instead of a 500 page
+        }
         return is_array($data) ? $data : null;
     }
 

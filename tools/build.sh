@@ -88,8 +88,12 @@ rm -rf \
 
 cp "$SCRIPT_DIR/install.sh" "$TARGET_DIR/install.sh"
 chmod +x "$TARGET_DIR/install.sh"
+# Voraussetzungs-Check für den Webspace (per SSH vor/nach der Installation).
+cp "$SCRIPT_DIR/check_server.sh" "$TARGET_DIR/check_server.sh"
+chmod +x "$TARGET_DIR/check_server.sh"
 
 # -- PHP-Abhängigkeiten bündeln -------------------------------------------------
+# (vendor/ bekommt danach ein .htaccess, das direkten HTTP-Zugriff sperrt.)
 
 if command -v composer >/dev/null 2>&1; then
     log "Installiere PHP-Abhängigkeiten (composer install --no-dev) ..."
@@ -98,6 +102,9 @@ if command -v composer >/dev/null 2>&1; then
     fi
 else
     warn "composer ist nicht installiert - website/vendor/ fehlt im Build. install.sh versucht es serverseitig (falls composer dort verfügbar ist), sonst manuell nachholen."
+fi
+if [ -d "$TARGET_DIR/website/vendor" ]; then
+    cp "$TARGET_DIR/website/src/.htaccess" "$TARGET_DIR/website/vendor/.htaccess"
 fi
 
 # -- Python-Abhängigkeiten als portablen Vendor-Ordner bündeln -----------------
@@ -115,9 +122,16 @@ fi
 # sys.path, genau wie website/index.php es für website/vendor/ tut.
 if command -v python3 >/dev/null 2>&1; then
     log "Installiere Python-Abhängigkeiten nach automation/vendor/ (pip install --target) ..."
-    if python3 -m pip install -q --no-binary=:all: \
-        --target "$TARGET_DIR/automation/vendor" -r "$TARGET_DIR/automation/requirements.txt"; then
+    # requirements-vendor.txt pins the exact set (resolved on the oldest
+    # supported Python, 3.9) and --no-deps keeps pip from re-resolving it for
+    # this build machine's Python - otherwise the bundle would only run on
+    # Python versions as new as the one that built it.
+    if python3 -m pip install -q --no-binary=:all: --no-deps \
+        --target "$TARGET_DIR/automation/vendor" -r "$TARGET_DIR/automation/requirements-vendor.txt"; then
         find "$TARGET_DIR/automation/vendor" -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+        # Compiled extensions only fit this machine's Python; PyYAML falls back
+        # to its pure-Python implementation without them.
+        find "$TARGET_DIR/automation/vendor" -name "*.so" -delete 2>/dev/null
         log "automation/vendor/ erfolgreich befüllt."
     else
         warn "pip install --target automation/vendor ist fehlgeschlagen - automation/vendor/ fehlt im Build. install.sh installiert die Abhängigkeiten dann serverseitig (venv/pip)."

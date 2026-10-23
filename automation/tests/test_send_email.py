@@ -150,3 +150,101 @@ def test_no_login_when_no_username_configured(tmp_path, monkeypatch, smtp_client
 
     smtp_client.starttls.assert_not_called()
     smtp_client.login.assert_not_called()
+
+
+def _with_guard(context, workflow_id="wf"):
+    from automation.testing.fakes import InMemoryDuplicateGuard
+
+    context.dedupe_store = InMemoryDuplicateGuard()
+    context.workflow_id = workflow_id
+    return context
+
+
+def test_an_identical_email_is_not_sent_twice_within_the_window(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    _with_guard(context)
+    params = {"to": "alice@example.com", "subject": "Hi", "body": "Hello"}
+
+    first = SendEmailAction().execute(context, params)
+    second = SendEmailAction().execute(context, params)
+
+    assert (first, second) == ({"sent": True}, {"sent": False})
+    assert smtp_client.send_message.call_count == 1
+
+
+def test_a_different_recipient_subject_body_card_or_workflow_is_not_a_duplicate(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    _with_guard(context)
+    base = {"to": "alice@example.com", "subject": "Hi", "body": "Hello"}
+
+    SendEmailAction().execute(context, base)
+    SendEmailAction().execute(context, {**base, "to": "bob@example.com"})
+    SendEmailAction().execute(context, {**base, "subject": "Other"})
+    SendEmailAction().execute(context, {**base, "body": "Other"})
+    context.workflow_id = "another-workflow"
+    SendEmailAction().execute(context, base)
+
+    assert smtp_client.send_message.call_count == 5
+
+
+def test_dedupe_minutes_zero_turns_the_protection_off(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    _with_guard(context)
+    params = {"to": "alice@example.com", "subject": "Hi", "body": "Hello", "dedupe_minutes": 0}
+
+    SendEmailAction().execute(context, params)
+    SendEmailAction().execute(context, params)
+
+    assert smtp_client.send_message.call_count == 2
+
+
+def test_a_failed_send_is_not_remembered_so_it_can_be_retried(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    _with_guard(context)
+    params = {"to": "alice@example.com", "subject": "Hi", "body": "Hello"}
+    smtp_client.send_message.side_effect = [RuntimeError("smtp down"), None]
+
+    with pytest.raises(RuntimeError):
+        SendEmailAction().execute(context, params)
+    assert SendEmailAction().execute(context, params) == {"sent": True}
+
+
+def test_the_same_change_is_deduped_but_a_new_change_on_the_card_sends_again(tmp_path, monkeypatch, smtp_client, context):
+    from dataclasses import replace
+
+    write_smtp_config(tmp_path, monkeypatch)
+    _with_guard(context)
+    params = {"to": "alice@example.com", "subject": "Hi", "body": "Hello"}
+    context.event = replace(context.event, previous_last_modified=100)
+
+    SendEmailAction().execute(context, params)
+    SendEmailAction().execute(context, params)  # the same event again (a repeated, killed run)
+    context.event = replace(context.event, previous_last_modified=200)  # the card changed again: new event
+    SendEmailAction().execute(context, params)
+
+    assert smtp_client.send_message.call_count == 2
+
+
+def test_only_event_triggered_runs_use_the_guard():
+    from automation.core.domain.engine import WorkflowEngine
+    from automation.core.domain.models import ActionStep, EventType, Trigger, Workflow
+    from automation.testing.fakes import InMemoryDuplicateGuard, InMemoryExecutionLog, InMemoryWorkflowRepository
+
+    seen = []
+
+    class Probe:
+        ACTION_NAME = "probe"
+
+        def execute(self, ctx, params):
+            seen.append(ctx.dedupe_store is not None)
+            return {}
+
+    wf = Workflow(id="w", name="w", instance="test", board_id=1, trigger=Trigger(event_type=EventType.CARD_CREATED),
+                  actions=(ActionStep(module="probe"),))
+    engine = WorkflowEngine(workflows=InMemoryWorkflowRepository([wf]), actions=InMemoryActionRegistry({"probe": Probe()}),
+                            execution_log=InMemoryExecutionLog(), dedupe_store=InMemoryDuplicateGuard())
+    event = DeckEvent(instance="test", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10)
+    engine.handle(event, InMemoryDeckGateway())
+    engine.run_single(wf, event, InMemoryDeckGateway())  # test run / schedule
+
+    assert seen == [True, False]

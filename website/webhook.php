@@ -21,6 +21,7 @@
 
 require __DIR__ . '/vendor/autoload.php';
 
+use NextcloudDeckWorkflows\AutomationRunner;
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\WebhookPingStore;
 
@@ -64,38 +65,7 @@ if ($config->instance($instanceName) === null || $boardId <= 0) {
 // disabled on shared hosting - if this silently does nothing, the ping
 // above is still recorded correctly and gets picked up on the next
 // regular cron invocation regardless, just not instantly.
-triggerImmediateAutomationRun();
+AutomationRunner::triggerNow();
 
 http_response_code(202);
 echo json_encode(['ok' => true]);
-
-function triggerImmediateAutomationRun(): void
-{
-    try {
-        if (!function_exists('proc_open')) {
-            return;
-        }
-        $repoRoot = dirname(__DIR__);
-        $python = is_file("$repoRoot/.venv/bin/python") ? "$repoRoot/.venv/bin/python" : 'python3';
-        // The trailing `&` backgrounds the real work at the shell level,
-        // detached from this PHP process, so `sh -c` itself returns
-        // almost immediately regardless of how long the automation run
-        // takes - this call must not make the webhook response slow.
-        $shellCommand = 'cd ' . escapeshellarg($repoRoot) . ' && '
-            . escapeshellarg($python) . ' -m automation.main > /dev/null 2>&1 &';
-        $process = @proc_open(
-            ['/bin/sh', '-c', $shellCommand],
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes
-        );
-        if (is_resource($process)) {
-            foreach ($pipes as $pipe) {
-                fclose($pipe);
-            }
-            proc_close($process);
-        }
-    } catch (\Throwable $e) {
-        // Never let this optional accelerator affect the webhook response -
-        // the ping is already safely recorded above either way.
-    }
-}

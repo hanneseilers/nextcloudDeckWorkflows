@@ -93,7 +93,7 @@ def test_run_reprocesses_within_one_invocation_when_an_action_triggers_another_w
     assert workflow_ids == {"w1", "w2"}
 
 
-def test_run_stops_at_max_run_seconds_instead_of_looping_forever(tmp_path, monkeypatch, caplog):
+def test_run_ends_a_ping_pong_between_columns_on_its_own(tmp_path, monkeypatch, caplog):
     state = {"stack_id": 10}
     monkeypatch.setattr("requests.Session.request", fake_requests_for(state))
 
@@ -120,14 +120,180 @@ def test_run_stops_at_max_run_seconds_instead_of_looping_forever(tmp_path, monke
         state_db_path=tmp_path / "state.sqlite3",
         log_level="INFO",
         instances=make_instances(),
-        max_run_seconds=0.05,
+        max_run_seconds=5.0,
     )
 
+    caplog.set_level(logging.INFO, logger="automation")
+    run(settings)
+
+    # Each workflow runs at most once per (card, column) per invocation, so
+    # the bounce stops by itself instead of running into max_run_seconds.
+    assert not any("max_run_seconds" in record.message for record in caplog.records)
+    with sqlite3.connect(settings.state_db_path) as conn:
+        ran = conn.execute(
+            "SELECT workflow_id, COUNT(*) FROM execution_log GROUP BY workflow_id"
+        ).fetchall()
+    assert all(count == 1 for _, count in ran)
+
+
+def test_run_does_not_retrigger_a_workflow_on_its_own_change(tmp_path, monkeypatch):
+    state = {"title": "Card", "modified": 1, "puts": 0}
+
+    def fake_request(self, method, url, **kwargs):
+        card = {"id": 1, "title": state["title"], "lastModified": state["modified"]}
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [card]}])
+        if method == "GET" and "/cards/1" in url:
+            return FakeResponse(card)
+        if method == "PUT" and "/cards/1" in url:
+            state["puts"] += 1
+            state["title"] = kwargs["json"]["title"]
+            state["modified"] += 1  # every write bumps lastModified, like Deck does
+            return FakeResponse(card)
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="retitle", name="retitle", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_UPDATED),
+        actions=(ActionStep(module="set_title", params={"title": "Neuer Titel"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+
+    run(settings)  # baseline: the card is new -> card_created, no card_updated workflow matches
+    state["modified"] += 1  # someone else edits the card
+    run(settings)
+
+    assert state["puts"] == 1  # ran for the edit, but not again for its own change
+
+    state["modified"] += 1  # a later, separate edit is a new event in a new run -> runs again
+    run(settings)
+    assert state["puts"] == 2
+
+
+def test_run_stops_at_max_run_seconds_and_the_next_run_finishes_the_rest(tmp_path, monkeypatch, caplog):
+    import time as _time
+
+    cards = [{"id": i, "title": f"Card {i}", "lastModified": 1} for i in range(1, 31)]
+    comments = []
+
+    def fake_request(self, method, url, **kwargs):
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [dict(c) for c in cards]}])
+        if method == "POST" and "deckCard" in url:
+            _time.sleep(0.02)  # a slow Nextcloud
+            comments.append(int(url.rsplit("/", 1)[1]))
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="hello", name="hello", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED, stack_id=10),
+        actions=(ActionStep(module="add_comment", params={"message": "hi"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=0.15,
+    )
     caplog.set_level(logging.WARNING, logger="automation.main")
 
-    run(settings)  # must return promptly - ping/pong would bounce forever otherwise
+    run(settings)
+    assert any("max_run_seconds" in r.message or "Time budget" in r.message for r in caplog.records)
+    assert 0 < len(comments) < 30  # stopped part-way
 
-    assert any("max_run_seconds" in record.message for record in caplog.records)
+    from dataclasses import replace
+    run(replace(settings, max_run_seconds=30.0))
+    assert sorted(comments) == list(range(1, 31))  # every card exactly once, none repeated
+
+
+def test_copying_into_the_watched_column_makes_one_copy_per_card_not_a_loop(tmp_path, monkeypatch):
+    cards = [{"id": 1, "title": "Original", "lastModified": 1}]
+
+    def fake_request(self, method, url, **kwargs):
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [dict(c) for c in cards]}])
+        if method == "GET" and "/cards/" in url:
+            return FakeResponse(cards[0])
+        if method == "POST" and url.endswith("/stacks/10/cards"):
+            new = {"id": len(cards) + 1, "title": kwargs["json"]["title"], "lastModified": 1}
+            cards.append(new)
+            return FakeResponse(new)
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="dup", name="dup", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED, stack_id=10),
+        actions=(ActionStep(module="copy_card", params={"target_board_id": 1, "target_stack_id": 10}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=10.0,
+    )
+
+    run(settings)
+    run(settings)
+
+    assert len(cards) == 2  # the original and exactly one copy - the copy is not copied again
+
+
+def test_a_copy_loop_between_two_workflows_is_cut_off(tmp_path, monkeypatch):
+    cards = [{"id": 1, "title": "Original", "lastModified": 1, "stack": 10}]
+
+    def fake_request(self, method, url, **kwargs):
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([
+                {"id": sid, "cards": [dict(c) for c in cards if c["stack"] == sid]} for sid in (10, 20)
+            ])
+        if method == "GET" and "/cards/" in url:
+            return FakeResponse(cards[0])
+        if method == "POST" and url.endswith("/cards"):
+            sid = int(url.rsplit("/", 2)[-2])
+            new = {"id": len(cards) + 1, "title": kwargs["json"]["title"], "lastModified": 1, "stack": sid}
+            cards.append(new)
+            return FakeResponse(new)
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    repo = YamlWorkflowRepository(workflows_dir)
+    for wid, source, target in (("a-to-b", 10, 20), ("b-to-a", 20, 10)):
+        repo.save(Workflow(
+            id=wid, name=wid, instance="prod", board_id=1,
+            trigger=Trigger(event_type=EventType.CARD_CREATED, stack_id=source),
+            actions=(ActionStep(module="copy_card", params={"target_board_id": 1, "target_stack_id": target}),),
+        ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=10.0,
+    )
+
+    run(settings)
+    run(settings)
+
+    from automation.actions_registry.copy_card import MAX_COPY_DEPTH
+    assert len(cards) == 1 + MAX_COPY_DEPTH
+    with sqlite3.connect(settings.state_db_path) as conn:
+        errors = conn.execute("SELECT error FROM execution_log WHERE success = 0").fetchall()
+    assert len(errors) == 1 and "copy loop" in errors[0][0]
+
+
+def test_a_board_cut_short_by_the_time_budget_is_polled_again_next_run_with_webhooks(tmp_path, monkeypatch):
+    settings, comments = _two_new_cards_environment(tmp_path, monkeypatch)
+    from dataclasses import replace
+
+    hooked = replace(settings, webhooks=WebhookConfig(enabled=True, secret="s", fallback_poll_minutes=60.0))
+    run(replace(hooked, max_run_seconds=0.0))  # gate marks the board polled, but nothing gets done
+    run(hooked)  # no webhook ping came in - the board must still be polled now
+
+    assert comments == ["1", "2"]
 
 
 def test_run_processes_a_queued_test_run_even_for_a_disabled_workflow(tmp_path, monkeypatch):
@@ -391,3 +557,198 @@ def test_webhooks_enabled_still_polls_once_the_fallback_interval_elapses(tmp_pat
     with sqlite3.connect(settings.state_db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM execution_log WHERE workflow_id = 'wf-1'").fetchone()[0]
     assert count == 1  # fallback kicked in - polled and detected the move even with no ping
+
+
+def test_run_creates_a_link_and_executes_it_after_the_website_claims_it(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url, kwargs.get("json")))
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [{"id": 1, "title": "Card", "lastModified": 1}]}])
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="link-wf", name="Link", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(ActionStep(module="create_action_link", id="lnk", params={
+            "action": "add_comment", "action_params": {"message": "Per Link erledigt"},
+            "success_message": "Erledigt!",
+        }),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0, public_url="https://site.example/deck",
+    )
+    state_store = SqliteStateStore(settings.state_db_path)
+
+    run(settings)  # baseline poll: the existing card is "new" -> creates the link
+    with sqlite3.connect(settings.state_db_path) as conn:
+        rows = conn.execute("SELECT status, success_message FROM action_links").fetchall()
+    assert rows == [("open", "Erledigt!")]
+    assert not any("deckCard" in url for _, url, _ in calls)  # creating the link must not run the action
+
+    with sqlite3.connect(settings.state_db_path) as conn:  # website/link.php claims it
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+    run(settings)
+
+    assert ("POST", "https://cloud.example.com/ocs/v2.php/apps/comments/api/v1/deckCard/1",
+            {"message": "Per Link erledigt"}) in calls
+    with sqlite3.connect(settings.state_db_path) as conn:
+        status, error, payload = conn.execute("SELECT status, error, params_json FROM action_links").fetchone()
+        logged = conn.execute(
+            "SELECT workflow_id, module, success FROM execution_log WHERE module = 'add_comment'"
+        ).fetchall()
+    assert (status, error, payload) == ("done", None, None)
+    assert logged == [("link-wf", "add_comment", 1)]
+
+    run(settings)  # a done link never runs again
+    assert sum(1 for _, url, _ in calls if "deckCard" in url) == 1
+
+
+def _insert_running_link(db_path, token_hash, running_at):
+    store = SqliteStateStore(db_path)
+    from automation.core.domain.models import DeckEvent as _E
+    token = store.create_link(
+        workflow_id="link-wf",
+        event=_E(instance="prod", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10, card={"id": 1}),
+        current_stack_id=10, module="add_comment", params={"message": "x"}, variables={},
+        success_message="ok", require_confirmation=False,
+    )
+    import hashlib
+    real_hash = hashlib.sha256(token.encode()).hexdigest()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE action_links SET token_hash = ?, status = 'running', running_at = ? WHERE token_hash = ?",
+            (token_hash, running_at, real_hash),
+        )
+
+
+def test_run_marks_a_link_left_running_by_a_killed_process_as_failed_instead_of_rerunning_it(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url))
+        return FakeResponse([])
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir)
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+    long_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    just_now = datetime.now(timezone.utc).isoformat()
+    _insert_running_link(settings.state_db_path, "stale", long_ago)
+    _insert_running_link(settings.state_db_path, "fresh", just_now)
+
+    run(settings)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        statuses = dict(conn.execute("SELECT token_hash, status FROM action_links"))
+        error = conn.execute("SELECT error FROM action_links WHERE token_hash = 'stale'").fetchone()[0]
+        logged = conn.execute("SELECT workflow_id, module, success, error FROM execution_log").fetchall()
+    assert statuses == {"stale": "error", "fresh": "running"}  # a recent one may still be running elsewhere
+    assert "abgebrochen" in error
+    assert logged == [("link-wf", "add_comment", 0, error)]
+    assert not any("deckCard" in url for _, url in calls)  # nothing was re-executed
+
+
+def _two_new_cards_environment(tmp_path, monkeypatch):
+    cards = [{"id": 1, "title": "A", "lastModified": 1}, {"id": 2, "title": "B", "lastModified": 1}]
+    comments = []
+
+    def fake_request(self, method, url, **kwargs):
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [dict(c) for c in cards]}])
+        if method == "POST" and "deckCard" in url:
+            comments.append(url.rsplit("/", 1)[1])
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="hello", name="hello", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(ActionStep(module="add_comment", params={"message": "hi"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+    return settings, comments
+
+
+def test_a_killed_run_only_repeats_the_card_it_was_in_the_middle_of(tmp_path, monkeypatch):
+    from automation.core.domain.engine import WorkflowEngine
+
+    settings, comments = _two_new_cards_environment(tmp_path, monkeypatch)
+    real_handle = WorkflowEngine.handle
+
+    def dying_handle(self, event, deck, calendar=None):
+        if event.card_id == 2:
+            raise SystemExit("killed")  # like a SIGKILL right while card 2 is being handled
+        return real_handle(self, event, deck, calendar)
+
+    monkeypatch.setattr(WorkflowEngine, "handle", dying_handle)
+    try:
+        run(settings)
+    except SystemExit:
+        pass
+    assert comments == ["1"]  # card 1 was handled and advanced before the kill
+
+    monkeypatch.setattr(WorkflowEngine, "handle", real_handle)
+    run(settings)  # the next run
+    assert comments == ["1", "2"]  # card 1 is NOT run a second time
+
+
+def test_a_run_out_of_time_budget_leaves_unhandled_events_for_the_next_run(tmp_path, monkeypatch):
+    settings, comments = _two_new_cards_environment(tmp_path, monkeypatch)
+    from dataclasses import replace
+
+    run(replace(settings, max_run_seconds=0.0))  # no time at all: nothing is polled or consumed
+    assert comments == []
+
+    run(settings)
+    assert comments == ["1", "2"]
+
+
+def test_a_claimed_link_runs_against_the_column_the_card_is_in_now(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url))
+        if method == "GET" and url.endswith("/stacks"):
+            # The card was in column 10 when the link was created, it is in 20 now.
+            return FakeResponse([
+                {"id": 10, "cards": []},
+                {"id": 20, "cards": [{"id": 1, "title": "Card", "lastModified": 1}]},
+            ])
+        return FakeResponse({"id": 1, "title": "Card"})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir)
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+    store = SqliteStateStore(settings.state_db_path)
+    from automation.core.domain.models import DeckEvent as _E
+    store.create_link(
+        workflow_id="link-wf",
+        event=_E(instance="prod", board_id=1, event_type=EventType.CARD_CREATED, card_id=1, stack_id=10, card={"id": 1}),
+        current_stack_id=10, module="set_title", params={"title": "Neu"}, variables={},
+        success_message="ok", require_confirmation=False,
+    )
+    with sqlite3.connect(settings.state_db_path) as conn:
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+
+    run(settings)
+
+    puts = [url for method, url in calls if method == "PUT"]
+    assert puts == ["https://cloud.example.com/index.php/apps/deck/api/v1.1/boards/1/stacks/20/cards/1"]

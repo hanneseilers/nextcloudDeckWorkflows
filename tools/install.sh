@@ -384,6 +384,14 @@ AuthUserFile $htpasswd_path
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
 </IfModule>
 
+# Einmal-Links und Webhooks ohne Login erreichbar machen - ihr Token bzw.
+# secret in der URL ist der Zugangsschutz (siehe website/README.md).
+<IfModule mod_authz_core.c>
+    <FilesMatch "^(link|webhook)\.php\$">
+        Require all granted
+    </FilesMatch>
+</IfModule>
+
 # .htpasswd (und jede andere .ht*-Datei) nie direkt ausliefern.
 <IfModule mod_authz_core.c>
     <FilesMatch "^\.ht">
@@ -409,6 +417,13 @@ EOF
         case "$code" in
             401)
                 info "OK (HTTP 401 - Login wird korrekt verlangt)."
+                local link_code
+                link_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${test_url%/}/link.php" 2>/dev/null)"
+                if [ "$link_code" = "401" ]; then
+                    warn "link.php verlangt ebenfalls ein Login - Einmal-Links und Webhooks funktionieren so nicht (Ausnahme in website/.htaccess greift nicht, siehe website/README.md)."
+                else
+                    info "OK (link.php ohne Login erreichbar - HTTP ${link_code:-?} ohne gültigen Token)."
+                fi
                 ;;
             500)
                 warn "HTTP 500 statt 401 - diese .htaccess funktioniert auf diesem Server nicht. Entferne sie wieder, um die Website nicht zu blockieren."
@@ -450,6 +465,10 @@ section_cron() {
 
     info "Empfohlene Cron-Zeile (alle 5 Minuten):"
     info "  $cron_entry"
+    info "Hinweis STRATO: Cron-Jobs gibt es dort nur über die Hosting-Verwaltung (Legacy-Plattform ab Hosting Plus),"
+    info "  mit höchstens 15 Minuten Laufzeit und nur den Intervallen einmalig/täglich/wöchentlich/monatlich"
+    info "  (laut Nutzerberichten teils stündlich). Dann in config/settings.yaml 'max_run_seconds' unter 900"
+    info "  lassen (Standard 600) und 'health_stale_minutes' an das Intervall anpassen (siehe automation/README.md)."
 
     if ! command -v crontab >/dev/null 2>&1; then
         warn "crontab ist auf diesem System nicht verfügbar."

@@ -44,4 +44,5 @@ def test_calendar_lookup_declares_its_input_and_output_shapes():
 def test_send_email_declares_its_input_shape():
     assert SendEmailAction().default_input() == {
         "to": "", "subject": "", "body": "", "template": None, "template_data": {},
+        "dedupe_minutes": 10080,
     }

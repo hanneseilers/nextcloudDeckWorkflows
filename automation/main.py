@@ -12,9 +12,9 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from automation import actions_registry
 from automation.adapters.actions.loader import ModuleLoader
@@ -24,11 +24,12 @@ from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
 from automation.adapters.nextcloud.event_source import PollingEventSource
 from automation.adapters.null_deck_gateway import NullDeckGateway
 from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
+from automation.adapters.run_lock import RunLock
 from automation.adapters.smtp_config import load_smtp_config, send_email as smtp_send
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
 from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
-from automation.core.domain.models import DeckEvent, EventType
+from automation.core.domain.models import ActionResult, DeckEvent, EventType, ExecutionResult
 from automation.core.domain.schedule import should_fire
 from automation.core.domain.webhook_gate import should_poll_now
 
@@ -56,13 +57,29 @@ class BoardTarget:
 
 
 def run(settings: Settings) -> None:
+    # Started before anything else: max_run_seconds has to stay below the
+    # host's cron kill limit, so the links/test runs/schedules handled before
+    # polling count against it too.
+    deadline = time.monotonic() + settings.max_run_seconds
     workflows = YamlWorkflowRepository(settings.workflows_dir)
     state_store = SqliteStateStore(settings.state_db_path)
     action_loader = ModuleLoader(actions_registry)
     engine = WorkflowEngine(
-        workflows=workflows, actions=action_loader, execution_log=state_store, sequence_store=state_store
+        workflows=workflows,
+        actions=action_loader,
+        execution_log=state_store,
+        sequence_store=state_store,
+        link_store=state_store,
+        public_url=settings.public_url,
+        dedupe_store=state_store,
+        copy_store=state_store,
     )
 
+    try:
+        _process_action_links(settings, state_store, engine)
+    except Exception:
+        # Degrade, don't crash: a broken link row must not stop every board's polling.
+        logger.exception("Could not process one-time links - continuing with the rest of the run")
     _process_test_runs(settings, workflows, state_store, engine)
     _process_schedules(workflows, state_store, engine)
 
@@ -92,6 +109,15 @@ def run(settings: Settings) -> None:
 
     targets = _apply_webhook_gate(settings, state_store, targets)
 
+    def mark_unfinished(target: BoardTarget) -> None:
+        # The webhook gate already marked this board as polled; without a
+        # fresh "ping" the next runs would skip it until fallback_poll_minutes
+        # passes, leaving the events the time budget didn't reach waiting.
+        if settings.webhooks is not None and settings.webhooks.enabled:
+            state_store.record_webhook_ping(
+                target.instance_name, target.board_id, datetime.now(timezone.utc).isoformat()
+            )
+
     # A workflow's own actions (move a card, change its due date, ...) can be
     # exactly what triggers another workflow - so keep re-polling and
     # re-running for as long as the previous pass found at least one event,
@@ -100,13 +126,20 @@ def run(settings: Settings) -> None:
     # nothing already-committed gets reprocessed, and anything still pending
     # gets picked up again on the very next cron invocation - no separate
     # "which iteration were we on" state needs to survive a crash.
-    deadline = time.monotonic() + settings.max_run_seconds
     iteration = 0
     while True:
         iteration += 1
+        if iteration > 1:
+            # A link visited while this (possibly long) run is going can't get
+            # its own immediate run - the run lock is held - so pick it up
+            # here instead of leaving it for the next cron invocation.
+            try:
+                _run_claimed_links(settings, state_store, engine)
+            except Exception:
+                logger.exception("Could not process one-time links - continuing with the rest of the run")
         any_triggered = False
         for target in targets:
-            if _process_board(engine, target):
+            if _process_board(engine, target, deadline, on_unfinished=mark_unfinished):
                 any_triggered = True
 
         if not any_triggered:
@@ -122,6 +155,12 @@ def run(settings: Settings) -> None:
             break
 
     _process_failure_notifications(settings, workflows, state_store)
+    try:
+        state_store.purge_history(
+            (datetime.now(timezone.utc) - timedelta(days=settings.history_retention_days)).isoformat()
+        )
+    except Exception:
+        logger.exception("Could not purge old history")
     # Only reached if everything above completed without an unhandled
     # exception - the website's health check reads this to tell "cron is
     # actually still running" from "it crashed/stopped being invoked". UTC,
@@ -167,19 +206,37 @@ def _apply_webhook_gate(
     return kept
 
 
-def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:
+def _process_board(
+    engine: WorkflowEngine,
+    target: BoardTarget,
+    deadline: float,
+    on_unfinished: Optional[Callable[[BoardTarget], None]] = None,
+) -> bool:
     """One instance being unreachable or one board having disappeared must not stop
     the rest of the run - polling errors here are logged and this board is skipped.
 
-    Only commits the new snapshot after every detected event has been fully
-    handled (not inside poll() itself) - if the process dies partway through
-    handling, the next run re-detects and reruns the same events rather than
-    silently losing them. Returns whether at least one event was handled, so
-    the caller's fixed-point loop knows whether to poll again.
+    Progress is saved card by card: once every event of a card has been
+    handled, that card's new state is stored right away (see
+    PollingEventSource.advance), and the board's full snapshot is committed
+    after the last one. If the process dies partway through (SIGKILL
+    included), the next run re-detects only the cards not yet advanced -
+    their events are rerun rather than silently lost ("at least once"), but
+    the cards already done are not repeated.
+
+    Stops starting new events once `deadline` (time.monotonic) has passed -
+    the unhandled ones are simply detected again by the next run - and then
+    returns True so the caller's loop ends on its own time check. Returns
+    whether at least one event was handled, so the caller's fixed-point loop
+    knows whether to poll again.
     """
 
+    if time.monotonic() >= deadline:
+        if on_unfinished is not None:
+            on_unfinished(target)
+        return True  # out of time before even polling - the caller's deadline check ends the run
+
     try:
-        events = target.event_source.poll(target.instance_name, target.board_id)
+        events = list(target.event_source.poll(target.instance_name, target.board_id))
     except Exception:
         logger.exception(
             "Skipping board %s on instance '%s': could not poll for events",
@@ -187,12 +244,25 @@ def _process_board(engine: WorkflowEngine, target: BoardTarget) -> bool:
         )
         return False
 
-    for event in events:
+    # Events of one card are consecutive (see PollingEventSource._diff), so a
+    # card is done once its last event has been handled.
+    last_event_of_card = {event.card_id: index for index, event in enumerate(events)}
+    for index, event in enumerate(events):
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "Time budget used up on board %s (instance '%s') - %d event(s) left for the next run",
+                target.board_id, target.instance_name, len(events) - index,
+            )
+            if on_unfinished is not None:
+                on_unfinished(target)
+            return True
         logger.info(
             "Detected %s on card %s (instance=%s board=%s)",
             event.event_type.value, event.card_id, target.instance_name, target.board_id,
         )
         engine.handle(event, target.deck, target.calendar)
+        if last_event_of_card[event.card_id] == index:
+            target.event_source.advance(target.instance_name, target.board_id, event.card_id)
 
     target.event_source.commit(target.instance_name, target.board_id)
     return len(events) > 0
@@ -245,6 +315,95 @@ def _process_test_runs(
         except Exception as exc:
             logger.exception("Test-run %s (workflow '%s') failed", test_run_id, workflow_id)
             state_store.complete_test_run(test_run_id, error=str(exc))
+
+
+# A link still "running" after this long was left behind by a killed process.
+STALE_LINK_RUN_MINUTES = 15
+
+
+def _link_event(link: dict[str, Any]) -> DeckEvent:
+    return DeckEvent(
+        instance=link["instance"],
+        board_id=link["board_id"],
+        event_type=link["event_type"],
+        card_id=link["card_id"],
+        stack_id=link["stack_id"],
+        card=link["card"],
+    )
+
+
+def _process_action_links(settings: Settings, state_store: SqliteStateStore, engine: WorkflowEngine) -> None:
+    """Runs the one-time links visitors have claimed through website/link.php
+    (see create_action_link) - each one's action, against the card/context
+    captured when the link was created. Every failure is recorded on the
+    link itself, so the page the visitor is looking at always gets an answer.
+    Finished links older than a day are purged.
+    """
+
+    # A link left in "running" by a killed process (cron timeout) is NOT
+    # re-run - that could execute its action twice (a duplicate email or
+    # comment); it is marked failed and shows up as a failed run in the
+    # history instead, so someone can decide whether to create a new link.
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=STALE_LINK_RUN_MINUTES)).isoformat()
+    for link in state_store.stale_running_links(stale_cutoff):
+        message = "Verarbeitung abgebrochen: der Prozess wurde vor Abschluss beendet (z. B. Cron-Timeout)"
+        logger.warning("One-time link for workflow '%s' was left running - marking it failed", link["workflow_id"])
+        try:
+            state_store.record(ExecutionResult(
+                workflow_id=link["workflow_id"],
+                event=_link_event(link),
+                action_results=[ActionResult(module=link["module"], success=False, error=message)],
+            ))
+        except Exception:
+            logger.exception("Could not record the aborted link run")
+        state_store.finish_link(link["token_hash"], error=message)
+
+    _run_claimed_links(settings, state_store, engine)
+
+    state_store.purge_finished_links((datetime.now(timezone.utc) - timedelta(days=1)).isoformat())
+
+
+def _run_claimed_links(settings: Settings, state_store: SqliteStateStore, engine: WorkflowEngine) -> None:
+    """Runs every claimed, not yet started link - see _process_action_links.
+
+    The card's column is looked up again right before the action runs: a link
+    is often opened hours after it was created, and the card may have been
+    moved since. The Deck card-update route carries the stack id, so running
+    against the column captured at creation could fail, or (unverified) put
+    the card back into that old column. Falls back to the captured column if
+    the card can't be found on the board (deleted, or a card-less schedule).
+    """
+
+    for link in state_store.claimed_links():
+        token_hash = link["token_hash"]
+        if not state_store.begin_link_run(token_hash):
+            continue  # another main.py invocation took it
+        try:
+            instance = settings.instances.get(link["instance"])
+            if instance is None:
+                raise RuntimeError(f"Nextcloud-Instanz '{link['instance']}' nicht konfiguriert")
+            client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
+            deck = NextcloudDeckGateway(client)
+            current_stack_id = link["current_stack_id"]
+            if link["card_id"]:
+                _, live_stack_id = _find_card(deck, link["board_id"], link["card_id"])
+                if live_stack_id is not None:
+                    current_stack_id = live_stack_id
+            result, _ = engine.run_link_action(
+                workflow_id=link["workflow_id"],
+                event=_link_event(link),
+                current_stack_id=current_stack_id,
+                module=link["module"],
+                params=link["params"],
+                variables=link["variables"],
+                deck=deck,
+                calendar=NextcloudCalendarGateway(client, instance.username),
+            )
+            failure = next((r.error for r in result.action_results if not r.success), None)
+            state_store.finish_link(token_hash, error=failure)
+        except Exception as exc:
+            logger.exception("One-time link for workflow '%s' failed", link["workflow_id"])
+            state_store.finish_link(token_hash, error=str(exc))
 
 
 def _find_card(deck: NextcloudDeckGateway, board_id: int, card_id: int) -> tuple[Optional[dict], Optional[int]]:
@@ -419,6 +578,11 @@ def main() -> None:
         help="Run the wiring against in-memory fakes instead of real config/Nextcloud",
     )
     parser.add_argument(
+        "--wait-lock", type=float, default=0.0, metavar="SECONDS",
+        help="If another run is in progress, wait up to this long for it to finish "
+             "instead of exiting right away (used for the immediate runs the website starts)",
+    )
+    parser.add_argument(
         "--list-modules", action="store_true",
         help="Print the available action modules (name, requires, input/output shape) as JSON and exit",
     )
@@ -450,10 +614,35 @@ def main() -> None:
 
     logging.getLogger().setLevel(args.log_level or settings.log_level)
 
+    # One run at a time: an overlapping invocation (cron firing again before
+    # the previous run finished, or a webhook/link-triggered one) would handle
+    # the same events twice. The OS drops the lock if this process is killed.
+    lock = RunLock(settings.state_db_path.parent / "run.lock")
+    if not lock.acquire():
+        if args.wait_lock <= 0:
+            logger.info("Another run is in progress - exiting; the next invocation picks up what is left")
+            return
+        # Only one invocation needs to queue behind the running one: the run it
+        # makes afterwards covers every link/ping that came in meanwhile. Any
+        # further immediate run (a burst of webhook pings) exits right away
+        # instead of each holding a process for up to --wait-lock seconds.
+        queue = RunLock(settings.state_db_path.parent / "run.queue.lock")
+        if not queue.acquire():
+            logger.info("Another run is in progress and one is already waiting for it - exiting")
+            return
+        try:
+            acquired = lock.acquire(args.wait_lock)
+        finally:
+            queue.release()
+        if not acquired:
+            logger.info("Another run is still in progress - exiting; the next invocation picks up what is left")
+            return
     try:
         run(settings)
     except Exception:
         logger.exception("Unhandled error - stopping this run without crashing the process")
+    finally:
+        lock.release()
 
 
 if __name__ == "__main__":

@@ -43,6 +43,19 @@ def _label_ids(card: dict[str, Any]) -> set[str]:
     return ids
 
 
+def _storable(state: dict[str, Any]) -> dict[str, Any]:
+    """The part of a card's polled state that is persisted between runs."""
+
+    return {
+        "stack_id": state["stack_id"],
+        "last_modified": state["last_modified"],
+        "duedate": state["duedate"],
+        "description": state["description"],
+        "assignee_ids": sorted(state["assignee_ids"]),
+        "label_ids": sorted(state["label_ids"]),
+    }
+
+
 class PollingEventSource:
     """Implements EventSourcePort by diffing the current board state against the
     snapshot from the previous run. Needed because a shared-webspace cron job has no
@@ -69,21 +82,24 @@ class PollingEventSource:
         self._pending[(instance, board_id)] = current
         return events
 
+    def advance(self, instance: str, board_id: int, card_id: int) -> None:
+        """Records that every event of this card from the current poll has
+        been handled: stores the card's new state right away (or removes it,
+        for a deleted card). If the process is killed later in the same
+        batch, only the cards not yet advanced are detected again next run -
+        not the whole batch."""
+
+        current = self._pending.get((instance, board_id))
+        if current is None:
+            return
+        state = _storable(current[card_id]) if card_id in current else None
+        self._snapshots.save_card(instance, board_id, card_id, state)
+
     def commit(self, instance: str, board_id: int) -> None:
         current = self._pending.pop((instance, board_id), None)
         if current is None:
             return
-        self._snapshots.save(instance, board_id, {
-            card_id: {
-                "stack_id": state["stack_id"],
-                "last_modified": state["last_modified"],
-                "duedate": state["duedate"],
-                "description": state["description"],
-                "assignee_ids": sorted(state["assignee_ids"]),
-                "label_ids": sorted(state["label_ids"]),
-            }
-            for card_id, state in current.items()
-        })
+        self._snapshots.save(instance, board_id, {card_id: _storable(state) for card_id, state in current.items()})
 
     def _fetch_current(self, board_id: int) -> dict[int, dict[str, Any]]:
         snapshot: dict[int, dict[str, Any]] = {}
@@ -129,6 +145,7 @@ class PollingEventSource:
                     stack_id=state["stack_id"],
                     previous_stack_id=prev_state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             prev_assignees = set(prev_state.get("assignee_ids") or [])
@@ -142,6 +159,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if prev_state.get("duedate") != state["duedate"]:
@@ -152,6 +170,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if prev_state.get("description") != state["description"]:
@@ -162,6 +181,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if set(state["label_ids"]) != set(prev_state.get("label_ids") or []):
@@ -174,6 +194,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
             if prev_state["last_modified"] != state["last_modified"]:
@@ -187,6 +208,7 @@ class PollingEventSource:
                     card_id=card_id,
                     stack_id=state["stack_id"],
                     card=state["card"],
+                    previous_last_modified=prev_state["last_modified"],
                 )
 
         for card_id, prev_state in previous.items():

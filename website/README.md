@@ -20,6 +20,18 @@ can reach it can create/enable/disable/delete workflows. `website/src/` (the
 PHP classes) is already denied via its own `.htaccess`, but that's defense in
 depth, not a substitute for protecting the site itself.
 
+**Two pages have to be reachable without that login:** `link.php` (one-time
+action links, see "One-time action links" in `automation/README.md` - the
+long random token in the URL is its credential) and, if you use webhooks,
+`webhook.php` (protected by its own `secret`). With Basic Auth in
+`website/.htaccess`, exempt them (Apache 2.4; not tested on every host):
+
+```apache
+<FilesMatch "^(link|webhook)\.php$">
+    Require all granted
+</FilesMatch>
+```
+
 ## How it fits together
 
 - Reads `config/nextcloud.yaml` and `config/settings.yaml` (`src/Config.php`) -

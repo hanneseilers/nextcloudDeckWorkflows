@@ -7,7 +7,7 @@ use NextcloudDeckWorkflows\HealthStatus;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
-$health = new HealthStatus($config->stateDbPath());
+$health = new HealthStatus($config->stateDbPath(), $config->healthStaleMinutes());
 
 // execution_log.created_at is written in UTC (Python's datetime.now(timezone.utc))
 // - compute the cutoff in UTC too, independent of this PHP installation's

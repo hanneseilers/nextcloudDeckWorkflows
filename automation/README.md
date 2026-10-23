@@ -18,7 +18,7 @@ index, e.g. "events.0.title"); `generate_random_number`/`forget_random_number`
 list, see "Random numbers" below); `format_text` ($placeholder substitution
 from explicit values/`$ref`s into one string, for modules that don't do
 their own substitution); `calculate` (add/subtract/multiply/divide two
-numbers); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
+numbers); `copy_card` (copies the card into a column of another board of the same instance - only title and description, optionally overridden; assignees, labels, due date etc. are not copied, see "Copying cards" below); `create_action_link` (a one-time link that runs any action for the current card, see "One-time action links" below); plus `send_email` (SMTP, own config, see below) and `calendar_lookup` (searches a Nextcloud calendar over CalDAV for the next occurrence of an event by title, see "Calendar lookup" below); plus `log_action` as a no-op reference/smoke-test action.
 - `main.py` — cron entry point / composition root.
 
 A workflow's `actions` is a list, run in order by the `WorkflowEngine` - a single event (e.g. "card created in stack X") can trigger several actions, such as moving the card and assigning a user and posting a comment. One failing action is logged and does not stop the rest of the chain from running.
@@ -199,19 +199,109 @@ can be exactly what another workflow is watching for. So a single
 `python -m automation.main` invocation doesn't poll just once: `run()` keeps
 polling every configured board and re-running matching workflows for as long
 as the *previous* pass triggered at least one of them, up to `max_run_seconds`
-(`config/settings.yaml`, default 240s - keep it comfortably below your cron
+(`config/settings.yaml`, default 600s - keep it comfortably below your host's cron time limit, see "STRATO" below, and your cron
 interval). Once a pass detects nothing new, or the time limit is hit, the run
 ends; a limit hit just means "pick this up again next time", not an error.
 
-This only works safely because `PollingEventSource.poll()` no longer saves
-its new snapshot by itself - `main.py` calls `commit()` only after every
-event from that poll has been fully handled. If the process dies in between
-(SIGKILL included), the snapshot stays at its old value, so the next run (or
-the next loop iteration) detects the exact same events again and reruns their
-workflows - "at least once", not "exactly once": a rare crash mid-run can mean
-a workflow's actions run twice (e.g. a duplicate email) but never that an
-event is silently dropped. No separate "which iteration were we on" state
-needs to survive a crash - the snapshot itself *is* that state.
+This only works safely because `PollingEventSource.poll()` doesn't save its new
+snapshot by itself - `main.py` stores each card's new state (`advance()`) only
+after all of that card's events have been handled, and commits the board's full
+snapshot after the last one. See "If a run is killed" below for what that
+means when the process dies in between.
+
+### A workflow doesn't re-trigger itself
+
+A workflow that changes a card makes the very next poll see that change as a
+new event - which would match the same workflow again, and again. So within
+one invocation each **(workflow, card, column)** combination runs at most
+once (`WorkflowEngine.handle`); the memory is per run, so the next cron run
+starts fresh and a later, genuinely new event runs normally. A *different*
+workflow still runs for the changed card, and the same workflow still runs for
+the card in a *different* column - which also ends a ping-pong between
+workflows that move a card back and forth on its own (each combination runs
+once). Test runs and one-time links are not subject to this rule.
+
+Known trade-offs, kept on purpose to stay simple:
+
+- A workflow whose own action moves the card to another column can run once
+  more there (the new column is a new combination).
+- A workflow that already ran for a card/column earlier in the same run is
+  not triggered again by *another* workflow's later change of that card.
+- A second, genuine change to the same card in the same column within one
+  run (a person editing twice within the run) is picked up by the next run
+  rather than the current one.
+
+## If a run is killed (cron timeout)
+
+Shared hosts often kill a cron job that runs too long and start it again
+later. What the automation does about that:
+
+- **One run at a time.** `main.py` takes an exclusive lock on
+  `automation/var/run.lock`; a second invocation exits right away (the
+  operating system drops the lock when a process dies, so a killed run never
+  leaves a stale one). The immediate runs the website starts for webhooks and
+  one-time links use `--wait-lock 120` instead: they wait for a running job to
+  finish, so the ping/link is still handled.
+- **Progress is saved card by card.** After all events of a card are handled,
+  its new state is stored; a kill only repeats the card that was in flight,
+  not the whole batch. Events are "at least once": the in-flight workflow may
+  run its actions a second time.
+- **The time budget is checked between events.** Once `max_run_seconds` has
+  passed no new event is started (the rest is detected again next run - with
+  webhooks enabled, the board is flagged so that run polls it even without a
+  new ping). Set it
+  comfortably below your host's limit - a single slow API call can still
+  overrun it, and a run that is killed anyway is covered by the points above.
+- **`send_email` doesn't repeat an email for the same event.** When a killed
+  run is repeated, the identical email for the identical triggering change
+  (same workflow, card, the card's state before the event, recipient, subject
+  and body) is not sent again within `dedupe_minutes` (default 10080 = 7 days,
+  0 = off). A new change on the card is a new event and sends normally; test
+  runs, schedules and one-time links always send. The mail is remembered
+  after it was sent, so a kill right after sending doesn't send it again. Other actions (comments, copies, ...) have no such
+  guard; a kill in the middle of a workflow can run its earlier steps again.
+- A one-time link left "running" by a kill is marked failed after 15 minutes
+  instead of being re-run (see "One-time action links").
+- A SIGTERM is not handled specially (no graceful shutdown); a hard SIGKILL
+  couldn't be caught anyway.
+
+## STRATO shared hosting: limits and settings
+
+What STRATO documents for its hosting packages (as of the research for this
+section - check your own package, the platform matters):
+
+- **Cron jobs** are only available on STRATO's legacy platform, from "Hosting
+  Plus" up, not on the new platform. Each job has a **runtime limit of 15
+  minutes**; the control panel offers the intervals **once, daily, weekly,
+  monthly** (a user report says hourly is possible on some packages - no
+  5-minute cron). It is a best-effort service: delays of up to 4 hours are
+  "normal", and only **one cron job per user runs at a time** (others wait).
+  The command line is stored unencrypted, so don't put secrets in it.
+- **PHP scripts** (the website): `max_execution_time` is 240 s for PHP
+  7.2-8.3 (60 s CPU / 120 s for PHP up to 7.1); nothing is documented about
+  `disable_functions` - whether `proc_open` works (needed for the immediate
+  runs `webhook.php`/`link.php` start) has to be tried.
+- Python: STRATO's FAQ doesn't mention it; user reports say SSH access exists
+  and Python 3 with pip is installed (no sudo). Whether a cron job can start
+  `python3` is not documented - test it.
+
+What that means for the settings here (defaults changed accordingly):
+
+- `max_run_seconds` (default **600**): below the 15-minute kill, leaving room
+  for the event still running when the budget ends. With an hourly or daily
+  cron there is no shorter interval to stay under.
+- `health_stale_minutes`: raise it to the cron interval plus slack (e.g. 90
+  for hourly, 1560 for daily), otherwise `health.php` reports the automation
+  as stopped between runs.
+- `dedupe_minutes` of `send_email` (default **10080 = 7 days**): a killed
+  run is restarted at the next scheduled slot, hours or a day later - the
+  window covers that. It only matches the very same event, so the long
+  default doesn't swallow legitimate later emails.
+- Reaction time is the cron interval (hours at worst), so on STRATO workflows
+  react quickly only through the website's immediate runs (webhooks, one-time
+  links) - if `proc_open` is available there. Otherwise they wait for the next
+  cron run. A run killed at the 15-minute mark is covered by "If a run is
+  killed" above.
 
 ## Running
 
@@ -307,6 +397,62 @@ server's behaviour, `calendar_gateway.py` is the place to fix it.
 With no calendar connection configured for an instance (e.g. the `--dry-run`
 smoke test), `calendar_lookup` raises a clear error instead of crashing -
 caught and logged like any other action's failure.
+
+## Copying cards
+
+`copy_card` creates a brand-new card in `target_stack_id` on `target_board_id`
+(any board of the same Nextcloud instance, including the workflow's own).
+The copy carries only a title and a description - assigned users, labels,
+due date, comments and attachments are not copied. `title`/`description`
+default to the original's current values (including changes earlier steps of
+the same run made); a non-empty value replaces it in the copy. The original is
+left untouched, and its output (`card_id`, `board_id`, `stack_id`) can be
+`$ref`'d by later steps. The new card is an ordinary new card, so a workflow
+triggered by "Karte erstellt" on the target board fires for it as well -
+except the workflow that made the copy: it never reacts to its own copies, so
+copying into the column it watches makes one copy, not an endless chain. A
+copy of a copy is allowed up to 5 levels; beyond that `copy_card` fails (in
+the history as a failed step), which cuts off a copy loop between two
+workflows (A copies X to Y, B copies Y back to X).
+The Deck API calls are not verified against a live Nextcloud instance.
+
+## One-time action links
+
+`create_action_link` creates a link such as
+`https://example.com/website/link.php?h=<long random token>` that runs one
+other action - for the card and workflow context it was created in - the
+first time it is opened. Typical use: `create_action_link` → `set_variable`
+(`name: linkurl`, `value: {$ref: <step>.url}`) → `add_comment`/`send_email`
+with `$linkurl`, so someone can e.g. confirm or move a card with one click.
+
+- **Setup:** `public_url` in `config/settings.yaml` (where `website/` lives),
+  and `link.php` must be reachable without the site's Basic Auth - see
+  `website/README.md`.
+- **Params:** `action` (any action but `create_action_link` itself),
+  `action_params` (its params; `$ref`s are resolved when the link is
+  *created*, so they capture that moment), `success_message` (shown on
+  success, empty = "Die Aktion wurde erfolgreich ausgeführt."),
+  `require_confirmation` (a GET only shows a "Jetzt ausführen" button - set
+  this if the link may pass through chat/mail systems whose link-preview or
+  virus-scanner bots would otherwise use it up by merely fetching it).
+- **One-time:** only the SHA-256 of the token is stored. The first visit
+  claims the link atomically; every later visit - even a concurrent one -
+  sees "ungültig oder bereits verwendet". A failed action also uses the link
+  up. Once run, the stored payload (params, card, variables) is wiped and
+  finished links are purged after a day. Links that are never opened stay
+  valid indefinitely.
+- **Execution:** the website never runs Python, so `link.php` claims the link,
+  asks for an immediate `python -m automation.main` run (best effort, same
+  mechanism as `webhook.php`) and waits up to 25 s for the result: the page
+  then shows the success text, or a generic error text (the real error is in
+  the history, not on a page anyone holding the link can read). If the run
+  can't be started (`proc_open` disabled), the page says the action was
+  accepted and it runs with the next cron invocation.
+- The run is recorded in the history under the workflow that created the link.
+- If the process is killed while running a link (cron timeout), the link
+  stays "running"; the next invocation marks one that has been running for
+  more than 15 minutes as failed (history entry "Verarbeitung abgebrochen")
+  instead of running it again - a rerun could execute the action twice.
 
 ## send_email
 
@@ -419,8 +565,12 @@ times again.
 ## Health check & statistics
 
 `website/health.php` shows whether `main.py` is still running (via the
-heartbeat above - stale after 15 minutes, a fixed default) and simple
-run statistics for the last 24 hours, overall and per workflow.
+heartbeat above - stale after `health_stale_minutes` from `config/settings.yaml`,
+default 15; raise it if your host starts the job less often, e.g. 90 for hourly)
+and simple
+run statistics for the last 24 hours, overall and per workflow. The history is
+kept `history_retention_days` (default 90) and then deleted at the end of a
+run, so the database doesn't grow forever.
 `health.php?format=json` returns the same data as JSON with an HTTP status
 code (200 healthy, 503 not) an external uptime monitor can check directly
 without parsing HTML.

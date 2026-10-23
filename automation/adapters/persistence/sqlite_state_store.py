@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from automation.core.domain.models import ExecutionResult
+from automation.core.domain.models import DeckEvent, EventType, ExecutionResult
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS board_snapshots (
@@ -66,6 +68,50 @@ CREATE TABLE IF NOT EXISTS board_activity (
     PRIMARY KEY (instance, board_id)
 );
 
+-- One-time action links (create_action_link). Only the SHA-256 of the
+-- secret token is stored. status: open -> claimed (website/link.php, atomic)
+-- -> running -> done|error (main.py); the payload columns are wiped once
+-- the link has been used.
+CREATE TABLE IF NOT EXISTS action_links (
+    token_hash TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    instance TEXT,
+    board_id INTEGER,
+    card_id INTEGER,
+    stack_id INTEGER,
+    current_stack_id INTEGER,
+    event_type TEXT,
+    card_json TEXT,
+    module TEXT,
+    params_json TEXT,
+    variables_json TEXT,
+    success_message TEXT NOT NULL DEFAULT '',
+    require_confirmation INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    claimed_at TEXT,
+    running_at TEXT,
+    finished_at TEXT
+);
+
+-- Cards copy_card created (CopyStorePort): which workflow, how deep a copy.
+CREATE TABLE IF NOT EXISTS copied_cards (
+    instance TEXT NOT NULL,
+    board_id INTEGER NOT NULL,
+    card_id INTEGER NOT NULL,
+    workflow_id TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (instance, board_id, card_id)
+);
+
+-- "Already done recently" memory (DuplicateGuardPort) - e.g. an email sent.
+CREATE TABLE IF NOT EXISTS dedupe_keys (
+    key TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS test_runs (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
@@ -92,6 +138,23 @@ _RUN_ID_COLUMN = "run_id"
 _MODULE_COLUMN = "module"
 
 
+_INSERT_SNAPSHOT_ROW = (
+    f"INSERT INTO board_snapshots (instance, board_id, card_id, stack_id, last_modified, {_EXTRA_COLUMN}) "
+    "VALUES (?, ?, ?, ?, ?, ?)"
+)
+
+
+def _snapshot_row(instance: str, board_id: int, card_id: int, state: dict[str, Any]) -> tuple:
+    return (
+        instance,
+        board_id,
+        card_id,
+        state["stack_id"],
+        state["last_modified"],
+        json.dumps({k: v for k, v in state.items() if k not in ("stack_id", "last_modified")}),
+    )
+
+
 class SqliteStateStore:
     """Implements SnapshotStorePort (board diffing state), ExecutionLogPort
     (workflow run history) and SequenceStorePort (generate_random_number's
@@ -115,11 +178,20 @@ class SqliteStateStore:
             ("board_snapshots", _EXTRA_COLUMN, "TEXT"),
             ("execution_log", _RUN_ID_COLUMN, "TEXT"),
             ("execution_log", _MODULE_COLUMN, "TEXT"),
+            ("action_links", "running_at", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
             except sqlite3.OperationalError:
                 pass  # column already exists (or table was just created with it - either is fine)
+        # After the migrations above: run_id may only exist from here on.
+        # execution_log grows with every run; the history/health pages and
+        # the failure-notification check filter it by these columns.
+        conn.executescript(
+            "CREATE INDEX IF NOT EXISTS execution_log_workflow ON execution_log (workflow_id, id);"
+            "CREATE INDEX IF NOT EXISTS execution_log_run ON execution_log (run_id);"
+            "CREATE INDEX IF NOT EXISTS execution_log_created ON execution_log (created_at);"
+        )
         conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -159,20 +231,19 @@ class SqliteStateStore:
             (instance, board_id),
         )
         conn.executemany(
-            f"INSERT INTO board_snapshots (instance, board_id, card_id, stack_id, last_modified, {_EXTRA_COLUMN}) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    instance,
-                    board_id,
-                    card_id,
-                    state["stack_id"],
-                    state["last_modified"],
-                    json.dumps({k: v for k, v in state.items() if k not in ("stack_id", "last_modified")}),
-                )
-                for card_id, state in snapshot.items()
-            ],
+            _INSERT_SNAPSHOT_ROW,
+            [_snapshot_row(instance, board_id, card_id, state) for card_id, state in snapshot.items()],
         )
+        conn.commit()
+
+    def save_card(self, instance: str, board_id: int, card_id: int, state: Optional[dict[str, Any]]) -> None:
+        conn = self._connect()
+        conn.execute(
+            "DELETE FROM board_snapshots WHERE instance = ? AND board_id = ? AND card_id = ?",
+            (instance, board_id, card_id),
+        )
+        if state is not None:
+            conn.execute(_INSERT_SNAPSHOT_ROW, _snapshot_row(instance, board_id, card_id, state))
         conn.commit()
 
     # -- ExecutionLogPort -------------------------------------------------------
@@ -379,3 +450,150 @@ class SqliteStateStore:
             (limit,),
         ).fetchall()
         return [{"instance": row[0], "board_id": row[1], "last_ping_at": row[2]} for row in rows]
+
+    # -- ActionLinkStorePort (one-time action links) -------------------------
+
+    def create_link(
+        self,
+        *,
+        workflow_id: str,
+        event: DeckEvent,
+        current_stack_id: int,
+        module: str,
+        params: dict[str, Any],
+        variables: dict[str, Any],
+        success_message: str,
+        require_confirmation: bool,
+    ) -> str:
+        token = secrets.token_urlsafe(32)
+        conn = self._connect()
+        conn.execute(
+            "INSERT INTO action_links (token_hash, workflow_id, instance, board_id, card_id, stack_id, "
+            "current_stack_id, event_type, card_json, module, params_json, variables_json, "
+            "success_message, require_confirmation, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            (
+                hashlib.sha256(token.encode()).hexdigest(), workflow_id, event.instance, event.board_id,
+                event.card_id, event.stack_id, current_stack_id, event.event_type.value,
+                json.dumps(event.card, default=str), module, json.dumps(params, default=str),
+                json.dumps(variables, default=str), success_message, int(require_confirmation),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+        return token
+
+    def claimed_links(self) -> list[dict[str, Any]]:
+        """Links the website has claimed (visited) that main.py hasn't run yet."""
+
+        return self._links_where("status = 'claimed' ORDER BY claimed_at", ())
+
+    def stale_running_links(self, started_before_iso: str) -> list[dict[str, Any]]:
+        """Links a main.py invocation took for running but never finished -
+        the process was killed (cron timeout) in between."""
+
+        return self._links_where("status = 'running' AND running_at < ?", (started_before_iso,))
+
+    def _links_where(self, where: str, args: tuple) -> list[dict[str, Any]]:
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT token_hash, workflow_id, instance, board_id, card_id, stack_id, current_stack_id, "
+            "event_type, card_json, module, params_json, variables_json FROM action_links "
+            f"WHERE {where}",
+            args,
+        ).fetchall()
+        keys = ("token_hash", "workflow_id", "instance", "board_id", "card_id", "stack_id",
+                "current_stack_id", "event_type", "card", "module", "params", "variables")
+        links = []
+        for row in rows:
+            link = dict(zip(keys, row))
+            link["event_type"] = EventType(link["event_type"])
+            for key in ("card", "params", "variables"):
+                link[key] = json.loads(link[key]) if link[key] else {}
+            links.append(link)
+        return links
+
+    def begin_link_run(self, token_hash: str) -> bool:
+        """Atomically takes a claimed link for running - False if another
+        main.py invocation got it first (two runs can overlap, e.g. cron plus
+        a webhook-triggered run)."""
+
+        conn = self._connect()
+        cursor = conn.execute(
+            "UPDATE action_links SET status = 'running', running_at = ? WHERE token_hash = ? AND status = 'claimed'",
+            (datetime.now(timezone.utc).isoformat(), token_hash),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+    def finish_link(self, token_hash: str, error: Optional[str] = None) -> None:
+        """Marks the link done/error and wipes everything it needed to run."""
+
+        conn = self._connect()
+        conn.execute(
+            "UPDATE action_links SET status = ?, error = ?, finished_at = ?, card_json = NULL, "
+            "params_json = NULL, variables_json = NULL WHERE token_hash = ?",
+            ("error" if error else "done", error, datetime.now(timezone.utc).isoformat(), token_hash),
+        )
+        conn.commit()
+
+    def purge_finished_links(self, older_than_iso: str) -> None:
+        conn = self._connect()
+        conn.execute(
+            "DELETE FROM action_links WHERE status IN ('done', 'error') AND finished_at < ?",
+            (older_than_iso,),
+        )
+        conn.commit()
+
+    # -- DuplicateGuardPort ----------------------------------------------------
+
+    def seen_within(self, key: str, minutes: float) -> bool:
+        conn = self._connect()
+        row = conn.execute("SELECT created_at FROM dedupe_keys WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            return False
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(row[0])
+        return age.total_seconds() < minutes * 60
+
+    def remember(self, key: str) -> None:
+        conn = self._connect()
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            "INSERT INTO dedupe_keys (key, created_at) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET created_at = excluded.created_at",
+            (key, now.isoformat()),
+        )
+        conn.execute("DELETE FROM dedupe_keys WHERE created_at < ?", ((now - timedelta(days=8)).isoformat(),))
+        conn.commit()
+
+    # -- CopyStorePort -----------------------------------------------------------
+
+    def record_copy(self, instance: str, board_id: int, card_id: int, workflow_id: str, depth: int) -> None:
+        conn = self._connect()
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            "INSERT OR REPLACE INTO copied_cards (instance, board_id, card_id, workflow_id, depth, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (instance, board_id, card_id, workflow_id, depth, now.isoformat()),
+        )
+        conn.commit()
+
+    def copy_info(self, instance: str, board_id: int, card_id: int) -> Optional[tuple[str, int]]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT workflow_id, depth FROM copied_cards WHERE instance = ? AND board_id = ? AND card_id = ?",
+            (instance, board_id, card_id),
+        ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    # -- retention -----------------------------------------------------------------
+
+    def purge_history(self, older_than_iso: str) -> None:
+        """Drops execution-log rows, finished test runs and copy records older
+        than the cutoff - without this the database grows with every run."""
+
+        conn = self._connect()
+        conn.execute("DELETE FROM execution_log WHERE created_at < ?", (older_than_iso,))
+        conn.execute("DELETE FROM test_runs WHERE status != 'pending' AND created_at < ?", (older_than_iso,))
+        conn.execute("DELETE FROM copied_cards WHERE created_at < ?", (older_than_iso,))
+        conn.commit()

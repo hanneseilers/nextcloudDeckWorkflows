@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Protocol
+from typing import Any, Iterable, Optional, Protocol
 
 from automation.core.domain.models import DeckEvent
 
@@ -20,3 +20,11 @@ class SnapshotStorePort(Protocol):
     def load(self, instance: str, board_id: int) -> dict[int, dict[str, Any]]: ...
 
     def save(self, instance: str, board_id: int, snapshot: dict[int, dict[str, Any]]) -> None: ...
+
+    def save_card(
+        self, instance: str, board_id: int, card_id: int, state: Optional[dict[str, Any]]
+    ) -> None:
+        """Updates (or, with state=None, removes) just one card's stored state -
+        lets the event source record progress card by card while a poll's
+        events are being handled."""
+        ...
