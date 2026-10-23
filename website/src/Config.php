@@ -17,6 +17,7 @@ class Config
     private string $stateDbPath;
     /** @var array{enabled: bool, secret: string, fallback_poll_minutes: float}|null */
     private ?array $webhooks = null;
+    private float $healthStaleMinutes = 15.0;
 
     public function __construct(string $configDir)
     {
@@ -38,6 +39,10 @@ class Config
         $this->stateDbPath = str_starts_with($stateDbPath, '/')
             ? $stateDbPath
             : dirname($configDir) . '/' . $stateDbPath;
+
+        if (isset($settings['health_stale_minutes']) && (float) $settings['health_stale_minutes'] > 0) {
+            $this->healthStaleMinutes = (float) $settings['health_stale_minutes'];
+        }
 
         if (!empty($settings['webhooks'])) {
             $this->webhooks = [
@@ -72,6 +77,11 @@ class Config
     public function stateDbPath(): string
     {
         return $this->stateDbPath;
+    }
+
+    public function healthStaleMinutes(): float
+    {
+        return $this->healthStaleMinutes;
     }
 
     /** @return array{enabled: bool, secret: string, fallback_poll_minutes: float}|null */

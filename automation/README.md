@@ -199,7 +199,7 @@ can be exactly what another workflow is watching for. So a single
 `python -m automation.main` invocation doesn't poll just once: `run()` keeps
 polling every configured board and re-running matching workflows for as long
 as the *previous* pass triggered at least one of them, up to `max_run_seconds`
-(`config/settings.yaml`, default 240s - keep it comfortably below your cron
+(`config/settings.yaml`, default 600s - keep it comfortably below your host's cron time limit, see "STRATO" below, and your cron
 interval). Once a pass detects nothing new, or the time limit is hit, the run
 ends; a limit hit just means "pick this up again next time", not an error.
 
@@ -251,7 +251,7 @@ later. What the automation does about that:
   comfortably below your host's limit - a single slow API call can still
   overrun it, and a run that is killed anyway is covered by the points above.
 - **`send_email` doesn't repeat an identical email** (same workflow, card,
-  recipient, subject and body) within `dedupe_minutes` (default 15, 0 = off) -
+  recipient, subject and body) within `dedupe_minutes` (default 360 = 6 hours, 0 = off; raise it - up to 7 days - if your host restarts the job only daily) -
   the mail is remembered after it was sent, so a kill right after sending
   doesn't send it again. Other actions (comments, copies, ...) have no such
   guard; a kill in the middle of a workflow can run its earlier steps again.
@@ -259,6 +259,44 @@ later. What the automation does about that:
   instead of being re-run (see "One-time action links").
 - A SIGTERM is not handled specially (no graceful shutdown); a hard SIGKILL
   couldn't be caught anyway.
+
+## STRATO shared hosting: limits and settings
+
+What STRATO documents for its hosting packages (as of the research for this
+section - check your own package, the platform matters):
+
+- **Cron jobs** are only available on STRATO's legacy platform, from "Hosting
+  Plus" up, not on the new platform. Each job has a **runtime limit of 15
+  minutes**; the control panel offers the intervals **once, daily, weekly,
+  monthly** (a user report says hourly is possible on some packages - no
+  5-minute cron). It is a best-effort service: delays of up to 4 hours are
+  "normal", and only **one cron job per user runs at a time** (others wait).
+  The command line is stored unencrypted, so don't put secrets in it.
+- **PHP scripts** (the website): `max_execution_time` is 240 s for PHP
+  7.2-8.3 (60 s CPU / 120 s for PHP up to 7.1); nothing is documented about
+  `disable_functions` - whether `proc_open` works (needed for the immediate
+  runs `webhook.php`/`link.php` start) has to be tried.
+- Python: STRATO's FAQ doesn't mention it; user reports say SSH access exists
+  and Python 3 with pip is installed (no sudo). Whether a cron job can start
+  `python3` is not documented - test it.
+
+What that means for the settings here (defaults changed accordingly):
+
+- `max_run_seconds` (default **600**): below the 15-minute kill, leaving room
+  for the event still running when the budget ends. With an hourly or daily
+  cron there is no shorter interval to stay under.
+- `health_stale_minutes`: raise it to the cron interval plus slack (e.g. 90
+  for hourly, 1560 for daily), otherwise `health.php` reports the automation
+  as stopped between runs.
+- `dedupe_minutes` of `send_email` (default **360**): a killed run is
+  restarted at the next scheduled slot, which can be hours later - the window
+  must cover that (up to 10080 = 7 days) to keep a repeated run from sending
+  the same email again.
+- Reaction time is the cron interval (hours at worst), so on STRATO workflows
+  react quickly only through the website's immediate runs (webhooks, one-time
+  links) - if `proc_open` is available there. Otherwise they wait for the next
+  cron run. A run killed at the 15-minute mark is covered by "If a run is
+  killed" above.
 
 ## Running
 
@@ -517,7 +555,9 @@ times again.
 ## Health check & statistics
 
 `website/health.php` shows whether `main.py` is still running (via the
-heartbeat above - stale after 15 minutes, a fixed default) and simple
+heartbeat above - stale after `health_stale_minutes` from `config/settings.yaml`,
+default 15; raise it if your host starts the job less often, e.g. 90 for hourly)
+and simple
 run statistics for the last 24 hours, overall and per workflow.
 `health.php?format=json` returns the same data as JSON with an HTTP status
 code (200 healthy, 503 not) an external uptime monitor can check directly

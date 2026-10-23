@@ -14,7 +14,7 @@ from automation.core.ports.action_module import ActionContext
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DEDUPE_MINUTES = 15
+DEFAULT_DEDUPE_MINUTES = 360
 
 TEMPLATES_DIR = REPO_ROOT / "config" / "email_templates"
 
@@ -51,10 +51,12 @@ class SendEmailAction(WorkflowAction):
       template: str (optional) - name of a file in config/email_templates/
       subject, body: str (optional) - used instead of `template`
       template_data: dict (optional) - values substituted into subject/body
-      dedupe_minutes: number (optional, default 15) - an identical email (same
+      dedupe_minutes: number (optional, default 360 = 6 hours) - an identical email (same
         workflow, card, recipient, subject and body) is not sent a second time
         within this many minutes; 0 turns this off. Protects against a run
-        that was killed right after sending being repeated by the next one.
+        that was killed right after sending being repeated by the next one -
+        which, on a host that only starts the job hourly or daily, can be
+        hours later (raise it, up to 10080 = 7 days, if yours is slower).
 
     output:
       sent: bool - false if the email was skipped as a recent duplicate

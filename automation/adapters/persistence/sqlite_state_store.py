@@ -544,5 +544,5 @@ class SqliteStateStore:
             "ON CONFLICT(key) DO UPDATE SET created_at = excluded.created_at",
             (key, now.isoformat()),
         )
-        conn.execute("DELETE FROM dedupe_keys WHERE created_at < ?", ((now - timedelta(days=1)).isoformat(),))
+        conn.execute("DELETE FROM dedupe_keys WHERE created_at < ?", ((now - timedelta(days=7)).isoformat(),))
         conn.commit()

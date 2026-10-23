@@ -5,11 +5,17 @@ log_level: INFO
 # One run of `python -m automation.main` keeps re-polling and re-running
 # workflows for as long as the previous pass triggered at least one of them
 # (so a workflow's own actions - e.g. moving a card - can trigger another
-# workflow), up to this many seconds. Keep comfortably below your cron
-# interval so runs don't overlap - and below the time limit your host puts on
-# cron jobs (a run that gets killed anyway is repeated by the next one, see
-# automation/README.md "If a run is killed").
-max_run_seconds: 240
+# workflow), and stops starting new events after this many seconds. Keep it
+# below the time limit your host puts on cron jobs, with room for the event
+# that is still running when the budget ends: STRATO kills cron jobs after 15
+# minutes (900 s), so 600 is a safe value there. On a host that runs the job
+# every few minutes, use less than that interval.
+max_run_seconds: 600
+# How old the last completed run may be before website/health.php reports the
+# automation as stopped (HTTP 503). Default 15 fits a job started every few
+# minutes. STRATO's cron jobs can only run hourly or slower (and may be delayed
+# by up to 4 hours), so use e.g. 90 for hourly or 1560 for daily.
+# health_stale_minutes: 90
 # Optional: email `to` once a workflow has failed `threshold` times in a
 # row (and again each time it recovers and then fails that many times
 # again) - uses config/smtp.yaml, so that must be set up too. Omit this

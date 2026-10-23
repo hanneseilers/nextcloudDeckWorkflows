@@ -53,7 +53,7 @@ class Settings:
     # Upper bound (seconds) for how long one `main.py` run is allowed to keep
     # re-polling and re-running workflows in a row - see run()'s fixed-point
     # loop in main.py. Keep comfortably below the cron interval.
-    max_run_seconds: float = 240.0
+    max_run_seconds: float = 600.0
     error_notifications: Optional[ErrorNotificationConfig] = None
     webhooks: Optional[WebhookConfig] = None
     # Base URL the website is reachable at (e.g. https://example.com/deck/website),
@@ -100,7 +100,7 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
         state_db_path=REPO_ROOT / general.get("state_db_path", "automation/var/state.sqlite3"),
         log_level=general.get("log_level", "INFO"),
         instances=instances,
-        max_run_seconds=float(general.get("max_run_seconds", 240.0)),
+        max_run_seconds=float(general.get("max_run_seconds", 600.0)),
         error_notifications=error_notifications,
         webhooks=webhooks,
         public_url=(str(general["public_url"]).rstrip("/") if general.get("public_url") else None),

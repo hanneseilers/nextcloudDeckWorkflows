@@ -385,7 +385,7 @@
   }
 
   const PARAM_EXAMPLES = {
-    'send_email.dedupe_minutes': 'Dieselbe E-Mail (gleicher Workflow, gleiche Karte, Empfänger, Betreff und Inhalt) wird innerhalb dieser Minuten nicht noch einmal gesendet - schützt vor Doppelversand, wenn ein Lauf abgebrochen und wiederholt wird. 0 = aus.',
+    'send_email.dedupe_minutes': 'Dieselbe E-Mail (gleicher Workflow, gleiche Karte, Empfänger, Betreff und Inhalt) wird innerhalb dieser Minuten nicht noch einmal gesendet - schützt vor Doppelversand, wenn ein Lauf abgebrochen und später wiederholt wird (Standard 360 = 6 Stunden, bei seltenem Cron höher wählen). 0 = aus.',
     'create_action_link.action_params': 'Beispiel für die Action "Kommentar hinzufügen": {"message": "Per Link erledigt"} - die Felder der gewählten Action; Referenzen werden beim Erstellen des Links aufgelöst.',
     'create_action_link.success_message': 'Text, der nach erfolgreicher Ausführung angezeigt wird - leer = Standardtext.',
     'create_action_link.require_confirmation': 'An = die Seite zeigt zuerst einen Button "Jetzt ausführen" (schützt den Link vor Link-Vorschau-Bots).',

@@ -450,6 +450,10 @@ section_cron() {
 
     info "Empfohlene Cron-Zeile (alle 5 Minuten):"
     info "  $cron_entry"
+    info "Hinweis STRATO: Cron-Jobs gibt es dort nur über die Hosting-Verwaltung (Legacy-Plattform ab Hosting Plus),"
+    info "  mit höchstens 15 Minuten Laufzeit und nur den Intervallen einmalig/täglich/wöchentlich/monatlich"
+    info "  (laut Nutzerberichten teils stündlich). Dann in config/settings.yaml 'max_run_seconds' unter 900"
+    info "  lassen (Standard 600) und 'health_stale_minutes' an das Intervall anpassen (siehe automation/README.md)."
 
     if ! command -v crontab >/dev/null 2>&1; then
         warn "crontab ist auf diesem System nicht verfügbar."

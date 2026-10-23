@@ -9,14 +9,16 @@ namespace NextcloudDeckWorkflows;
  */
 class HealthStatus
 {
-    // How stale the heartbeat may be before being considered unhealthy -
-    // deliberately a fixed, generous default rather than a new config
-    // setting: this only needs to catch "cron stopped running entirely",
-    // not fine-tune against a specific cron interval.
-    private const STALE_AFTER_MINUTES = 15;
-
-    public function __construct(private readonly string $dbPath)
-    {
+    /**
+     * @param float $staleAfterMinutes How old the heartbeat may be before the
+     *   run counts as stopped - config/settings.yaml `health_stale_minutes`.
+     *   The default (15) fits a job started every few minutes; a host that
+     *   only starts it hourly or daily (STRATO's cron) needs a larger value.
+     */
+    public function __construct(
+        private readonly string $dbPath,
+        private readonly float $staleAfterMinutes = 15.0
+    ) {
     }
 
     public function isAvailable(): bool
@@ -62,7 +64,7 @@ class HealthStatus
     public function isHealthy(): bool
     {
         $minutes = $this->minutesSinceLastRun();
-        return $minutes !== null && $minutes <= self::STALE_AFTER_MINUTES;
+        return $minutes !== null && $minutes <= $this->staleAfterMinutes;
     }
 
     /**
