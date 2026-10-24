@@ -60,8 +60,13 @@ class NextcloudDeckGateway:
     def move_card(
         self, board_id: int, stack_id: int, card_id: int, target_stack_id: int, order: int = 0
     ) -> None:
+        # The TARGET stack goes into the URL: Deck's route has a {stackId} and the
+        # controller reads exactly that one (a route parameter wins over a body
+        # field of the same name), so a request addressed to the card's current
+        # stack "moves" it to where it already is - no error, nothing happens.
+        # (stack_id, the card's current stack, is therefore not used here.)
         self._client.put(
-            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/reorder",
+            f"{DECK_API}/boards/{board_id}/stacks/{target_stack_id}/cards/{card_id}/reorder",
             json={"stackId": target_stack_id, "order": order},
         )
 
@@ -112,13 +117,18 @@ class NextcloudDeckGateway:
         # this avoids accidentally clearing title/description/duedate on every call.
         path = f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}"
         card = self._client.get(path) or {}
+        # Deck's update takes the card's stack from the URL and *sets* it: with a
+        # stale stack id (the card was moved since the event, by someone else or
+        # another workflow) it would silently move the card back. The card's
+        # actual stack comes from its own data (GET ignores the stack in the URL).
+        if card.get("stackId") is not None:
+            path = f"{DECK_API}/boards/{board_id}/stacks/{card['stackId']}/cards/{card_id}"
         owner = card.get("owner")
         if isinstance(owner, dict):
             owner = owner.get("uid") or owner.get("primaryKey")
-        # The documented update parameters are title/description/type/order/
-        # duedate, all required. owner isn't documented for the update, but
-        # Deck's CardApiController declares it - sending it back unchanged is
-        # harmless if it's ignored and avoids a 400 where it's required.
+        # Deck's update (CardApiController::update) requires title, type and owner
+        # (description, order, duedate are optional) - the card's current values
+        # are sent back so nothing is reset.
         payload = {
             "title": card.get("title"),
             "type": card.get("type") or "plain",

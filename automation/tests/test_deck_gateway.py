@@ -55,3 +55,23 @@ def test_overlong_title_is_shortened_instead_of_failing_with_400():
     client = RecordingClient({"title": "alt"})
     NextcloudDeckGateway(client).set_title(1, 2, 3, "t" * 300)
     assert len(client.calls[-1][2]["title"]) == 255
+
+
+def test_move_card_addresses_the_target_stack_in_the_url():
+    # Deck reads {stackId} from the URL as the target; the card's current stack
+    # in the URL would turn the move into a no-op without any error.
+    client = RecordingClient()
+    NextcloudDeckGateway(client).move_card(12, 46, 93, target_stack_id=47, order=2)
+    assert client.calls == [
+        ("PUT", f"{DECK_API}/boards/12/stacks/47/cards/93/reorder", {"stackId": 47, "order": 2})
+    ]
+
+
+def test_update_uses_the_cards_real_stack_not_a_stale_one():
+    # The URL's stack is written to the card by Deck's update - a stale id would move it back.
+    card = {"title": "T", "stackId": 50, "type": "plain", "owner": "anna", "order": 1,
+            "description": "", "duedate": None}
+    client = RecordingClient(card)
+    NextcloudDeckGateway(client).set_title(12, 46, 93, "Neu")  # 46 = stale, the card is in 50 now
+    method, path, _ = client.calls[-1]
+    assert (method, path) == ("PUT", f"{DECK_API}/boards/12/stacks/50/cards/93")
