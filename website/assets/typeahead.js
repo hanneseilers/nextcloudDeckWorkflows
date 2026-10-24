@@ -47,9 +47,17 @@ function renderTypeahead(config) {
       const row = document.createElement('div');
       row.className = 'typeahead-result';
       row.textContent = item.id === item.label ? item.label : item.label + ' (' + item.id + ')';
-      row.addEventListener('click', () => {
+      // Keep the focus in the input while picking (no blur/refocus), and
+      // don't let the click reach an enclosing <label>: activating the label
+      // refocuses the input, whose focus handler would reopen this list.
+      row.addEventListener('mousedown', (event) => event.preventDefault());
+      row.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         config.setValue(item.id);
-        input.value = item.label;
+        // An empty id is the "no selection" entry (e.g. "Alle Spalten"):
+        // leave the field empty, its placeholder explains what that means.
+        input.value = item.id === '' ? '' : item.label;
         resultsEl.hidden = true;
         if (config.onPick) {
           config.onPick(item);
@@ -91,6 +99,16 @@ function renderTypeahead(config) {
   input.addEventListener('focus', () => {
     if (resultsEl.hidden) {
       runQuery();
+    }
+  });
+
+  // Close the list when the field is left (Tab, click elsewhere) or on Escape.
+  input.addEventListener('blur', () => {
+    resultsEl.hidden = true;
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      resultsEl.hidden = true;
     }
   });
 
