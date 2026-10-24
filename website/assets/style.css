@@ -219,6 +219,7 @@ fieldset textarea {
 textarea[data-json-field] {
     font-family: ui-monospace, monospace;
     min-height: 4rem;
+    resize: vertical; /* the height can be changed, the width is always the available one */
 }
 
 textarea.invalid, input.invalid {
@@ -286,6 +287,33 @@ ul.run-actions {
 
 [hidden] {
     display: none !important;
+}
+
+/* A field with a text area takes the whole rest of its row; the area fills it
+   (next to the "Fester Wert"/"Wert übernehmen" dropdown, or below it when the
+   row is narrow). */
+.value-or-ref:has(> textarea) {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.value-or-ref > textarea {
+    flex: 1 1 16rem;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+    /* Narrow screens: label above, then the dropdown, then the text area, each as wide as the row. */
+    .value-or-ref:has(> textarea) {
+        flex-basis: 100%;
+    }
+
+    .value-or-ref > textarea {
+        flex-basis: 100%;
+    }
 }
 
 .value-or-ref select,
