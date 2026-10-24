@@ -630,3 +630,11 @@ details.popover[open] > form {
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
     text-align: left;
 }
+
+.step-outputs code {
+    font-weight: 600;
+}
+
+.step-outputs li {
+    margin: 0.15rem 0;
+}

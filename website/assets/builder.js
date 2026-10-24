@@ -466,6 +466,7 @@
     });
     select.addEventListener('change', () => {
       entry.value = select.value;
+      render(); // the step's info box lists the chosen action's fields
     });
     return select;
   }
@@ -1094,37 +1095,76 @@
     return wrapper;
   }
 
-  // What a step hands on to later steps - its output fields - and how to use them.
+  // A <ul> of "name – description": the real field name (as it appears in the
+  // YAML, e.g. what create_action_link's "Felder der Action" needs) followed by
+  // the short German description, and the help text if the field has one.
+  function renderFieldList(names, labels, help) {
+    const listEl = document.createElement('ul');
+    names.forEach((name) => {
+      const item = document.createElement('li');
+      const code = document.createElement('code');
+      code.textContent = name;
+      item.appendChild(code);
+      const description = labels[name] || '';
+      item.appendChild(document.createTextNode(description ? ' – ' + description : ''));
+      if (help && help[name]) {
+        const helpEl = document.createElement('div');
+        helpEl.className = 'muted small';
+        helpEl.textContent = help[name];
+        item.appendChild(helpEl);
+      }
+      listEl.appendChild(item);
+    });
+    return listEl;
+  }
+
+  function addParagraph(box, text, className) {
+    const p = document.createElement('p');
+    if (className) {
+      p.className = className;
+    }
+    p.textContent = text;
+    box.appendChild(p);
+  }
+
+  // The "i" box of a step: which fields it takes (real names) and which
+  // values it hands on to later steps.
   function renderOutputsInfo(step, module) {
     const box = document.createElement('div');
     box.className = 'step-outputs';
+    const inputs = Object.keys((module && module.input) || {});
     const outputs = Object.keys((module && module.output) || {});
-    const labels = (module && module.output_labels) || {};
-    const intro = document.createElement('p');
-    if (outputs.length === 0) {
-      intro.textContent = 'Dieser Schritt liefert keine Werte für spätere Schritte.';
-      box.appendChild(intro);
-    } else {
-      intro.textContent = 'Dieser Schritt liefert für spätere Schritte:';
-      box.appendChild(intro);
-      const listEl = document.createElement('ul');
-      outputs.forEach((name) => {
-        const item = document.createElement('li');
-        item.textContent = (labels[name] || name) + (labels[name] ? ' (' + name + ')' : '');
-        listEl.appendChild(item);
-      });
-      box.appendChild(listEl);
-      const how = document.createElement('p');
-      how.className = 'muted';
-      how.textContent = 'Verwenden: in einem späteren Schritt bei einem Feld „Wert übernehmen" wählen, dann '
-        + '„Schritt ' + step.displayNumber + ': ' + moduleLabel(step.module) + '" und das gewünschte Feld.';
-      box.appendChild(how);
+
+    addParagraph(box, inputs.length === 0 ? 'Dieser Schritt hat keine Eingabefelder.' : 'Eingabefelder:');
+    if (inputs.length > 0) {
+      box.appendChild(renderFieldList(inputs, module.param_labels || {}, module.param_help || {}));
+    }
+
+    // "Einmal-Link erstellen" takes another action's fields as a JSON object:
+    // show which ones the chosen action needs.
+    const chosen = step.module === 'create_action_link' && step.params.action && step.params.action.source === 'literal'
+      ? modulesByName[step.params.action.value]
+      : null;
+    if (chosen) {
+      const chosenInputs = Object.keys(chosen.input || {});
+      addParagraph(box, 'Felder der gewählten Action „' + moduleLabel(chosen.name) + '" (für „Felder der Action"):');
+      if (chosenInputs.length > 0) {
+        box.appendChild(renderFieldList(chosenInputs, chosen.param_labels || {}, chosen.param_help || {}));
+      } else {
+        addParagraph(box, 'Diese Action hat keine Felder.', 'muted');
+      }
+    }
+
+    addParagraph(box, outputs.length === 0
+      ? 'Dieser Schritt liefert keine Werte für spätere Schritte.'
+      : 'Liefert für spätere Schritte:');
+    if (outputs.length > 0) {
+      box.appendChild(renderFieldList(outputs, module.output_labels || {}, null));
+      addParagraph(box, 'Verwenden: in einem späteren Schritt bei einem Feld „Wert übernehmen" wählen, dann '
+        + '„Schritt ' + step.displayNumber + ': ' + moduleLabel(step.module) + '" und das gewünschte Feld.', 'muted');
     }
     if (step.module === 'set_variable') {
-      const note = document.createElement('p');
-      note.className = 'muted';
-      note.textContent = 'Außerdem steht der Wert in späteren Schritten unter „Variablen" und in Texten als $Name zur Verfügung.';
-      box.appendChild(note);
+      addParagraph(box, 'Außerdem steht der Wert in späteren Schritten unter „Variablen" und in Texten als $Name zur Verfügung.', 'muted');
     }
     return box;
   }
