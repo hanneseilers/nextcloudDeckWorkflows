@@ -27,6 +27,7 @@ from automation.adapters.persistence.sqlite_state_store import SqliteStateStore
 from automation.adapters.run_lock import RunLock
 from automation.adapters.smtp_config import load_smtp_config, send_email as smtp_send
 from automation.adapters.persistence.yaml_workflow_repository import YamlWorkflowRepository
+from automation.adapters.recording_deck_gateway import RecordingDeckGateway
 from automation.config.settings import REPO_ROOT, Settings, load_settings
 from automation.core.domain.engine import WorkflowEngine
 from automation.core.domain.models import ActionResult, DeckEvent, EventType, ExecutionResult
@@ -84,6 +85,7 @@ def run(settings: Settings) -> None:
     _process_test_runs(settings, workflows, state_store, engine)
     _process_schedules(workflows, state_store, engine)
 
+    written_boards: set[tuple[str, int]] = set()
     boards_by_instance: dict[str, set[int]] = {}
     for workflow in workflows.list_enabled():
         boards_by_instance.setdefault(workflow.instance, set()).add(workflow.board_id)
@@ -102,11 +104,13 @@ def run(settings: Settings) -> None:
         client = NextcloudClient(instance.base_url, instance.username, instance.app_password)
         deck = NextcloudDeckGateway(client)
         event_source = PollingEventSource(deck, state_store)
+        # Actions write through this one; it notes which boards they touched.
+        recording_deck = RecordingDeckGateway(deck, instance_name, written_boards)
         # Same Nextcloud account/client as `deck` above - CalDAV needs no
         # separate credentials or config/nextcloud.yaml entry.
         calendar = NextcloudCalendarGateway(client, instance.username)
         for board_id in board_ids:
-            targets.append(BoardTarget(instance_name, board_id, deck, event_source, calendar))
+            targets.append(BoardTarget(instance_name, board_id, recording_deck, event_source, calendar))
 
     targets = _apply_webhook_gate(settings, state_store, targets)
 
@@ -128,6 +132,10 @@ def run(settings: Settings) -> None:
     # gets picked up again on the very next cron invocation - no separate
     # "which iteration were we on" state needs to survive a crash.
     iteration = 0
+    # Only the first pass polls every board; later passes poll just the boards
+    # that can have changed since: those that had events in the previous
+    # pass, and those an action (or a one-time link) wrote to.
+    to_poll = targets
     while True:
         iteration += 1
         if iteration > 1:
@@ -135,13 +143,19 @@ def run(settings: Settings) -> None:
             # its own immediate run - the run lock is held - so pick it up
             # here instead of leaving it for the next cron invocation.
             try:
-                _run_claimed_links(settings, state_store, engine)
+                _run_claimed_links(settings, state_store, engine, written_boards)
             except Exception:
                 logger.exception("Could not process one-time links - continuing with the rest of the run")
         any_triggered = False
-        for target in targets:
+        changed: set[tuple[str, int]] = set()
+        for target in to_poll:
             if _process_board(engine, target, deadline, on_unfinished=mark_unfinished):
                 any_triggered = True
+                changed.add((target.instance_name, target.board_id))
+        changed |= written_boards
+        written_boards.clear()
+        to_poll = [t for t in targets if (t.instance_name, t.board_id) in changed]
+        any_triggered = any_triggered or bool(to_poll)
 
         if not any_triggered:
             logger.info("Fixed point reached after %d iteration(s) - run complete", iteration)
@@ -365,7 +379,12 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
     state_store.purge_expired_links(datetime.now(timezone.utc).replace(microsecond=0).isoformat())
 
 
-def _run_claimed_links(settings: Settings, state_store: SqliteStateStore, engine: WorkflowEngine) -> None:
+def _run_claimed_links(
+    settings: Settings,
+    state_store: SqliteStateStore,
+    engine: WorkflowEngine,
+    written_boards: Optional[set[tuple[str, int]]] = None,
+) -> None:
     """Runs every claimed, not yet started link - see _process_action_links.
 
     The card's column is looked up again right before the action runs: a link
@@ -398,7 +417,7 @@ def _run_claimed_links(settings: Settings, state_store: SqliteStateStore, engine
                 module=link["module"],
                 params=link["params"],
                 variables=link["variables"],
-                deck=deck,
+                deck=RecordingDeckGateway(deck, link["instance"], written_boards) if written_boards is not None else deck,
                 calendar=NextcloudCalendarGateway(client, instance.username),
             )
             failure = next((r.error for r in result.action_results if not r.success), None)

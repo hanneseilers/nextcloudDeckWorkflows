@@ -752,3 +752,84 @@ def test_a_claimed_link_runs_against_the_column_the_card_is_in_now(tmp_path, mon
 
     puts = [url for method, url in calls if method == "PUT"]
     assert puts == ["https://cloud.example.com/index.php/apps/deck/api/v1.1/boards/1/stacks/20/cards/1"]
+
+
+def _two_board_environment(tmp_path, monkeypatch):
+    cards = {1: [{"id": 1, "title": "A", "lastModified": 1}], 2: [{"id": 50, "title": "Fix", "lastModified": 1}]}
+    polls = {1: 0, 2: 0}
+    comments = []
+
+    def fake_request(self, method, url, **kwargs):
+        import re
+        m = re.search(r"/boards/(\d+)/stacks$", url)
+        if method == "GET" and m:
+            board = int(m.group(1))
+            polls[board] += 1
+            return FakeResponse([{"id": board * 10, "cards": [dict(c) for c in cards[board]]}])
+        m = re.search(r"/boards/(\d+)/stacks/(\d+)/cards$", url)
+        if method == "POST" and m:
+            board = int(m.group(1))
+            new = {"id": 100 + len(cards[board]), "title": kwargs["json"]["title"], "lastModified": 1}
+            cards[board].append(new)
+            return FakeResponse(new)
+        if method == "GET" and "/cards/" in url:
+            return FakeResponse(cards[1][0])
+        if method == "POST" and "deckCard" in url:
+            comments.append(int(url.rsplit("/", 1)[1]))
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    return cards, polls, comments
+
+
+def test_later_passes_only_poll_boards_that_can_have_changed(tmp_path, monkeypatch):
+    cards, polls, comments = _two_board_environment(tmp_path, monkeypatch)
+    workflows_dir = tmp_path / "workflows"
+    repo = YamlWorkflowRepository(workflows_dir)
+    for board in (1, 2):
+        repo.save(Workflow(
+            id=f"hello-{board}", name="h", instance="prod", board_id=board,
+            trigger=Trigger(event_type=EventType.CARD_UPDATED),
+            actions=(ActionStep(module="add_comment", params={"message": "hi"}),),
+        ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=10.0,
+    )
+    run(settings)  # baseline: both boards' cards are "new"
+    polls.update({1: 0, 2: 0})
+
+    cards[1][0]["lastModified"] = 2  # only board 1 changes
+    run(settings)
+
+    assert comments == [1]
+    assert polls[2] == 1  # first pass only - board 2 had no events and nothing wrote to it
+    assert polls[1] == 2  # first pass + the pass after its event
+
+
+def test_a_board_an_action_wrote_to_is_polled_again_in_the_same_run(tmp_path, monkeypatch):
+    cards, polls, comments = _two_board_environment(tmp_path, monkeypatch)
+    workflows_dir = tmp_path / "workflows"
+    repo = YamlWorkflowRepository(workflows_dir)
+    repo.save(Workflow(
+        id="copy-over", name="c", instance="prod", board_id=1,
+        trigger=Trigger(event_type=EventType.CARD_UPDATED),
+        actions=(ActionStep(module="copy_card", params={"target_board_id": 2, "target_stack_id": 20}),),
+    ))
+    repo.save(Workflow(
+        id="welcome", name="w", instance="prod", board_id=2,
+        trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(ActionStep(module="add_comment", params={"message": "neu hier"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=10.0,
+    )
+    run(settings)  # baseline
+    comments.clear()
+
+    cards[1][0]["lastModified"] = 2
+    run(settings)
+
+    copy_id = cards[2][-1]["id"]
+    assert comments == [copy_id]  # the copy on board 2 was noticed within the same run

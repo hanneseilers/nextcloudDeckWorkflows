@@ -202,6 +202,10 @@ as the *previous* pass triggered at least one of them, up to `max_run_seconds`
 (`config/settings.yaml`, default 600s - keep it comfortably below your host's cron time limit, see "STRATO" below, and your cron
 interval). Once a pass detects nothing new, or the time limit is hit, the run
 ends; a limit hit just means "pick this up again next time", not an error.
+Only the first pass polls every board; each later pass polls just the boards
+that can have changed: those that had events in the previous pass and those an
+action wrote to (`RecordingDeckGateway` notes them - e.g. `copy_card`'s target
+board) - with many boards that saves most of the polling requests.
 
 This only works safely because `PollingEventSource.poll()` doesn't save its new
 snapshot by itself - `main.py` stores each card's new state (`advance()`) only
