@@ -57,6 +57,38 @@ class BoardTarget:
     calendar: NextcloudCalendarGateway
 
 
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+LOG_FILE_NAME = "automation.log"
+LOG_FILE_MAX_BYTES = 1_000_000
+LOG_FILE_BACKUPS = 3
+
+
+def setup_file_logging(directory: Path) -> Optional[Path]:
+    """Also writes the log to <directory>/automation.log (rotating: 1 MB, 3
+    old files) - what the website's log page shows, independent of whether and
+    how the cron job redirects the console output. Safe to call more than once
+    (never adds a second handler for the same file); returns None, logging a
+    warning, if the file can't be written (read-only host) - the console log
+    keeps working either way."""
+
+    from logging.handlers import RotatingFileHandler
+
+    path = Path(directory) / LOG_FILE_NAME
+    root = logging.getLogger()
+    for handler in root.handlers:
+        if isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) == path.resolve():
+            return path
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(path, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUPS, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not write the log file %s (%s) - logging to the console only", path, exc)
+        return None
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    root.addHandler(handler)
+    return path
+
+
 def _build_engine(
     settings: Settings, workflows: YamlWorkflowRepository, state_store: SqliteStateStore
 ) -> WorkflowEngine:
@@ -644,9 +676,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=args.log_level or "INFO", format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    logging.basicConfig(level=args.log_level or "INFO", format=LOG_FORMAT)
 
     if args.list_modules:
         print(json.dumps(_modules_snapshot(), indent=2))
@@ -665,10 +695,14 @@ def main() -> None:
     except Exception:
         # No usable config is not a crash - there's nothing to do this run, log why
         # and stop cleanly so the cron job keeps invoking us on schedule regardless.
+        # No settings -> the default location, so even this error ends up in the
+        # log file the website shows.
+        setup_file_logging(MODULES_SNAPSHOT_PATH.parent)
         logger.exception("Could not load configuration - nothing to do this run")
         return
 
     logging.getLogger().setLevel(args.log_level or settings.log_level)
+    setup_file_logging(settings.state_db_path.parent)
 
     if args.test_run:
         try:

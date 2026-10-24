@@ -638,3 +638,67 @@ details.popover[open] > form {
 .step-outputs li {
     margin: 0.15rem 0;
 }
+
+/* -- log page ---------------------------------------------------------------- */
+
+.filters input[type="search"] {
+    width: 14rem;
+}
+
+.filters label.checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.log-view {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow-x: auto;
+}
+
+.log-entry {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-bottom: 1px solid #eee;
+    border-left: 3px solid transparent;
+}
+
+.log-entry:last-child {
+    border-bottom: 0;
+}
+
+.log-time {
+    color: #777;
+    white-space: nowrap;
+}
+
+.log-level {
+    min-width: 4.5rem;
+    font-weight: 700;
+}
+
+.log-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    flex: 1;
+}
+
+.log-warning {
+    background: #fff8e1;
+    border-left-color: #e0a800;
+}
+
+.log-error,
+.log-critical {
+    background: #fdeceb;
+    border-left-color: var(--danger);
+    color: var(--danger);
+}
+
+.log-debug {
+    color: #888;
+}

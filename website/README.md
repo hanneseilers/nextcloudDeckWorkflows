@@ -52,6 +52,15 @@ long random token in the URL is its credential) and, if you use webhooks,
   (`src/ModuleRegistry.php`) - written automatically by every
   `python -m automation.main` run (see `automation/main.py`). If that file
   doesn't exist yet, run `python -m automation.main --list-modules` once.
+- **Log (`log.php`):** shows the automation's log without a console. `main.py`
+  writes `automation/var/automation.log` itself (rotating, 1 MB x 4 files,
+  independent of any cron redirect); the page reads only the end of the file,
+  newest entry first, tracebacks stay with their ERROR line, coloured by level.
+  Filters: file (the Automation-Log or `cron.log` - the cron job's console output,
+  which also holds crashes before logging starts such as a missing Python
+  package), level (all / warnings and errors / errors only), text search, 100/
+  300/1000 entries, optional refresh every 5 s. Times are server time, as in
+  the file. `tools/test_log_reader.php` is a standalone check of the reader.
 - **Test runs ("Testlauf"):** the website never runs Python itself, so a test
   run is written to the `test_runs` table and `start_test_run.php` immediately
   starts `python -m automation.main --test-run <id>` in the background

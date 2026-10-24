@@ -571,6 +571,14 @@ a workflow that keeps flapping doesn't spam an email on every single tick,
 but does get a fresh notification if it recovers and then fails that many
 times again.
 
+## Log file
+
+Besides the console, `main.py` writes `automation/var/automation.log` (next to
+the state database; rotating, 1 MB, 3 old files; `log_level` applies). The
+website's "Log" page shows it (and the cron job's `cron.log`, if the cron line
+redirects to it) - see `website/README.md`. If the directory isn't writable the
+run continues and only logs to the console.
+
 ## Health check & statistics
 
 `website/health.php` shows whether `main.py` is still running (via the
