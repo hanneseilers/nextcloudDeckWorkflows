@@ -8,7 +8,7 @@ from string import Template
 from typing import Any, ClassVar, Optional
 
 from automation.adapters.actions.base import WorkflowAction
-from automation.adapters.smtp_config import load_smtp_config, send_email as smtp_send
+from automation.adapters.smtp_config import load_smtp_config, parse_recipients, send_email as smtp_send
 from automation.config.settings import REPO_ROOT
 from automation.core.ports.action_module import ActionContext
 
@@ -47,7 +47,10 @@ class SendEmailAction(WorkflowAction):
     data never breaks the send.
 
     params:
-      to: str - recipient address
+      to: str | list[str] - recipient address; several: separated by comma or
+        semicolon, or a list. Everybody gets the same single mail (all
+        addresses are visible to all). If the server refuses some of them the
+        mail still goes to the rest and the step then fails naming the refused.
       template: str (optional) - name of a file in config/email_templates/
       subject, body: str (optional) - used instead of `template`
       template_data: dict (optional) - values substituted into subject/body
@@ -67,8 +70,8 @@ class SendEmailAction(WorkflowAction):
     ACTION_NAME: ClassVar[str] = "send_email"
     LABEL: ClassVar[str] = "E-Mail senden"
     DESCRIPTION: ClassVar[str] = "Verschickt eine E-Mail über den eingerichteten SMTP-Server."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"to": "Empfänger", "subject": "Betreff", "body": "Text", "template": "Vorlage (optional)", "template_data": "Werte für die Vorlage", "dedupe_minutes": "Doppelversand-Schutz (Minuten)"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"template": "Name einer Datei aus config/email_templates/ - ersetzt Betreff und Text.", "dedupe_minutes": "Wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis innerhalb dieser Minuten nicht noch einmal raus. Neue Ereignisse, Testläufe und Zeitpläne senden immer. 0 = aus."}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"to": "Empfänger (mehrere mit Komma)", "subject": "Betreff", "body": "Text", "template": "Vorlage (optional)", "template_data": "Werte für die Vorlage", "dedupe_minutes": "Doppelversand-Schutz (Minuten)"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"to": "Mehrere Empfänger mit Komma oder Semikolon trennen, z. B. anna@example.com, bernd@example.com (in der YAML auch als Liste). Alle bekommen dieselbe Mail und sehen alle Adressen. Nur reine Adressen, keine Namen wie \"Anna <anna@example.com>\".", "template": "Name einer Datei aus config/email_templates/ - ersetzt Betreff und Text.", "dedupe_minutes": "Wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis innerhalb dieser Minuten nicht noch einmal raus. Neue Ereignisse, Testläufe und Zeitpläne senden immer. 0 = aus."}
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"sent": "Gesendet"}
 
     def default_input(self) -> dict[str, Any]:
@@ -98,6 +101,11 @@ class SendEmailAction(WorkflowAction):
         subject = Template(subject).safe_substitute(**template_data)
         body = Template(body).safe_substitute(**template_data)
 
+        recipients = parse_recipients(params.get("to"))
+        if not recipients:
+            raise ValueError("send_email: no recipient given")
+        to_text = ", ".join(recipients)
+
         raw_minutes = params.get("dedupe_minutes")
         minutes = DEFAULT_DEDUPE_MINUTES if raw_minutes is None else float(raw_minutes)
         guard = context.dedupe_store if minutes > 0 else None
@@ -106,17 +114,23 @@ class SendEmailAction(WorkflowAction):
             key = "email:" + hashlib.sha256(json.dumps(
                 [
                     context.workflow_id, context.event.card_id, context.event.event_type.value,
-                    context.event.previous_last_modified, params["to"], subject, body,
+                    context.event.previous_last_modified, to_text, subject, body,
                 ]
             ).encode()).hexdigest()
             if guard.seen_within(key, minutes):
                 logger.warning(
                     "Not sending to %s: an identical email went out less than %g minutes ago "
-                    "(workflow '%s', card %s)", params["to"], minutes, context.workflow_id, context.event.card_id,
+                    "(workflow '%s', card %s)", to_text, minutes, context.workflow_id, context.event.card_id,
                 )
                 return {"sent": False}
 
-        smtp_send(load_smtp_config(), to=params["to"], subject=subject, body=body)
+        refused = smtp_send(load_smtp_config(), to=recipients, subject=subject, body=body)
         if guard is not None:
             guard.remember(key)  # after the send: a kill in between sends again rather than losing the mail
+        if refused:
+            # The others did get it (and the guard above stops a rerun from mailing them again).
+            raise RuntimeError(
+                "The mail server refused these recipients: " + ", ".join(refused)
+                + (" - everybody else received the mail" if len(refused) < len(recipients) else "")
+            )
         return {"sent": True}

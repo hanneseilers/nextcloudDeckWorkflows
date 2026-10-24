@@ -248,3 +248,106 @@ def test_only_event_triggered_runs_use_the_guard():
     engine.run_single(wf, event, InMemoryDeckGateway())  # test run / schedule
 
     assert seen == [True, False]
+
+
+# -- several recipients -----------------------------------------------------------
+
+@pytest.mark.parametrize("to", [
+    "anna@example.com, bernd@example.com",
+    "anna@example.com;bernd@example.com",
+    "anna@example.com\nbernd@example.com",
+    ["anna@example.com", "bernd@example.com"],
+    ["anna@example.com", " BERND@example.com", "Anna@Example.com"],  # duplicate (any case) removed
+])
+def test_one_mail_goes_to_all_recipients(tmp_path, monkeypatch, smtp_client, context, to):
+    write_smtp_config(tmp_path, monkeypatch)
+    smtp_client.send_message.return_value = {}
+
+    out = SendEmailAction().execute(context, {"to": to, "subject": "S", "body": "B"})
+
+    assert out == {"sent": True}
+    smtp_client.send_message.assert_called_once()
+    sent = smtp_client.send_message.call_args[0][0]
+    assert [a.strip().lower() for a in sent["To"].split(",")] == ["anna@example.com", "bernd@example.com"]
+
+
+def test_the_real_smtp_envelope_contains_every_recipient(tmp_path, monkeypatch, context):
+    """Not mocked: a tiny SMTP server records the RCPT TO lines smtplib really sends."""
+
+    import socketserver
+    import threading
+
+    rcpt, bodies = [], []
+
+    class Handler(socketserver.StreamRequestHandler):
+        def handle(self):
+            say = lambda text: (self.wfile.write((text + "\r\n").encode()), self.wfile.flush())
+            say("220 test")
+            data, lines = False, []
+            for raw in self.rfile:
+                line = raw.decode().rstrip("\r\n")
+                if data:
+                    if line == ".":
+                        bodies.append("\n".join(lines)); data = False; say("250 ok")
+                    else:
+                        lines.append(line)
+                    continue
+                upper = line.upper()
+                if upper.startswith("RCPT TO"):
+                    rcpt.append(line.split(":", 1)[1].strip(" <>"))
+                if upper.startswith("DATA"):
+                    data = True; say("354 go")
+                elif upper.startswith("QUIT"):
+                    say("221 bye"); return
+                else:
+                    say("250 ok")
+
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        write_smtp_config(tmp_path, monkeypatch, host="127.0.0.1", port=server.server_address[1],
+                          use_tls=False, username=None, password=None)
+        SendEmailAction().execute(context, {"to": "anna@example.com; bernd@example.com", "subject": "S", "body": "B"})
+    finally:
+        server.shutdown()
+    assert rcpt == ["anna@example.com", "bernd@example.com"]
+    assert len(bodies) == 1  # one mail, not one per recipient
+
+
+def test_a_refused_recipient_fails_the_step_but_the_others_got_the_mail(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    smtp_client.send_message.return_value = {"bernd@example.com": (550, b"no such user")}
+
+    with pytest.raises(RuntimeError, match=r"refused.*bernd@example.com.*everybody else received"):
+        SendEmailAction().execute(context, {"to": "anna@example.com, bernd@example.com", "subject": "S", "body": "B"})
+    smtp_client.send_message.assert_called_once()
+
+
+def test_a_typo_in_one_address_fails_before_anything_is_sent(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="bernd"):
+        SendEmailAction().execute(context, {"to": "anna@example.com, bernd-example.com", "subject": "S", "body": "B"})
+    smtp_client.send_message.assert_not_called()
+
+
+def test_no_recipient_at_all_fails_clearly(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="no recipient"):
+        SendEmailAction().execute(context, {"to": " , ; ", "subject": "S", "body": "B"})
+
+
+def test_the_duplicate_guard_treats_a_list_and_the_same_text_alike(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    seen = set()
+
+    class Guard:
+        def seen_within(self, key, minutes):
+            return key in seen
+
+        def remember(self, key):
+            seen.add(key)
+
+    context.dedupe_store = Guard()
+    SendEmailAction().execute(context, {"to": ["a@x.de", "b@x.de"], "subject": "S", "body": "B"})
+    out = SendEmailAction().execute(context, {"to": "a@x.de, b@x.de", "subject": "S", "body": "B"})
+    assert out == {"sent": False} and smtp_client.send_message.call_count == 1

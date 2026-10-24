@@ -78,6 +78,16 @@ def _check_email(value: Any) -> Optional[str]:
     return None
 
 
+def _check_emails(value: Any) -> Optional[str]:
+    from automation.adapters.smtp_config import parse_recipients
+
+    try:
+        parse_recipients(value)
+    except ValueError as exc:
+        return f"{exc} - mehrere Adressen mit Komma trennen."
+    return None
+
+
 def _check_timezone(value: Any) -> Optional[str]:
     if not re.match(r"^[A-Za-z_]+(/[A-Za-z0-9_+\-]+)*$", str(value)):
         return "Bitte eine Zeitzone wie Europe/Berlin angeben."
@@ -159,7 +169,8 @@ SETTINGS = (
     ), (
         Field("enabled", "Fehler-Benachrichtigung per E-Mail einschalten?", kind="bool", default=False),
         Field("threshold", "Nach wie vielen Fehlschlägen in Folge", kind="int", default=3, check=_check_positive),
-        Field("to", "Empfänger-Adresse", required=True, default="", example="admin@example.com", check=_check_email),
+        Field("to", "Empfänger-Adresse(n)", ("Mehrere Adressen mit Komma trennen.",), required=True, default="",
+              example="admin@example.com", check=_check_emails),
     )),
     Section("webhooks", (
         "Nextcloud (Flow/Webhooks, Admin-Einstellung) ruft website/webhook.php auf, wenn sich",

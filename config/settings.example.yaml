@@ -43,7 +43,8 @@ error_notifications:
   enabled: false
   # Nach wie vielen Fehlschlägen in Folge
   threshold: 3
-  # Empfänger-Adresse
+  # Empfänger-Adresse(n)
+  # Mehrere Adressen mit Komma trennen.
   to: "admin@example.com"
 
 # Nextcloud (Flow/Webhooks, Admin-Einstellung) ruft website/webhook.php auf, wenn sich
