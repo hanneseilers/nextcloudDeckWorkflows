@@ -25,7 +25,7 @@ All configuration and workflow data is stored as YAML files, requiring no databa
 The repository itself isn't directly uploadable (dev-only files, no `vendor/`, no real credentials). Two scripts in `tools/` handle that:
 
 1. On your dev machine: `tools/build.sh` exports the current (or a given) git ref, strips developer-only files, bundles `website/vendor/` via Composer, and produces an upload-ready folder and `.zip`/`.tar.gz` in `build/upload/`.
-2. Upload that folder/archive to your webspace.
+2. Upload that folder/archive to your webspace - into the domain's document root or any subdirectory (e.g. `/tools/deck/`); the included `.htaccess` sends visitors on to `website/` and blocks everything else (see `website/README.md`).
 3. On the server, inside the uploaded directory: run `./install.sh` - it walks you through PHP/Python dependencies, writes `config/*.yaml` interactively, optionally sets up HTTP Basic Auth for `website/`, checks write permissions, offers to add the cron job, and verifies everything at the end.
 
 ## Getting started (manual / development setup)

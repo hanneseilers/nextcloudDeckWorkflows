@@ -10,9 +10,18 @@ cd website
 composer install
 ```
 
-Then point your web server at this `website/` directory directly (no `public/`
-subfolder - kept flat so it works on typical shared hosting without special
-document-root configuration).
+Then either point your web server at this `website/` directory, or simply
+upload the whole project into the domain's document root **or any
+subdirectory of it** (e.g. `https://example.com/tools/deck/`): the project
+root's `.htaccess` redirects `…/deck/` (and page names like `…/deck/history.php`)
+to `…/deck/website/`, and refuses everything outside `website/` - code,
+`config/`, the state database, docs (`.well-known/` stays reachable for
+certificate renewals). It computes its own base path, so no `RewriteBase`
+needs adjusting. Without `mod_rewrite`, the root `index.php` still redirects
+to `website/`, and `config/`, `automation/`, `workflows/` and the project files
+in the root are denied by their own `.htaccess`. All links inside the site
+are relative, and the session cookie (`ncdw_session`) is scoped to the
+`website/` folder, so other PHP apps on the same domain don't interfere.
 
 **This site has no login of its own.** It's meant to be protected externally,
 e.g. with `.htaccess` Basic Auth on the whole `website/` directory - anyone who

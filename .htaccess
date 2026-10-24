@@ -1,0 +1,34 @@
+# Project root: only website/ is meant to be served. Works in the domain's
+# document root as well as in any subdirectory (no fixed RewriteBase).
+
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # This directory's URL path (e.g. "/" or "/tools/deck/"), for redirects.
+    RewriteCond %{REQUEST_URI}::$1 ^(.*?/)(.*)::\2$
+    RewriteRule ^(.*)$ - [E=NCDW_BASE:%1]
+
+    # The project root and the page names one might type there go to website/.
+    RewriteRule ^$ %{ENV:NCDW_BASE}website/ [R=302,L]
+    RewriteRule ^((index|new|history|health|test_run|link|webhook)\.php)$ %{ENV:NCDW_BASE}website/$1 [R=302,L,QSA]
+
+    # Everything else outside website/ (code, config, state, docs) is not served.
+    # (.well-known/ stays reachable: certificate renewals use it in a domain root.)
+    RewriteRule ^(?!website(/|$)|\.well-known/) - [F,L]
+</IfModule>
+
+# Without mod_rewrite: index.php in this folder redirects to website/, and
+# the project files in this folder are denied (config/, automation/ and
+# workflows/ have their own deny-all .htaccess).
+<FilesMatch "^(.*\.(md|sh|txt|toml|yaml|yml)|VERSION|LICENSE|\.gitignore)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
