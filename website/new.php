@@ -139,6 +139,12 @@ Schritte ohne Kartenbezug (z. B. „E-Mail senden", „Zufallszahl erzeugen", �
 
 <fieldset>
 <legend>4. Was passiert? Schritte in Reihenfolge</legend>
+<div class="card-info-bar">
+    <button type="button" id="card-info-btn" class="icon-btn info-btn" aria-expanded="false" aria-controls="card-info"
+        title="Welche Daten der auslösenden Karte kann ich verwenden?">i</button>
+    <span>Daten der auslösenden Karte</span>
+</div>
+<div id="card-info" class="step-outputs card-info" hidden></div>
 <div id="steps"></div>
 </fieldset>
 

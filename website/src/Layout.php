@@ -17,6 +17,9 @@ final class Layout
         'docs' => ['docs.php', 'Doku', 'book'],
     ];
 
+    /** Reference pages - opened in a new tab, so the editor stays open. */
+    private const NEW_TAB = ['boards', 'docs'];
+
     /** @param string $active one of the NAV keys ('' = none highlighted) */
     public static function start(string $title, string $heading, string $active = ''): void
     {
@@ -31,7 +34,9 @@ final class Layout
             . '<link rel="stylesheet" href="assets/style.css"></head><body>'
             . '<nav class="topnav"><a class="brand" href="index.php">Deck Workflows</a><span class="nav-links">';
         foreach (self::NAV as $key => [$href, $label, $icon]) {
-            echo '<a href="' . $href . '"' . ($key === $active ? ' class="active" aria-current="page"' : '') . '>'
+            $newTab = in_array($key, self::NEW_TAB, true);
+            echo '<a href="' . $href . '"' . ($key === $active ? ' class="active" aria-current="page"' : '')
+                . ($newTab ? ' target="_blank" rel="noopener" title="Öffnet in einem neuen Tab"' : '') . '>'
                 . self::icon($icon) . ' ' . h($label) . '</a>';
         }
         $version = self::version();

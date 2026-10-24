@@ -1524,6 +1524,26 @@
     loadBoardsFor(existing.board_id, schedule ? null : existing.trigger.stack_id ?? null);
   }
 
+  // The "i" above the steps: the fields of the card that triggered the
+  // workflow (the reserved "card" source), same format as a step's box.
+  const cardInfoBtn = document.getElementById('card-info-btn');
+  const cardInfoEl = document.getElementById('card-info');
+  if (cardInfoBtn && cardInfoEl) {
+    addParagraph(cardInfoEl, 'Ohne eigenen Schritt verfügbar - die Felder der Karte, die den Workflow ausgelöst hat:');
+    cardInfoEl.appendChild(renderFieldList(
+      CARD_FIELDS.map(([name]) => name),
+      Object.fromEntries(CARD_FIELDS),
+      null
+    ));
+    addParagraph(cardInfoEl, 'Verwenden: bei einem Feld „Wert übernehmen" wählen, dann „Karte" und das gewünschte Feld '
+      + '(in der YAML: {$ref: card.title}). Die Werte kommen direkt aus der Deck-API - weitere Felder über „Anderes Feld …".', 'muted');
+    addParagraph(cardInfoEl, 'Bei einem Zeitplan-Auslöser gibt es keine auslösende Karte - diese Werte sind dann leer.', 'muted');
+    cardInfoBtn.addEventListener('click', () => {
+      cardInfoEl.hidden = !cardInfoEl.hidden;
+      cardInfoBtn.setAttribute('aria-expanded', cardInfoEl.hidden ? 'false' : 'true');
+    });
+  }
+
   const existingDataEl = document.getElementById('existing-workflow-data');
   const isEditMode = existingDataEl !== null;
   if (isEditMode) {

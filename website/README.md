@@ -75,6 +75,9 @@ long random token in the URL is its credential) and, if you use webhooks,
   same texts as a step's "i" box in the editor, plus the "Karte" fields
   (a copy of `CARD_FIELDS` in `assets/builder.js` - keep both in sync) and
   the trigger events. A client-side filter narrows it by step or field name.
+  Boards and Docs open in a new tab from the navigation (`Layout::NEW_TAB`),
+  so an open editor isn't left behind. In the editor, an "i" above the steps
+  shows the same "Karte" fields (`CARD_FIELDS`) with their real names.
 - **Test runs ("Testlauf"):** the website never runs Python itself, so a test
   run is written to the `test_runs` table and `start_test_run.php` immediately
   starts `python -m automation.main --test-run <id>` in the background

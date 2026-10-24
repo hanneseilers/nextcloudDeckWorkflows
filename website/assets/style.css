@@ -769,3 +769,15 @@ tr.is-selected td {
 .doc-table td:last-child code {
     word-break: break-word;
 }
+
+/* new.php - "i" for the triggering card's fields */
+.card-info-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.step-outputs.card-info {
+    margin-left: 0;
+}
