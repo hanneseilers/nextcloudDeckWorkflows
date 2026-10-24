@@ -2,6 +2,7 @@
 
 require __DIR__ . '/vendor/autoload.php';
 
+use NextcloudDeckWorkflows\AutomationRunner;
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\TestRunStore;
@@ -38,6 +39,21 @@ try {
     echo 'Testlauf konnte nicht angefragt werden: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8')
         . '. Lief <code>python -m automation.main</code> schon mindestens einmal?';
     exit;
+}
+
+// Start it right away (best effort - needs proc_open, see AutomationRunner) and
+// wait a little for the result, so the history page already shows the outcome.
+// If it can't be started or takes longer, the page says "angefragt"/"läuft" and
+// refreshes itself; the next cron run picks up whatever is still pending.
+set_time_limit(40);
+AutomationRunner::triggerTestRun($testRunId);
+$deadline = microtime(true) + 20;
+while (microtime(true) < $deadline) {
+    $current = $testRunStore->get($testRunId);
+    if ($current !== null && !in_array($current['status'], ['pending', 'running'], true)) {
+        break;
+    }
+    usleep(300000);
 }
 
 header('Location: history.php?workflow_id=' . urlencode($workflowId) . '&test_run_id=' . urlencode($testRunId));

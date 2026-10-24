@@ -833,3 +833,62 @@ def test_a_board_an_action_wrote_to_is_polled_again_in_the_same_run(tmp_path, mo
 
     copy_id = cards[2][-1]["id"]
     assert comments == [copy_id]  # the copy on board 2 was noticed within the same run
+
+
+def _queued_test_run_environment(tmp_path, monkeypatch):
+    monkeypatch.setattr("requests.Session.request", fake_requests_for({"stack_id": 10}))
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="wf", name="wf", instance="prod", board_id=1, enabled=False,
+        trigger=Trigger(event_type=EventType.CARD_MOVED, stack_id=99),
+        actions=(ActionStep(module="log_action", params={"message": "x"}),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0,
+    )
+    store = SqliteStateStore(settings.state_db_path)
+    return settings, store
+
+
+def test_run_single_test_run_processes_only_the_requested_one(tmp_path, monkeypatch):
+    from automation.main import run_single_test_run
+
+    settings, store = _queued_test_run_environment(tmp_path, monkeypatch)
+    wanted = store.enqueue_test_run("wf", card_id=1)
+    other = store.enqueue_test_run("wf", card_id=1)
+
+    run_single_test_run(settings, wanted)
+
+    assert store.get_test_run(wanted)["status"] == "done"
+    assert store.get_test_run(other)["status"] == "pending"  # left for the regular run
+
+
+def test_a_test_run_is_executed_only_once_even_if_two_processes_reach_it(tmp_path, monkeypatch):
+    from automation.main import run_single_test_run
+
+    settings, store = _queued_test_run_environment(tmp_path, monkeypatch)
+    test_run_id = store.enqueue_test_run("wf", card_id=1)
+
+    assert store.claim_test_run(test_run_id) is True  # e.g. the immediate run got it first
+    run(settings)  # the cron run finds it no longer pending
+    run_single_test_run(settings, test_run_id)
+
+    with sqlite3.connect(settings.state_db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM execution_log WHERE workflow_id = 'wf'").fetchone()[0] == 0
+    assert store.get_test_run(test_run_id)["status"] == "running"
+
+
+def test_a_test_run_left_running_by_a_killed_process_is_failed_not_rerun(tmp_path, monkeypatch):
+    settings, store = _queued_test_run_environment(tmp_path, monkeypatch)
+    test_run_id = store.enqueue_test_run("wf", card_id=1)
+    store.claim_test_run(test_run_id)
+    with sqlite3.connect(settings.state_db_path) as conn:
+        conn.execute("UPDATE test_runs SET started_at = ?", ((datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),))
+
+    run(settings)
+
+    fetched = store.get_test_run(test_run_id)
+    assert fetched["status"] == "error" and "abgebrochen" in fetched["error"]
+    with sqlite3.connect(settings.state_db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM execution_log").fetchone()[0] == 0

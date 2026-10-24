@@ -13,6 +13,24 @@ class AutomationRunner
 {
     public static function triggerNow(): void
     {
+        self::start('--wait-lock 120');
+    }
+
+    /**
+     * Starts just this one queued test run (`--test-run <id>`): no board
+     * polling, so the answer is there in seconds. The id comes from
+     * TestRunStore (hex only) and is validated again before it reaches a shell.
+     */
+    public static function triggerTestRun(string $testRunId): void
+    {
+        if (preg_match('/^[0-9a-f]{32}$/', $testRunId) === 1) {
+            self::start('--test-run ' . $testRunId);
+        }
+    }
+
+    /** @param string $arguments fixed, validated arguments for `python -m automation.main` */
+    private static function start(string $arguments): void
+    {
         try {
             if (!function_exists('proc_open')) {
                 return;
@@ -36,7 +54,7 @@ class AutomationRunner
             // such waiter is kept - see automation/main.py). A longer run
             // picks up claimed links itself between its polling passes.
             $shellCommand = 'cd ' . escapeshellarg($repoRoot) . ' && '
-                . escapeshellarg($python) . ' -m automation.main --wait-lock 120 > /dev/null 2>&1 &';
+                . escapeshellarg($python) . ' -m automation.main ' . $arguments . ' > /dev/null 2>&1 &';
             $process = @proc_open(
                 ['/bin/sh', '-c', $shellCommand],
                 [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],

@@ -57,17 +57,12 @@ class BoardTarget:
     calendar: NextcloudCalendarGateway
 
 
-def run(settings: Settings) -> None:
-    # Started before anything else: max_run_seconds has to stay below the
-    # host's cron kill limit, so the links/test runs/schedules handled before
-    # polling count against it too.
-    deadline = time.monotonic() + settings.max_run_seconds
-    workflows = YamlWorkflowRepository(settings.workflows_dir)
-    state_store = SqliteStateStore(settings.state_db_path)
-    action_loader = ModuleLoader(actions_registry)
-    engine = WorkflowEngine(
+def _build_engine(
+    settings: Settings, workflows: YamlWorkflowRepository, state_store: SqliteStateStore
+) -> WorkflowEngine:
+    return WorkflowEngine(
         workflows=workflows,
-        actions=action_loader,
+        actions=ModuleLoader(actions_registry),
         execution_log=state_store,
         sequence_store=state_store,
         link_store=state_store,
@@ -76,6 +71,28 @@ def run(settings: Settings) -> None:
         copy_store=state_store,
         display_timezone=settings.timezone,
     )
+
+
+def run_single_test_run(settings: Settings, test_run_id: str) -> None:
+    """Runs exactly one queued test run and nothing else - no polling, no
+    schedules, no links - so the website can start it right when someone asks
+    (`--test-run <id>`) and the answer comes back in seconds. Needs no run
+    lock: it never touches the board snapshots, and claim_test_run keeps it
+    from running twice if a cron run reaches the same request."""
+
+    workflows = YamlWorkflowRepository(settings.workflows_dir)
+    state_store = SqliteStateStore(settings.state_db_path)
+    _process_test_runs(settings, workflows, state_store, _build_engine(settings, workflows, state_store), only_id=test_run_id)
+
+
+def run(settings: Settings) -> None:
+    # Started before anything else: max_run_seconds has to stay below the
+    # host's cron kill limit, so the links/test runs/schedules handled before
+    # polling count against it too.
+    deadline = time.monotonic() + settings.max_run_seconds
+    workflows = YamlWorkflowRepository(settings.workflows_dir)
+    state_store = SqliteStateStore(settings.state_db_path)
+    engine = _build_engine(settings, workflows, state_store)
 
     try:
         _process_action_links(settings, state_store, engine)
@@ -288,6 +305,7 @@ def _process_test_runs(
     workflows: YamlWorkflowRepository,
     state_store: SqliteStateStore,
     engine: WorkflowEngine,
+    only_id: Optional[str] = None,
 ) -> None:
     """Processes "Testlauf" requests the website queued (see
     SqliteStateStore.enqueue_test_run) - runs a specific, user-chosen
@@ -298,8 +316,17 @@ def _process_test_runs(
     raising, so the website always has something to show.
     """
 
+    if only_id is None:
+        state_store.fail_stale_test_runs(
+            (datetime.now(timezone.utc) - timedelta(minutes=STALE_LINK_RUN_MINUTES)).isoformat(),
+            "Verarbeitung abgebrochen: der Prozess wurde vor Abschluss beendet (z. B. Cron-Timeout)",
+        )
     for pending in state_store.pending_test_runs():
         test_run_id, workflow_id, card_id = pending["id"], pending["workflow_id"], pending["card_id"]
+        if only_id is not None and test_run_id != only_id:
+            continue
+        if not state_store.claim_test_run(test_run_id):
+            continue  # another process took it
         try:
             workflow = workflows.get(workflow_id)
             if workflow is None:
@@ -608,6 +635,10 @@ def main() -> None:
              "instead of exiting right away (used for the immediate runs the website starts)",
     )
     parser.add_argument(
+        "--test-run", default=None, metavar="ID",
+        help="Run only this queued test run (started by the website for an immediate answer) and exit",
+    )
+    parser.add_argument(
         "--list-modules", action="store_true",
         help="Print the available action modules (name, requires, input/output shape) as JSON and exit",
     )
@@ -638,6 +669,13 @@ def main() -> None:
         return
 
     logging.getLogger().setLevel(args.log_level or settings.log_level)
+
+    if args.test_run:
+        try:
+            run_single_test_run(settings, args.test_run)
+        except Exception:
+            logger.exception("Test run %s failed", args.test_run)
+        return
 
     # One run at a time: an overlapping invocation (cron firing again before
     # the previous run finished, or a webhook/link-triggered one) would handle

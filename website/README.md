@@ -52,6 +52,16 @@ long random token in the URL is its credential) and, if you use webhooks,
   (`src/ModuleRegistry.php`) - written automatically by every
   `python -m automation.main` run (see `automation/main.py`). If that file
   doesn't exist yet, run `python -m automation.main --list-modules` once.
+- **Test runs ("Testlauf"):** the website never runs Python itself, so a test
+  run is written to the `test_runs` table and `start_test_run.php` immediately
+  starts `python -m automation.main --test-run <id>` in the background
+  (`AutomationRunner`, needs `proc_open` - see `tools/check_server.sh`). That
+  mode processes only this one request - no board polling, no schedules - so
+  the result is usually there within seconds; the page waits up to 20 s, then
+  shows the outcome (or "läuft gerade …", refreshing itself). Where the process
+  can't be started, the request just stays queued and the next cron run
+  executes it. A request is claimed atomically, so it never runs twice, and one
+  left "running" by a killed process fails after 15 minutes instead of rerunning.
 - **Folders:** the overview navigates a real directory tree below `workflows/`
   (breadcrumb, subfolders with counts). Folders can be created, renamed, moved
   and deleted (only when empty - nothing is removed along with a folder) from

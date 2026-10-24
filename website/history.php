@@ -52,9 +52,16 @@ foreach ($workflows->listAll() as $workflow) {
 ?>
 <?php Layout::start('Historie', 'Ausführungs-Historie', 'history'); ?>
 
-<?php if ($pendingTestRun !== null && $pendingTestRun['status'] === 'pending'): ?>
-    <p class="notice">Testlauf angefragt - wird beim nächsten Lauf von
-    <code>python -m automation.main</code> verarbeitet (Cron oder manuell). Seite danach neu laden.</p>
+<?php if ($pendingTestRun !== null && in_array($pendingTestRun['status'], ['pending', 'running'], true)): ?>
+    <p class="notice">
+    <?php if ($pendingTestRun['status'] === 'running'): ?>
+        Testlauf läuft gerade ...
+    <?php else: ?>
+        Testlauf angefragt - er wird gleich ausgeführt, spätestens beim nächsten Lauf von
+        <code>python -m automation.main</code> (Cron oder manuell).
+    <?php endif; ?>
+    Die Seite aktualisiert sich selbst.</p>
+    <script>setTimeout(function () { location.reload(); }, 3000);</script>
 <?php elseif ($pendingTestRun !== null && $pendingTestRun['status'] === 'error'): ?>
     <p class="notice error">Testlauf fehlgeschlagen: <?= h((string) $pendingTestRun['error']) ?></p>
 <?php elseif ($pendingTestRun !== null && $pendingTestRun['status'] === 'done'): ?>

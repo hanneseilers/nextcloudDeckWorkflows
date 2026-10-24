@@ -121,7 +121,8 @@ CREATE TABLE IF NOT EXISTS test_runs (
     run_id TEXT,
     error TEXT,
     created_at TEXT NOT NULL,
-    completed_at TEXT
+    completed_at TEXT,
+    started_at TEXT
 );
 """
 
@@ -181,6 +182,7 @@ class SqliteStateStore:
             ("execution_log", _MODULE_COLUMN, "TEXT"),
             ("action_links", "running_at", "TEXT"),
             ("action_links", "expires_at", "TEXT"),
+            ("test_runs", "started_at", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
@@ -326,6 +328,30 @@ class SqliteStateStore:
             "SELECT id, workflow_id, card_id FROM test_runs WHERE status = 'pending' ORDER BY created_at"
         ).fetchall()
         return [{"id": row[0], "workflow_id": row[1], "card_id": row[2]} for row in rows]
+
+    def claim_test_run(self, test_run_id: str) -> bool:
+        """Atomically takes a pending test run for running - False if another
+        process (the cron run, or the immediate run the website started) got
+        it first, so a test run never executes twice."""
+
+        conn = self._connect()
+        cursor = conn.execute(
+            "UPDATE test_runs SET status = 'running', started_at = ? WHERE id = ? AND status = 'pending'",
+            (datetime.now(timezone.utc).isoformat(), test_run_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+    def fail_stale_test_runs(self, started_before_iso: str, error: str) -> None:
+        """Test runs left 'running' by a killed process end as failed (not rerun - their actions may have happened)."""
+
+        conn = self._connect()
+        conn.execute(
+            "UPDATE test_runs SET status = 'error', error = ?, completed_at = ? "
+            "WHERE status = 'running' AND started_at < ?",
+            (error, datetime.now(timezone.utc).isoformat(), started_before_iso),
+        )
+        conn.commit()
 
     def complete_test_run(
         self, test_run_id: str, *, run_id: Optional[str] = None, error: Optional[str] = None
