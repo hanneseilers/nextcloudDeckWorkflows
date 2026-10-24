@@ -24,8 +24,18 @@ if (isset($_GET['test_run_id'])) {
     $pendingTestRun = (new TestRunStore($config->stateDbPath()))->get((string) $_GET['test_run_id']);
 }
 
-$workflowFilter = isset($_GET['workflow_id']) ? (string) $_GET['workflow_id'] : null;
-$runs = $executionLog->recentRuns(100, $workflowFilter !== '' ? $workflowFilter : null);
+const PAGE_SIZE = 50;
+$workflowFilter = isset($_GET['workflow_id']) && $_GET['workflow_id'] !== '' ? (string) $_GET['workflow_id'] : null;
+$statusFilter = in_array($_GET['status'] ?? '', ['failed', 'ok'], true) ? (string) $_GET['status'] : null;
+$page = max(1, (int) ($_GET['page'] ?? 1));
+// One extra run tells whether there is an older page.
+$runs = $executionLog->recentRuns(PAGE_SIZE + 1, $workflowFilter, $statusFilter, ($page - 1) * PAGE_SIZE);
+$hasOlder = count($runs) > PAGE_SIZE;
+$runs = array_slice($runs, 0, PAGE_SIZE);
+$filterQuery = static fn (array $overrides = []): string => http_build_query(array_filter(
+    array_merge(['workflow_id' => $workflowFilter, 'status' => $statusFilter], $overrides),
+    static fn ($value) => $value !== null && $value !== ''
+));
 
 // Workflow names/trigger kind are looked up once per page view, not per
 // row - ids no longer in workflows/ (deleted since) just fall back to
@@ -56,19 +66,30 @@ foreach ($workflows->listAll() as $workflow) {
     beim ersten Lauf von <code>python -m automation.main</code>.</p>
 <?php else: ?>
 
-<form method="get" class="inline">
+<form method="get" class="filters">
     <label>Workflow
         <select name="workflow_id" onchange="this.form.submit()">
             <option value="">– alle –</option>
             <?php foreach ($workflowNames as $id => $name): ?>
-            <option value="<?= h($id) ?>" <?= $workflowFilter === $id ? 'selected' : '' ?>><?= h($name) ?> (<?= h($id) ?>)</option>
+            <option value="<?= h($id) ?>" <?= $workflowFilter === $id ? 'selected' : '' ?>><?= h($name) ?></option>
             <?php endforeach; ?>
         </select>
     </label>
+    <label>Ergebnis
+        <select name="status" onchange="this.form.submit()">
+            <option value="">– alle –</option>
+            <option value="failed" <?= $statusFilter === 'failed' ? 'selected' : '' ?>>nur Fehler</option>
+            <option value="ok" <?= $statusFilter === 'ok' ? 'selected' : '' ?>>nur erfolgreiche</option>
+        </select>
+    </label>
+    <noscript><button type="submit">Filtern</button></noscript>
+    <?php if ($workflowFilter !== null || $statusFilter !== null): ?>
+        <a href="history.php">Filter zurücksetzen</a>
+    <?php endif; ?>
 </form>
 
 <?php if (empty($runs)): ?>
-    <p>Noch keine Ausführungen protokolliert<?= $workflowFilter ? ' für diesen Workflow' : '' ?>.</p>
+    <p><?= $page > 1 ? 'Keine älteren Ausführungen.' : 'Keine Ausführungen' . ($workflowFilter !== null || $statusFilter !== null ? ' für diesen Filter' : ' protokolliert') . '.' ?></p>
 <?php else: ?>
 <table>
 <thead>
@@ -86,7 +107,7 @@ foreach ($workflows->listAll() as $workflow) {
 <tr class="<?= $run['success'] ? '' : 'run-failed' ?>">
     <td><?= Layout::dateTime($run['created_at']) ?></td>
     <td>
-        <a href="history.php?workflow_id=<?= urlencode($run['workflow_id']) ?>">
+        <a href="history.php?<?= h($filterQuery(['workflow_id' => $run['workflow_id']])) ?>">
             <?= h($workflowNames[$run['workflow_id']] ?? $run['workflow_id']) ?>
         </a>
     </td>
@@ -109,6 +130,10 @@ foreach ($workflows->listAll() as $workflow) {
 <?php endforeach; ?>
 </tbody>
 </table>
+<p class="pager">
+    <?php if ($page > 1): ?><a class="button" href="history.php?<?= h($filterQuery(['page' => $page - 1 > 1 ? $page - 1 : null])) ?>">&larr; Neuere</a><?php endif; ?>
+    <?php if ($hasOlder): ?><a class="button" href="history.php?<?= h($filterQuery(['page' => $page + 1])) ?>">Ältere &rarr;</a><?php endif; ?>
+</p>
 <?php endif; ?>
 <?php endif; ?>
 

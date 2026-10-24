@@ -30,7 +30,12 @@ class ExecutionLog
      *     actions: array<int, array{module: string, success: bool, error: ?string}>
      * }>
      */
-    public function recentRuns(int $limit = 50, ?string $workflowId = null): array
+    /**
+     * @param string|null $status 'failed' (any step failed), 'ok' (all steps
+     *   succeeded) or null for every run
+     * @param int $offset runs to skip (newest first) - for "ältere anzeigen"
+     */
+    public function recentRuns(int $limit = 50, ?string $workflowId = null, ?string $status = null, int $offset = 0): array
     {
         if (!$this->isAvailable()) {
             return [];
@@ -48,10 +53,17 @@ class ExecutionLog
         if ($workflowId !== null) {
             $runIdSql .= ' AND workflow_id = :workflow_id';
         }
-        $runIdSql .= ' GROUP BY run_id ORDER BY last_id DESC LIMIT :limit';
+        $runIdSql .= ' GROUP BY run_id';
+        if ($status === 'failed') {
+            $runIdSql .= ' HAVING MIN(success) = 0';
+        } elseif ($status === 'ok') {
+            $runIdSql .= ' HAVING MIN(success) = 1';
+        }
+        $runIdSql .= ' ORDER BY last_id DESC LIMIT :limit OFFSET :offset';
 
         $stmt = $pdo->prepare($runIdSql);
         $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(':offset', max(0, $offset), \PDO::PARAM_INT);
         if ($workflowId !== null) {
             $stmt->bindValue(':workflow_id', $workflowId);
         }
