@@ -52,12 +52,40 @@ class Config
         }
 
         if (!empty($settings['webhooks'])) {
+            $rawSecret = $settings['webhooks']['secret'] ?? '';
             $this->webhooks = [
                 'enabled' => (bool) ($settings['webhooks']['enabled'] ?? true),
-                'secret' => (string) $settings['webhooks']['secret'],
+                'secret' => is_string($rawSecret) ? $rawSecret : '',
+                // Why webhook.php must not accept this secret (null = fine).
+                'secret_problem' => self::webhookSecretProblem($rawSecret),
+                'require_https' => (bool) ($settings['webhooks']['require_https'] ?? true),
                 'fallback_poll_minutes' => (float) ($settings['webhooks']['fallback_poll_minutes'] ?? 15.0),
             ];
         }
+    }
+
+    /** A webhook secret shorter than this is refused (webhook.php answers as if webhooks were off). */
+    public const MIN_WEBHOOK_SECRET_LENGTH = 24;
+
+    /** @return string|null German reason the secret can't be used, null if it's fine */
+    public static function webhookSecretProblem(mixed $secret): ?string
+    {
+        if (!is_string($secret)) {
+            // YAML turns an unquoted 123456... into a number, losing digits.
+            return $secret === null || $secret === ''
+                ? 'Kein Secret gesetzt.'
+                : 'Das Secret muss ein Text sein - in settings.yaml in Anführungszeichen setzen.';
+        }
+        if ($secret === '') {
+            return 'Kein Secret gesetzt.';
+        }
+        if (stripos($secret, 'CHANGE_ME') === 0) {
+            return 'Das Secret ist noch der Platzhalter aus der Vorlage.';
+        }
+        if (strlen($secret) < self::MIN_WEBHOOK_SECRET_LENGTH) {
+            return 'Das Secret ist zu kurz (mindestens ' . self::MIN_WEBHOOK_SECRET_LENGTH . ' Zeichen).';
+        }
+        return null;
     }
 
     public static function fromRepoRoot(): self
@@ -91,7 +119,7 @@ class Config
         return $this->healthStaleMinutes;
     }
 
-    /** @return array{enabled: bool, secret: string, fallback_poll_minutes: float}|null */
+    /** @return array{enabled: bool, secret: string, secret_problem: ?string, require_https: bool, fallback_poll_minutes: float}|null */
     public function webhooks(): ?array
     {
         return $this->webhooks;

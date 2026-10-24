@@ -32,7 +32,8 @@ depth, not a substitute for protecting the site itself.
 **Two pages have to be reachable without that login:** `link.php` (one-time
 action links, see "One-time action links" in `automation/README.md` - the
 long random token in the URL is its credential) and, if you use webhooks,
-`webhook.php` (protected by its own `secret`). With Basic Auth in
+`webhook.php` (protected by its own `secret`, sent in the `X-Webhook-Secret`
+header - see "Webhooks" in `automation/README.md`). With Basic Auth in
 `website/.htaccess`, exempt them (Apache 2.4; not tested on every host):
 
 ```apache

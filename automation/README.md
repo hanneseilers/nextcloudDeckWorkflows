@@ -484,20 +484,44 @@ outside this codebase's control. So rather than guess at parsing whatever
 Nextcloud sends in a webhook request body, `website/webhook.php` treats
 an incoming call purely as a "check this board now" signal - the admin
 bakes `instance`/`board_id` into the URL they configure in Nextcloud, and
-the request body is ignored entirely:
+the request body is ignored entirely. The secret travels in a header, not in
+the URL:
 
 ```
-https://your-site/website/webhook.php?secret=...&instance=prod&board_id=42
+POST https://your-site/website/webhook.php?instance=prod&board_id=42
+X-Webhook-Secret: <webhooks.secret>
 ```
 
-Enable it in `config/settings.yaml`:
+Enable it with `./configure.sh settings` (it generates a suitable secret) or
+in `config/settings.yaml`:
 
 ```yaml
 webhooks:
   enabled: true
-  secret: "a-long-random-string"   # also put this in the URL Nextcloud calls
+  secret: "a-long-random-string-of-at-least-24-characters"   # sent by Nextcloud in the X-Webhook-Secret header
+  require_https: true          # default; false only for local tests
   fallback_poll_minutes: 15
 ```
+
+How `webhook.php` protects itself (it has to be reachable without the site's
+Basic Auth, so the secret is the only credential):
+
+- **Header only.** A secret in the URL would end up in access logs, so
+  `?secret=` is ignored. (Whether your Nextcloud's webhook settings can send a
+  custom header is not verified here.)
+- **HTTPS only** (`require_https`, default on): plain-HTTP requests get 403.
+  Behind a proxy that terminates TLS, `X-Forwarded-Proto: https` counts.
+- **Minimum length:** a secret shorter than 24 characters, an empty one, the
+  `CHANGE_ME...` placeholder, or an unquoted number is treated as "webhooks
+  not configured" (404); `website/health.php` shows why.
+- **Throttling** (`website/src/WebhookThrottle.php`, table `webhook_events` in
+  the state DB): 10 wrong attempts per 10 minutes per client (hash of the IP,
+  no IP is stored) and that client gets 429 with `Retry-After` - even with the
+  right secret until the window passes; at most 60 valid pings per minute in
+  total (429 above); an automation run is started at most every 10 seconds
+  (the ping is recorded either way and picked up by the run that is coming).
+- A wrong secret and a missing one look the same (403); "not configured" is
+  a bare 404.
 
 Once enabled, `core/domain/webhook_gate.should_poll_now` changes how
 `main.py` decides which boards to poll each run: a board is always polled

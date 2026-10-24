@@ -174,3 +174,25 @@ def test_get_prints_a_nested_value(config_dir, capsys):
     (config_dir / "settings.yaml").write_text("webhooks:\n  secret: abc\n")
     assert configure.main(["--get", "settings.webhooks.secret"]) == 0
     assert capsys.readouterr().out.strip() == "abc"
+
+
+def test_webhook_secret_needs_a_minimum_length_and_no_placeholder(config_dir):
+    field = next(f for f in configure.SETTINGS if isinstance(f, configure.Section) and f.key == "webhooks").fields[1]
+    assert field.key == "secret"
+    io = ScriptedIO(["kurz", "CHANGE_ME_TO_A_LONG_RANDOM_STRING", "x" * 24])
+    assert configure.ask_field(io, field, "", True) == "x" * 24
+    assert sum(line.strip().startswith(("Zu kurz", "Das ist der Platzhalter")) for line in io.said) == 2
+
+
+def test_enabling_webhooks_proposes_a_generated_long_secret_and_https(config_dir):
+    section = next(f for f in configure.SETTINGS if isinstance(f, configure.Section) and f.key == "webhooks")
+    io = ScriptedIO(["j", "", "", "", ""])  # enabled, accept the generated secret, https default, fallback default
+    values = configure._configure_section(io, section, None, False, "")
+    assert len(values["secret"]) >= configure.MIN_WEBHOOK_SECRET_LENGTH
+    assert values["require_https"] is True and values["enabled"] is True
+    assert any("Vorschlag (neu erzeugt)" in line for line in io.said)
+
+
+def test_min_secret_length_matches_the_website():
+    php = (configure.REPO_ROOT / "website" / "src" / "Config.php").read_text(encoding="utf-8")
+    assert f"MIN_WEBHOOK_SECRET_LENGTH = {configure.MIN_WEBHOOK_SECRET_LENGTH};" in php

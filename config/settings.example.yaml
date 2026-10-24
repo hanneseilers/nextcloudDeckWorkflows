@@ -48,11 +48,16 @@ error_notifications:
 
 # Nextcloud (Flow/Webhooks, Admin-Einstellung) ruft website/webhook.php auf, wenn sich
 # ein Board ändert - dann wird seltener gepollt. Siehe automation/README.md „Webhooks“.
-# Aufruf-Adresse: <public_url>/webhook.php?secret=<secret>
+# Aufruf: <public_url>/webhook.php?instance=<Instanz>&board_id=<Id> mit dem Header
+# X-Webhook-Secret: <secret> (das Secret wird nur im Header akzeptiert, nie in der Adresse).
 webhooks:
   # Webhooks einschalten?
   enabled: false
-  # Geheimer Schlüssel in der Webhook-Adresse
+  # Geheimer Schlüssel (Header X-Webhook-Secret)
+  # Mindestens 24 Zeichen, zufällig. Zu kurze oder der Platzhalter werden nicht angenommen.
   secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+  # Webhooks nur über HTTPS annehmen?
+  # Aus nur für lokale Tests - sonst läge das Secret im Klartext im Netz.
+  require_https: true
   # Ohne Webhook-Ping trotzdem alle so viele Minuten pollen
   fallback_poll_minutes: 15

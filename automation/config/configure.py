@@ -96,6 +96,18 @@ def _check_positive(value: Any) -> Optional[str]:
     return None if value is None or value > 0 else "Bitte eine Zahl größer als 0 angeben."
 
 
+MIN_WEBHOOK_SECRET_LENGTH = 24  # keep equal to Config::MIN_WEBHOOK_SECRET_LENGTH in website/src/Config.php
+
+
+def _check_webhook_secret(value: Any) -> Optional[str]:
+    text = str(value)
+    if text.upper().startswith("CHANGE_ME"):
+        return "Das ist der Platzhalter aus der Vorlage - ein eigenes, zufälliges Secret verwenden."
+    if len(text) < MIN_WEBHOOK_SECRET_LENGTH:
+        return f"Zu kurz - mindestens {MIN_WEBHOOK_SECRET_LENGTH} Zeichen."
+    return None
+
+
 def _check_instance_name(value: Any) -> Optional[str]:
     if not re.match(r"^[A-Za-z0-9_\-]+$", str(value)):
         return "Nur Buchstaben, Ziffern, _ und - (der Name steht in jedem Workflow als nextcloud_instance)."
@@ -152,11 +164,17 @@ SETTINGS = (
     Section("webhooks", (
         "Nextcloud (Flow/Webhooks, Admin-Einstellung) ruft website/webhook.php auf, wenn sich",
         "ein Board ändert - dann wird seltener gepollt. Siehe automation/README.md „Webhooks“.",
-        "Aufruf-Adresse: <public_url>/webhook.php?secret=<secret>",
+        "Aufruf: <public_url>/webhook.php?instance=<Instanz>&board_id=<Id> mit dem Header",
+        "X-Webhook-Secret: <secret> (das Secret wird nur im Header akzeptiert, nie in der Adresse).",
     ), (
         Field("enabled", "Webhooks einschalten?", kind="bool", default=False),
-        Field("secret", "Geheimer Schlüssel in der Webhook-Adresse", required=True, default="",
-              example="CHANGE_ME_TO_A_LONG_RANDOM_STRING", generate=lambda: _secrets.token_urlsafe(32)),
+        Field("secret", "Geheimer Schlüssel (Header X-Webhook-Secret)", (
+            f"Mindestens {MIN_WEBHOOK_SECRET_LENGTH} Zeichen, zufällig. Zu kurze oder der Platzhalter werden nicht angenommen.",
+        ), required=True, default="", example="CHANGE_ME_TO_A_LONG_RANDOM_STRING",
+              generate=lambda: _secrets.token_urlsafe(32), check=_check_webhook_secret),
+        Field("require_https", "Webhooks nur über HTTPS annehmen?", (
+            "Aus nur für lokale Tests - sonst läge das Secret im Klartext im Netz.",
+        ), kind="bool", default=True),
         Field("fallback_poll_minutes", "Ohne Webhook-Ping trotzdem alle so viele Minuten pollen",
               kind="int", default=15, check=_check_positive),
     )),
@@ -713,7 +731,8 @@ def run(io: ConsoleIO, names: list, only_missing: bool) -> int:
                     io.say("  Hinweis: Fehler-Benachrichtigungen brauchen config/smtp.yaml (./configure.sh smtp).")
                 if values.get("webhooks", {}).get("enabled"):
                     base = values.get("public_url") or "<public_url>"
-                    io.say(f"  Webhook-Adresse für Nextcloud: {base}/webhook.php?secret={values['webhooks']['secret']}")
+                    io.say(f"  In Nextclouds Webhook-Einstellungen eintragen: {base}/webhook.php?instance=<Instanz>&board_id=<Id>")
+                    io.say(f"  und den Header  X-Webhook-Secret: {values['webhooks']['secret']}")
         except (KeyboardInterrupt, EOFError):
             io.say()
     io.say()

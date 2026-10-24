@@ -95,6 +95,13 @@ if (($_GET['format'] ?? '') === 'json') {
 
 <?php if ($config->webhooks()['enabled'] ?? false): ?>
 <h2>Webhook-Pings</h2>
+<?php if ($config->webhooks()['secret_problem'] !== null): ?>
+<p class="notice error">Webhooks sind eingeschaltet, werden aber <strong>nicht angenommen</strong>:
+<?= h((string) $config->webhooks()['secret_problem']) ?> Mit <code>./configure.sh settings</code> ein neues Secret erzeugen.</p>
+<?php elseif (!$config->webhooks()['require_https']): ?>
+<p class="notice">Webhooks werden auch über unverschlüsseltes HTTP angenommen (<code>webhooks.require_https: false</code>) -
+nur für lokale Tests gedacht.</p>
+<?php endif; ?>
 <p class="muted">Bestätigt, dass Nextclouds Webhook-Konfiguration diese Seite tatsächlich erreicht
 (unabhängig davon, ob <code>automation/main.py</code> den Ping schon verarbeitet hat).</p>
 <?php $pings = $health->recentWebhookPings(); ?>
