@@ -427,3 +427,14 @@ def test_copy_store_roundtrip(tmp_path):
     assert store.copy_info("i", 1, 5) is None
     store.record_copy("i", 1, 5, "wf", 2)
     assert store.copy_info("i", 1, 5) == ("wf", 2)
+
+
+def test_expired_unused_links_are_purged_but_used_or_unlimited_ones_stay(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    _make_link(store, expires_at="2020-01-01T00:00:00+00:00")
+    _make_link(store, expires_at="2999-01-01T00:00:00+00:00")
+    _make_link(store)  # no expiry
+    store.purge_expired_links("2026-01-01T00:00:00+00:00")
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        assert sorted(r[0] or "none" for r in conn.execute("SELECT expires_at FROM action_links")) == [
+            "2999-01-01T00:00:00+00:00", "none"]

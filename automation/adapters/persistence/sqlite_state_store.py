@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS action_links (
     created_at TEXT NOT NULL,
     claimed_at TEXT,
     running_at TEXT,
-    finished_at TEXT
+    finished_at TEXT,
+    expires_at TEXT
 );
 
 -- Cards copy_card created (CopyStorePort): which workflow, how deep a copy.
@@ -179,6 +180,7 @@ class SqliteStateStore:
             ("execution_log", _RUN_ID_COLUMN, "TEXT"),
             ("execution_log", _MODULE_COLUMN, "TEXT"),
             ("action_links", "running_at", "TEXT"),
+            ("action_links", "expires_at", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
@@ -464,20 +466,21 @@ class SqliteStateStore:
         variables: dict[str, Any],
         success_message: str,
         require_confirmation: bool,
+        expires_at: Optional[str] = None,
     ) -> str:
         token = secrets.token_urlsafe(32)
         conn = self._connect()
         conn.execute(
             "INSERT INTO action_links (token_hash, workflow_id, instance, board_id, card_id, stack_id, "
             "current_stack_id, event_type, card_json, module, params_json, variables_json, "
-            "success_message, require_confirmation, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            "success_message, require_confirmation, status, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
             (
                 hashlib.sha256(token.encode()).hexdigest(), workflow_id, event.instance, event.board_id,
                 event.card_id, event.stack_id, current_stack_id, event.event_type.value,
                 json.dumps(event.card, default=str), module, json.dumps(params, default=str),
                 json.dumps(variables, default=str), success_message, int(require_confirmation),
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(timezone.utc).isoformat(), expires_at,
             ),
         )
         conn.commit()
@@ -534,6 +537,17 @@ class SqliteStateStore:
             "UPDATE action_links SET status = ?, error = ?, finished_at = ?, card_json = NULL, "
             "params_json = NULL, variables_json = NULL WHERE token_hash = ?",
             ("error" if error else "done", error, datetime.now(timezone.utc).isoformat(), token_hash),
+        )
+        conn.commit()
+
+    def purge_expired_links(self, now_iso: str) -> None:
+        """Deletes links that expired without being used - nobody can open
+        them any more, and they still hold the action's params."""
+
+        conn = self._connect()
+        conn.execute(
+            "DELETE FROM action_links WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at < ?",
+            (now_iso,),
         )
         conn.commit()
 

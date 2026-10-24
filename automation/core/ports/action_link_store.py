@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Optional, Protocol
 
 from automation.core.domain.models import DeckEvent
 
@@ -22,6 +22,7 @@ class ActionLinkStorePort(Protocol):
         variables: dict[str, Any],
         success_message: str,
         require_confirmation: bool,
+        expires_at: Optional[str] = None,
     ) -> str:
         """Stores the link and returns its secret token (only its hash is kept)."""
         ...

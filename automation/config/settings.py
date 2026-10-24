@@ -62,6 +62,9 @@ class Settings:
     # Execution history (website/history.php, failure notifications) older
     # than this is deleted at the end of each run.
     history_retention_days: float = 90.0
+    # Timezone for dates actions write into texts (e.g. a link's expiry);
+    # same `timezone` setting the website uses for display.
+    timezone: str = "Europe/Berlin"
 
 
 def load_settings(config_dir: Optional[Path] = None) -> Settings:
@@ -108,6 +111,7 @@ def load_settings(config_dir: Optional[Path] = None) -> Settings:
         webhooks=webhooks,
         public_url=(str(general["public_url"]).rstrip("/") if general.get("public_url") else None),
         history_retention_days=float(general.get("history_retention_days", 90.0)),
+        timezone=str(general.get("timezone") or "Europe/Berlin"),
     )
 
 

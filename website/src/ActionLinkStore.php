@@ -16,7 +16,7 @@ class ActionLinkStore
     }
 
     /**
-     * @return array{status: string, success_message: string, require_confirmation: bool, error: ?string}|null
+     * @return array{status: string, success_message: string, require_confirmation: bool, error: ?string, expired: bool}|null
      *   null if there is no such link - or no database/table yet (nothing was ever created).
      */
     public function find(string $tokenHash): ?array
@@ -27,7 +27,7 @@ class ActionLinkStore
         }
         try {
             $stmt = $pdo->prepare(
-                'SELECT status, success_message, require_confirmation, error FROM action_links WHERE token_hash = :h'
+                'SELECT status, success_message, require_confirmation, error, expires_at FROM action_links WHERE token_hash = :h'
             );
             $stmt->execute([':h' => $tokenHash]);
             $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -42,6 +42,7 @@ class ActionLinkStore
             'success_message' => (string) $row['success_message'],
             'require_confirmation' => (bool) $row['require_confirmation'],
             'error' => $row['error'] !== null ? (string) $row['error'] : null,
+            'expired' => $row['expires_at'] !== null && (string) $row['expires_at'] <= self::nowIso(),
         ];
     }
 
@@ -52,17 +53,27 @@ class ActionLinkStore
         if ($pdo === null) {
             return false;
         }
-        // UTC, like every timestamp crossing the Python/PHP boundary.
-        $nowIso = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.uP');
         try {
+            // An expired link can't be claimed, even in a race with the expiry.
             $stmt = $pdo->prepare(
-                "UPDATE action_links SET status = 'claimed', claimed_at = :now WHERE token_hash = :h AND status = 'open'"
+                "UPDATE action_links SET status = 'claimed', claimed_at = :now WHERE token_hash = :h AND status = 'open' "
+                . "AND (expires_at IS NULL OR expires_at > :now)"
             );
-            $stmt->execute([':now' => $nowIso, ':h' => $tokenHash]);
+            $stmt->execute([':now' => self::nowIso(), ':h' => $tokenHash]);
             return $stmt->rowCount() === 1;
         } catch (\PDOException $e) {
             return false;
         }
+    }
+
+    /**
+     * UTC like every timestamp crossing the Python/PHP boundary, and in the
+     * same shape Python writes expires_at in ("2026-10-31T13:05:00+00:00"),
+     * so the two compare correctly as strings.
+     */
+    private static function nowIso(): string
+    {
+        return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:sP');
     }
 
     private function connect(): ?\PDO

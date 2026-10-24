@@ -16,7 +16,8 @@ max_run_seconds: 600
 # minutes. STRATO's cron jobs can only run hourly or slower (and may be delayed
 # by up to 4 hours), so use e.g. 90 for hourly or 1560 for daily.
 # health_stale_minutes: 90
-# Timezone the website shows times in (stored times are always UTC).
+# Timezone the website shows times in and actions write dates in (e.g. a
+# one-time link's expiry) - stored times are always UTC.
 # timezone: Europe/Berlin
 # Execution history (Historie, Statusseite) is kept this many days, then deleted.
 # history_retention_days: 90

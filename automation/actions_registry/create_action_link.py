@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar
 
 from automation.adapters.actions.base import WorkflowAction
@@ -33,26 +34,34 @@ class CreateActionLinkAction(WorkflowAction):
       action: str - name of the action module to run (not create_action_link)
       action_params: dict - that action's params, e.g. {"message": "Erledigt"}
       success_message: str - text shown on success (empty = default text)
+      valid_days: number - how many days from now the link can be used; 0 or
+        empty = no expiry. An expired link shows "abgelaufen" and is deleted.
       require_confirmation: bool - show a "Jetzt ausführen" button first
         instead of running on the first GET (protects the link from being
         used up by link-preview/virus-scanner bots; default false)
 
     output:
       url: str - the one-time link
+      expires_at: str | None - expiry as ISO 8601 (UTC), None without expiry
+      expires_text: str - expiry for texts, e.g. "31.10.2026 14:05" in the
+        configured timezone (settings `timezone`), "unbegrenzt" without
     """
 
     ACTION_NAME: ClassVar[str] = "create_action_link"
     LABEL: ClassVar[str] = "Einmal-Link erstellen"
     DESCRIPTION: ClassVar[str] = "Erstellt einen Link, der beim ersten Aufruf eine Action für diese Karte ausführt."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"action": "Auszuführende Action", "action_params": "Felder der Action", "success_message": "Text bei Erfolg", "require_confirmation": "Erst bestätigen lassen"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"action_params": "Beispiel für \"Kommentar hinzufügen\": {\"message\": \"Per Link erledigt\"} - Referenzen werden beim Erstellen des Links aufgelöst.", "success_message": "Wird nach erfolgreicher Ausführung angezeigt - leer = Standardtext.", "require_confirmation": "An = die Seite zeigt zuerst einen Button \"Jetzt ausführen\" (schützt den Link vor Link-Vorschau-Bots)."}
-    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"url": "Link"}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"action": "Auszuführende Action", "action_params": "Felder der Action", "success_message": "Text bei Erfolg", "valid_days": "Gültig (Tage)", "require_confirmation": "Erst bestätigen lassen"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"action_params": "Beispiel für \"Kommentar hinzufügen\": {\"message\": \"Per Link erledigt\"} - Referenzen werden beim Erstellen des Links aufgelöst.", "success_message": "Wird nach erfolgreicher Ausführung angezeigt - leer = Standardtext.", "valid_days": "So viele Tage ab Erstellung ist der Link gültig - 0 = unbegrenzt. Das Ablaufdatum gibt der Schritt als „Gültig bis\u201c aus, z. B. für die Mail mit dem Link.", "require_confirmation": "An = die Seite zeigt zuerst einen Button \"Jetzt ausführen\" (schützt den Link vor Link-Vorschau-Bots)."}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"url": "Link", "expires_text": "Gültig bis", "expires_at": "Gültig bis (ISO-Zeitpunkt)"}
 
     def default_input(self) -> dict[str, Any]:
-        return {"action": "", "action_params": {}, "success_message": "", "require_confirmation": False}
+        return {
+            "action": "", "action_params": {}, "success_message": "", "valid_days": 7,
+            "require_confirmation": False,
+        }
 
     def default_output(self) -> dict[str, Any]:
-        return {"url": ""}
+        return {"url": "", "expires_at": None, "expires_text": ""}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         if context.link_store is None:
@@ -71,6 +80,17 @@ class CreateActionLinkAction(WorkflowAction):
         if not isinstance(action_params, dict):
             raise ValueError("create_action_link: `action_params` must be an object")
 
+        expires_at = None
+        expires_text = "unbegrenzt"
+        raw_days = params.get("valid_days")
+        days = float(raw_days) if raw_days not in (None, "") else 0.0
+        if days < 0:
+            raise ValueError("create_action_link: `valid_days` must not be negative")
+        if days > 0:
+            moment = (datetime.now(timezone.utc) + timedelta(days=days)).replace(microsecond=0)
+            expires_at = moment.isoformat()
+            expires_text = _format_local(moment, context.display_timezone)
+
         token = context.link_store.create_link(
             workflow_id=context.workflow_id,
             event=context.event,
@@ -80,5 +100,23 @@ class CreateActionLinkAction(WorkflowAction):
             variables=dict(context.variables),
             success_message=(params.get("success_message") or "").strip() or DEFAULT_SUCCESS_MESSAGE,
             require_confirmation=bool(params.get("require_confirmation")),
+            expires_at=expires_at,
         )
-        return {"url": f"{context.public_url.rstrip('/')}/link.php?h={token}"}
+        return {
+            "url": f"{context.public_url.rstrip('/')}/link.php?h={token}",
+            "expires_at": expires_at,
+            "expires_text": expires_text,
+        }
+
+
+def _format_local(moment: datetime, timezone_name: str) -> str:
+    """"31.10.2026 14:05" in the configured timezone - UTC if that timezone
+    isn't known on this system (no tz database)."""
+
+    try:
+        from zoneinfo import ZoneInfo
+
+        moment = moment.astimezone(ZoneInfo(timezone_name))
+    except Exception:
+        return moment.strftime("%d.%m.%Y %H:%M") + " UTC"
+    return moment.strftime("%d.%m.%Y %H:%M")

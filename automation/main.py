@@ -73,6 +73,7 @@ def run(settings: Settings) -> None:
         public_url=settings.public_url,
         dedupe_store=state_store,
         copy_store=state_store,
+        display_timezone=settings.timezone,
     )
 
     try:
@@ -361,6 +362,7 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
     _run_claimed_links(settings, state_store, engine)
 
     state_store.purge_finished_links((datetime.now(timezone.utc) - timedelta(days=1)).isoformat())
+    state_store.purge_expired_links(datetime.now(timezone.utc).replace(microsecond=0).isoformat())
 
 
 def _run_claimed_links(settings: Settings, state_store: SqliteStateStore, engine: WorkflowEngine) -> None:

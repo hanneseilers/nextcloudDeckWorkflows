@@ -63,6 +63,8 @@ class ActionContext:
     workflow_id: str = ""
     link_store: Optional[ActionLinkStorePort] = None
     public_url: Optional[str] = None
+    # Timezone for human-readable dates actions produce (settings `timezone`).
+    display_timezone: str = "Europe/Berlin"
     # send_email's "already sent recently" memory; None where not set up.
     dedupe_store: Optional[DuplicateGuardPort] = None
     # copy_card's memory of the cards it created (loop protection).

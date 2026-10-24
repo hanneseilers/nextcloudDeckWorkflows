@@ -432,6 +432,11 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   `action_params` (its params; `$ref`s are resolved when the link is
   *created*, so they capture that moment), `success_message` (shown on
   success, empty = "Die Aktion wurde erfolgreich ausgeführt."),
+  `valid_days` (days from creation the link can be used, 0/empty = no
+  expiry; the step outputs `expires_at` (ISO, UTC) and `expires_text` -
+  e.g. "31.10.2026 14:05" in the `timezone` from `config/settings.yaml` - to
+  put into the email with the link; an expired link shows "abgelaufen" and
+  unused expired links are deleted),
   `require_confirmation` (a GET only shows a "Jetzt ausführen" button - set
   this if the link may pass through chat/mail systems whose link-preview or
   virus-scanner bots would otherwise use it up by merely fetching it).

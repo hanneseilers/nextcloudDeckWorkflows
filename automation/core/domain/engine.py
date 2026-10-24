@@ -59,6 +59,7 @@ class WorkflowEngine:
         public_url: Optional[str] = None,
         dedupe_store: Optional[DuplicateGuardPort] = None,
         copy_store: Optional[CopyStorePort] = None,
+        display_timezone: str = "Europe/Berlin",
     ) -> None:
         self._workflows = workflows
         self._actions = actions
@@ -71,6 +72,7 @@ class WorkflowEngine:
         self._public_url = public_url
         self._dedupe_store = dedupe_store
         self._copy_store = copy_store
+        self._display_timezone = display_timezone
         # (workflow id, card id, column id) combinations handle() already ran
         # during this engine's lifetime - main.run() builds a fresh engine per
         # invocation, so this is "once per run". See handle().
@@ -169,6 +171,7 @@ class WorkflowEngine:
             sequence_store=self._sequence_store,
             workflow_id=workflow_id,
             copy_store=self._copy_store,
+            display_timezone=self._display_timezone,
         )
         context.current_stack_id = current_stack_id
         result = ExecutionResult(workflow_id=workflow_id, event=event)
@@ -216,6 +219,7 @@ class WorkflowEngine:
             public_url=self._public_url,
             dedupe_store=self._dedupe_store if dedupe else None,
             copy_store=self._copy_store,
+            display_timezone=self._display_timezone,
         )
         result = ExecutionResult(workflow_id=workflow.id, event=event)
         # Seeded before any step runs: lets every step's params reference the

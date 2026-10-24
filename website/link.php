@@ -52,6 +52,9 @@ $link = $store->find($tokenHash);
 if ($link === null || $link['status'] !== 'open') {
     page(410, 'invalid', $invalid);
 }
+if ($link['expired']) {
+    page(410, 'expired', 'Dieser Link ist abgelaufen.');
+}
 
 if ($link['require_confirmation'] && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     // GET only asks - link-preview/virus-scanner bots follow GETs, they don't submit forms.
