@@ -551,3 +551,82 @@ button:disabled {
         margin-left: 0;
     }
 }
+
+/* -- folders --------------------------------------------------------------- */
+
+.breadcrumb {
+    margin-bottom: 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.inline-form {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.inline-form input[type="text"] {
+    width: 12rem;
+}
+
+button.with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.folder-table {
+    margin-bottom: 1rem;
+}
+
+.folder-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+    color: inherit;
+    margin-right: 0.75rem;
+}
+
+details.popover {
+    display: inline-block;
+    position: relative;
+    vertical-align: middle;
+}
+
+details.popover > summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+details.popover > summary::-webkit-details-marker {
+    display: none;
+}
+
+details.popover[open] > form {
+    position: absolute;
+    right: 0;
+    z-index: 5;
+    min-width: 16rem;
+    margin-top: 0.25rem;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    background: #fff;
+    color: #222;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+    text-align: left;
+}

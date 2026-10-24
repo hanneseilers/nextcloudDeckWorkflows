@@ -5,6 +5,7 @@ require __DIR__ . '/vendor/autoload.php';
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\EventTypes;
+use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
@@ -200,6 +201,13 @@ foreach (['board_title' => $payload['board_title'] ?? null, 'stack_title' => $pa
     }
 }
 
-$workflows->save($workflow);
+// Folder: where a new workflow is created, or - for an existing one whose
+// folder dropdown was changed - where it moves to. Absent = keep.
+$folder = isset($payload['folder']) ? (string) $payload['folder'] : null;
+try {
+    $workflows->save($workflow, $folder);
+} catch (\InvalidArgumentException | \RuntimeException $e) {
+    fail([$e->getMessage()]);
+}
 
-header('Location: index.php');
+header('Location: ' . Layout::folderUrl($workflows->folderOf($id) ?? ''));

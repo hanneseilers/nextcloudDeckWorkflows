@@ -1378,6 +1378,7 @@
       board_id: boardId,
       name: nameEl.value.trim(),
       id: idEl.value.trim(),
+      folder: (document.getElementById('folder') || { value: '' }).value,
       // Display names for the overview, so it needn't ask Nextcloud for them.
       board_title: shownText(boardFieldEl),
       steps: collectSteps(state.steps, new Set()),

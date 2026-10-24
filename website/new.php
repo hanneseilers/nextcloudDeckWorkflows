@@ -24,6 +24,21 @@ if ($editId !== '') {
 }
 $isEdit = $editId !== '' && $existingWorkflow !== null;
 
+// Folders: a new workflow starts in the folder the overview was showing (?folder=),
+// an existing one in its own - changing the dropdown moves it on save.
+$repository = new WorkflowRepository($config->workflowsDir());
+$allFolders = $repository->listFolders();
+try {
+    $currentFolder = $isEdit
+        ? ($repository->folderOf($editId) ?? '')
+        : WorkflowRepository::normalizeFolder((string) ($_GET['folder'] ?? ''));
+} catch (\InvalidArgumentException $e) {
+    $currentFolder = '';
+}
+if ($currentFolder !== '' && !in_array($currentFolder, $allFolders, true)) {
+    $currentFolder = '';
+}
+
 ?>
 <?php Layout::start($isEdit ? 'Workflow bearbeiten' : 'Neuer Workflow', $isEdit ? 'Workflow bearbeiten: ' . (string) $existingWorkflow['name'] : 'Neuer Workflow'); ?>
 
@@ -48,6 +63,13 @@ $isEdit = $editId !== '' && $existingWorkflow !== null;
 <label>Wie soll der Workflow heißen?
     <input type="text" id="name" required placeholder="z. B. Neue Tickets bestätigen">
 </label>
+<?php if (!empty($allFolders)): ?>
+<label>Ordner
+    <select id="folder"><?= Layout::folderOptions($allFolders, $currentFolder) ?></select>
+</label>
+<?php else: ?>
+<input type="hidden" id="folder" value="">
+<?php endif; ?>
 <details class="advanced">
     <summary>Erweitert</summary>
     <label>Id (technischer Name, Dateiname in <code>workflows/</code> - wird aus dem Namen erzeugt)

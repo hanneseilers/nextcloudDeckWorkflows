@@ -41,6 +41,6 @@ $copy['name'] = ($original['name'] ?? $original['id']) . ' (Kopie)';
 // before enabling it themselves.
 $copy['enabled'] = false;
 
-$workflows->save($copy);
+$workflows->save($copy, $workflows->folderOf($original['id'])); // next to the original
 
 header('Location: new.php?id=' . urlencode($newId));
