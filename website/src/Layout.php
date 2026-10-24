@@ -29,8 +29,18 @@ final class Layout
             echo '<a href="' . $href . '"' . ($key === $active ? ' class="active" aria-current="page"' : '') . '>'
                 . self::icon($icon) . ' ' . h($label) . '</a>';
         }
-        echo '</span><a class="button with-icon" href="new.php">' . self::icon('plus') . ' Neuer Workflow</a></nav>'
+        $version = self::version();
+        echo '</span><a class="button with-icon" href="new.php">' . self::icon('plus') . ' Neuer Workflow</a>'
+            . ($version !== '' ? '<span class="app-version" title="Version von Nextcloud Deck Workflows">v' . h($version) . '</span>' : '')
+            . '</nav>'
             . '<header><h1>' . h($heading) . '</h1></header>';
+    }
+
+    /** The tool's version from the VERSION file in the project root ('' if missing). */
+    public static function version(): string
+    {
+        $file = dirname(__DIR__, 2) . '/VERSION';
+        return is_file($file) ? trim((string) file_get_contents($file)) : '';
     }
 
     public static function end(): void

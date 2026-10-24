@@ -135,6 +135,8 @@ confuse the *next* manual test run if left behind.
   codebase; if you add a new timestamp that's written by one language and
   read by the other, test the comparison for real, not just that each
   side parses its own output.
+- **`VERSION`** (project root) holds the tool's version, shown in the
+  website's navigation - set it to the version of a new `versions/*` branch.
 - **Don't merge `versions/*` branches, push, or amend published commits**
   without being explicitly asked - this project has gone through several
   version branches (`versions/v1.0.0` through the current one) and merges

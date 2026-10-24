@@ -521,3 +521,8 @@ button:disabled {
     gap: 0.5rem;
     margin-top: 1rem;
 }
+
+.app-version {
+    font-size: 0.75rem;
+    color: #999;
+}
