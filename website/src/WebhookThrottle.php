@@ -13,7 +13,11 @@ namespace NextcloudDeckWorkflows;
  *    or abused sender can't hammer the database.
  *  - automation runs started by a ping: at most one per RUN_INTERVAL seconds
  *    (the ping itself is always recorded, so a skipped start loses nothing -
- *    the run that is already coming picks the board up).
+ *    the run that is already coming picks the board up). Short on purpose:
+ *    main.py itself queues a run behind a running one (--wait-lock, a single
+ *    waiter), so more starts than this are wasted processes, while a long
+ *    interval would leave a change that arrives right after a finished run
+ *    waiting for the next cron tick.
  *
  * Times are plain epoch seconds - they never leave PHP, so there is no
  * UTC/local question as with the timestamps shared with the Python side.
@@ -24,7 +28,7 @@ class WebhookThrottle
     public const FAIL_WINDOW = 600;
     public const VALID_LIMIT = 60;
     public const VALID_WINDOW = 60;
-    public const RUN_INTERVAL = 10;
+    public const RUN_INTERVAL = 2;
 
     private ?\PDO $pdo = null;
 

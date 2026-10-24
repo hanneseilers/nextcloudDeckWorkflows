@@ -518,8 +518,9 @@ Basic Auth, so the secret is the only credential):
   the state DB): 10 wrong attempts per 10 minutes per client (hash of the IP,
   no IP is stored) and that client gets 429 with `Retry-After` - even with the
   right secret until the window passes; at most 60 valid pings per minute in
-  total (429 above); an automation run is started at most every 10 seconds
-  (the ping is recorded either way and picked up by the run that is coming).
+  total (429 above); an automation run is started at most every 2 seconds
+  (the ping is recorded either way; a change arriving within those 2 seconds
+  after a run that has already finished is picked up by the next cron run).
 - A wrong secret and a missing one look the same (403); "not configured" is
   a bare 404.
 
