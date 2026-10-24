@@ -4,8 +4,8 @@
 # directory (where automation/, website/, config/, workflows/ are siblings
 # of this script).
 #
-# Walks through: environment checks, PHP/Python dependencies, an interactive
-# config wizard (config/*.yaml from the *.example.yaml templates), optional
+# Walks through: environment checks, PHP/Python dependencies, the config
+# dialog (configure.sh, which writes config/*.yaml), optional
 # HTTP Basic Auth for website/, writable-directory checks, a cron hint, and
 # a final verification pass.
 #
@@ -26,9 +26,6 @@ WEBSITE_DIR="$PROJECT_ROOT/website"
 WORKFLOWS_DIR="$PROJECT_ROOT/workflows"
 
 PYTHON_BIN="python3"
-ENTERED_NEXTCLOUD_URL=""
-ENTERED_NEXTCLOUD_USER=""
-ENTERED_NEXTCLOUD_PASS=""
 
 WARNINGS=()
 TODO=()
@@ -234,94 +231,23 @@ section_python_deps() {
     fi
 }
 
-section_config_nextcloud() {
-    local target="$CONFIG_DIR/nextcloud.yaml"
-
-    if [ -f "$target" ] && ! confirm "config/nextcloud.yaml existiert bereits - überschreiben?" "n"; then
-        info "config/nextcloud.yaml bleibt unverändert."
+# Konfiguration: configure.sh führt durch alle config/*.yaml - vorhandene
+# Werte werden zur Übernahme angeboten, fehlende mit Standardwert vorgeschlagen
+# (beim ersten Mal also alle). Dasselbe Skript später erneut aufrufen, um
+# einzelne Werte zu ändern oder neue zu ergänzen.
+section_config() {
+    local script="$PROJECT_ROOT/configure.sh"
+    [ -x "$script" ] || script="$PROJECT_ROOT/tools/configure.sh"
+    if [ ! -f "$script" ]; then
+        warn "configure.sh nicht gefunden - config/*.yaml müssen von Hand aus den *.example.yaml angelegt werden."
+        note_todo "config/nextcloud.yaml, settings.yaml (und optional smtp.yaml) aus den *.example.yaml anlegen."
         return
     fi
-
-    echo "instances:" > "$target"
-    local more="j" name url user pass
-    while [ "$more" = "j" ]; do
-        name="$(ask "Name der Instanz (z.B. prod)" "prod")"
-        url="$(ask "Nextcloud-URL (z.B. https://cloud.example.com)" "")"
-        user="$(ask "Benutzername" "")"
-        pass="$(ask_secret "App-Passwort (Nextcloud Einstellungen > Sicherheit)")"
-        {
-            echo "  - name: $(yaml_escape "$name")"
-            echo "    url: \"$(yaml_escape "$url")\""
-            echo "    username: \"$(yaml_escape "$user")\""
-            echo "    app_password: \"$(yaml_escape "$pass")\""
-        } >> "$target"
-
-        ENTERED_NEXTCLOUD_URL="$url"
-        ENTERED_NEXTCLOUD_USER="$user"
-        ENTERED_NEXTCLOUD_PASS="$pass"
-
-        if confirm "Weitere Nextcloud-Instanz hinzufügen?" "n"; then
-            more="j"
-        else
-            more="n"
-        fi
-    done
-    info "config/nextcloud.yaml geschrieben."
-}
-
-section_config_settings() {
-    local target="$CONFIG_DIR/settings.yaml"
-    if [ -f "$target" ] && ! confirm "config/settings.yaml existiert bereits - überschreiben?" "n"; then
-        info "config/settings.yaml bleibt unverändert."
-        return
+    NCDW_PYTHON="$PYTHON_BIN" bash "$script"
+    if [ ! -f "$CONFIG_DIR/nextcloud.yaml" ] || [ ! -f "$CONFIG_DIR/settings.yaml" ]; then
+        warn "config/nextcloud.yaml oder settings.yaml fehlt noch."
+        note_todo "./configure.sh ausführen, um die Konfiguration abzuschließen."
     fi
-
-    local workflows_dir log_level
-    workflows_dir="$(ask "workflows_dir (relativ zum Projekt-Root)" "workflows")"
-    log_level="$(ask "log_level (DEBUG/INFO/WARNING/ERROR)" "INFO")"
-
-    {
-        echo "workflows_dir: $(yaml_escape "$workflows_dir")"
-        echo "state_db_path: automation/var/state.sqlite3"
-        echo "log_level: $(yaml_escape "$log_level")"
-    } > "$target"
-    info "config/settings.yaml geschrieben."
-}
-
-section_config_smtp() {
-    local target="$CONFIG_DIR/smtp.yaml"
-
-    if [ -f "$target" ]; then
-        if ! confirm "config/smtp.yaml existiert bereits - überschreiben?" "n"; then
-            info "config/smtp.yaml bleibt unverändert."
-            return
-        fi
-    elif ! confirm "E-Mail-Versand (send_email-Action) jetzt einrichten?" "n"; then
-        info "config/smtp.yaml wird übersprungen."
-        note_todo "Falls gewünscht: config/smtp.yaml aus config/smtp.example.yaml anlegen (für die send_email-Action)."
-        return
-    fi
-
-    local host port user pass from
-    host="$(ask "SMTP-Host" "smtp.example.com")"
-    port="$(ask "SMTP-Port" "587")"
-    user="$(ask "SMTP-Benutzername (leer = kein Login)" "")"
-    pass=""
-    [ -n "$user" ] && pass="$(ask_secret "SMTP-Passwort")"
-    from="$(ask "Absenderadresse" "${user:-noreply@example.com}")"
-
-    local use_tls="true"
-    confirm "STARTTLS verwenden?" "j" || use_tls="false"
-
-    {
-        echo "host: $(yaml_escape "$host")"
-        echo "port: $port"
-        if [ -n "$user" ]; then echo "username: \"$(yaml_escape "$user")\""; else echo "username: null"; fi
-        if [ -n "$pass" ]; then echo "password: \"$(yaml_escape "$pass")\""; else echo "password: null"; fi
-        echo "use_tls: $use_tls"
-        echo "from_address: \"$(yaml_escape "$from")\""
-    } > "$target"
-    info "config/smtp.yaml geschrieben."
 }
 
 section_website_protection() {
@@ -413,8 +339,9 @@ EOF
 
     info "website/.htaccess + .htpasswd angelegt (Benutzer: $user)."
 
-    local test_url
-    test_url="$(ask "Öffentliche URL der Website zum Testen (z.B. https://example.com/website/) - leer = überspringen" "")"
+    local test_url public_url
+    public_url="$("$PYTHON_BIN" -m automation.config.configure --get settings.public_url 2>/dev/null)"
+    test_url="$(ask "Öffentliche URL der Website zum Testen (z.B. https://example.com/website/) - leer = überspringen" "$public_url")"
     if [ -n "$test_url" ] && command -v curl >/dev/null 2>&1; then
         info "Prüfe, ob der Schutz funktioniert (ohne Login sollte HTTP 401 kommen) ..."
         local code
@@ -529,21 +456,6 @@ section_verification() {
     else
         warn "Python-Interpreter '$PYTHON_BIN' nicht ausführbar - Verifikation übersprungen."
     fi
-
-    if [ -n "$ENTERED_NEXTCLOUD_URL" ] && command -v curl >/dev/null 2>&1; then
-        info "Teste Verbindung zu $ENTERED_NEXTCLOUD_URL ..."
-        local code
-        code="$(curl -s -o /dev/null -w '%{http_code}' \
-            -u "$ENTERED_NEXTCLOUD_USER:$ENTERED_NEXTCLOUD_PASS" \
-            -H 'OCS-APIRequest: true' \
-            --max-time 10 \
-            "$ENTERED_NEXTCLOUD_URL/index.php/apps/deck/api/v1.1/boards" 2>/dev/null)"
-        if [ "$code" = "200" ]; then
-            info "Nextcloud-Verbindung OK (HTTP 200)."
-        else
-            warn "Nextcloud-Verbindung lieferte HTTP ${code:-?} - URL/Zugangsdaten in config/nextcloud.yaml prüfen."
-        fi
-    fi
 }
 
 main() {
@@ -563,9 +475,7 @@ main() {
     section_python_deps
 
     log "4/8 Konfiguration"
-    section_config_nextcloud
-    section_config_settings
-    section_config_smtp
+    section_config
 
     section_website_protection
     section_writable_checks

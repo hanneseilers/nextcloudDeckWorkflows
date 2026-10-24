@@ -1,11 +1,16 @@
-# Copy to nextcloud.yaml and fill in your values. nextcloud.yaml is gitignored.
+# VORLAGE - die echte config/nextcloud.yaml erzeugt configure.sh (fragt alle Werte ab).
+# Von Hand: als config/nextcloud.yaml kopieren und anpassen.
+# Nextcloud-Instanzen, mit denen die Automation arbeitet - ein Eintrag je Instanz.
+# Workflows verweisen über `nextcloud_instance` auf den Namen.
+# Erzeugt von configure.sh - erneut ausführen, um Werte zu ändern oder Instanzen zu ergänzen.
+
 instances:
-  - name: prod
+  # Kurzname, auf den Workflows verweisen.
+  - name: "prod"
+    # Adresse der Nextcloud, z. B. https://cloud.example.com.
     url: "https://cloud.example.com"
+    # Nextcloud-Benutzer, als der die Automation arbeitet.
     username: "workflow-bot"
-    app_password: "CHANGE_ME" # generate under Nextcloud Settings > Security > App passwords
-    # Optional hardening for shared hosting: instead of app_password above,
-    # use encrypted_app_password (see automation/config/secrets.py):
-    #   python -m automation.config.secrets generate-key
-    #   python -m automation.config.secrets encrypt "the real app password"
-    # encrypted_app_password: "gAAAAA..."
+    # App-Passwort (Nextcloud: Einstellungen > Sicherheit > App-Passwörter).
+    # Statt dessen geht auch encrypted_app_password, siehe automation/config/secrets.py.
+    app_password: "CHANGE_ME"

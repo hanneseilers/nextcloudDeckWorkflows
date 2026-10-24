@@ -1,44 +1,58 @@
-# Copy to settings.yaml and adjust if needed. settings.yaml is gitignored.
-workflows_dir: workflows
-state_db_path: automation/var/state.sqlite3
-log_level: INFO
-# One run of `python -m automation.main` keeps re-polling and re-running
-# workflows for as long as the previous pass triggered at least one of them
-# (so a workflow's own actions - e.g. moving a card - can trigger another
-# workflow), and stops starting new events after this many seconds. Keep it
-# below the time limit your host puts on cron jobs, with room for the event
-# that is still running when the budget ends: STRATO kills cron jobs after 15
-# minutes (900 s), so 600 is a safe value there. On a host that runs the job
-# every few minutes, use less than that interval.
+# VORLAGE - die echte config/settings.yaml erzeugt configure.sh (fragt alle Werte ab).
+# Von Hand: als config/settings.yaml kopieren und anpassen.
+# Allgemeine Einstellungen von Nextcloud Deck Workflows (Automation und Website).
+# Erzeugt von configure.sh - erneut ausführen, um Werte zu ändern oder neue zu ergänzen.
+# Relative Pfade gelten ab dem Projektordner.
+
+# Ordner mit den Workflow-Dateien (*.yaml, auch in Unterordnern).
+workflows_dir: "workflows"
+
+# SQLite-Datei mit dem Zustand der Automation (gesehene Karten, Historie, Links ...).
+state_db_path: "automation/var/state.sqlite3"
+
+# Wie ausführlich automation/var/automation.log schreibt: DEBUG, INFO, WARNING oder ERROR.
+log_level: "INFO"
+
+# Zeitzone, in der die Website Zeiten anzeigt und Actions Daten schreiben
+# (z. B. das Ablaufdatum eines Einmal-Links). Gespeichert wird immer in UTC.
+timezone: "Europe/Berlin"
+
+# Adresse, unter der der Ordner website/ von außen erreichbar ist, z. B.
+# https://example.com/nextcloudDeckWorkflows/website - nötig für „Einmal-Link erstellen“
+# (Links lauten <public_url>/link.php?h=...). Leer = keine Einmal-Links.
+public_url: "https://example.com/nextcloudDeckWorkflows/website"
+
+# Ein Lauf pollt und arbeitet Workflows so lange erneut ab, wie der vorige Durchgang
+# noch etwas ausgelöst hat - und startet nach so vielen Sekunden nichts Neues mehr.
+# Unter dem Zeitlimit des Hosters für Cron-Jobs halten: STRATO beendet sie nach
+# 15 Minuten (900 s), 600 ist dort sicher.
 max_run_seconds: 600
-# How old the last completed run may be before website/health.php reports the
-# automation as stopped (HTTP 503). Default 15 fits a job started every few
-# minutes. STRATO's cron jobs can only run hourly or slower (and may be delayed
-# by up to 4 hours), so use e.g. 90 for hourly or 1560 for daily.
-# health_stale_minutes: 90
-# Timezone the website shows times in and actions write dates in (e.g. a
-# one-time link's expiry) - stored times are always UTC.
-# timezone: Europe/Berlin
-# Execution history (Historie, Statusseite) is kept this many days, then deleted.
-# history_retention_days: 90
-# Optional: email `to` once a workflow has failed `threshold` times in a
-# row (and again each time it recovers and then fails that many times
-# again) - uses config/smtp.yaml, so that must be set up too. Omit this
-# whole section to disable it entirely (the default).
-# error_notifications:
-#   enabled: true
-#   threshold: 3
-#   to: "admin@example.com"
-# Optional: let Nextcloud (via its own Flow/Webhooks admin settings - a
-# server-admin task, not something this project configures) ping
-# website/webhook.php when a board changes, instead of relying purely on
-# polling. See automation/README.md's "Webhooks" section before enabling
-# this - polling never goes away entirely, it becomes the fallback.
-# webhooks:
-#   enabled: true
-#   secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
-#   fallback_poll_minutes: 15
-# Optional: where the website is reachable from outside (no trailing slash
-# needed). Needed by the "Einmal-Link erstellen" action (create_action_link),
-# which builds its links as <public_url>/link.php?h=<token>.
-# public_url: "https://example.com/deck-workflows/website"
+
+# So alt darf der letzte Lauf sein, bevor website/health.php „gestoppt“ meldet (HTTP 503).
+# 15 passt zu einem Cron-Job alle paar Minuten; bei stündlichem Cron z. B. 90,
+# bei täglichem 1560.
+health_stale_minutes: 15
+
+# Ausführungs-Historie (Historie, Statusseite) wird nach so vielen Tagen gelöscht.
+history_retention_days: 90
+
+# E-Mail, sobald ein Workflow `threshold`-mal hintereinander fehlgeschlagen ist
+# (und erneut, wenn er sich erholt und wieder so oft fehlschlägt). Nutzt config/smtp.yaml.
+error_notifications:
+  # Fehler-Benachrichtigung per E-Mail einschalten?
+  enabled: false
+  # Nach wie vielen Fehlschlägen in Folge
+  threshold: 3
+  # Empfänger-Adresse
+  to: "admin@example.com"
+
+# Nextcloud (Flow/Webhooks, Admin-Einstellung) ruft website/webhook.php auf, wenn sich
+# ein Board ändert - dann wird seltener gepollt. Siehe automation/README.md „Webhooks“.
+# Aufruf-Adresse: <public_url>/webhook.php?secret=<secret>
+webhooks:
+  # Webhooks einschalten?
+  enabled: false
+  # Geheimer Schlüssel in der Webhook-Adresse
+  secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+  # Ohne Webhook-Ping trotzdem alle so viele Minuten pollen
+  fallback_poll_minutes: 15

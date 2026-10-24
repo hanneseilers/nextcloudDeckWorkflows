@@ -1,9 +1,22 @@
-# Copy to smtp.yaml and fill in your values. smtp.yaml is gitignored.
-# Used by automation/actions_registry/send_email.py (module-specific config,
-# separate from settings.yaml/nextcloud.yaml on purpose).
+# VORLAGE - die echte config/smtp.yaml erzeugt configure.sh (fragt alle Werte ab).
+# Von Hand: als config/smtp.yaml kopieren und anpassen.
+# SMTP-Server für „E-Mail senden“ und die Fehler-Benachrichtigung.
+# Erzeugt von configure.sh - erneut ausführen, um Werte zu ändern.
+
+# Name des SMTP-Servers.
 host: "smtp.example.com"
+
+# 587 für STARTTLS (üblich), 25 ohne Verschlüsselung.
 port: 587
-username: "workflow-bot@example.com"
-password: "CHANGE_ME"
+
+# Verbindung per STARTTLS verschlüsseln.
 use_tls: true
+
+# Anmeldename am SMTP-Server, leer = ohne Anmeldung.
+username: "workflow-bot@example.com"
+
+# Passwort zum Benutzernamen.
+password: "CHANGE_ME"
+
+# Absender der E-Mails, leer = der Benutzername.
 from_address: "workflow-bot@example.com"

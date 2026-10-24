@@ -19,7 +19,7 @@
 #   below) - unlike a venv this is portable, and it means a shared host
 #   with no working pip doesn't block the whole thing; install.sh falls
 #   back to installing on the server itself if this step didn't run.
-# - Copies tools/install.sh to the root of the build output, so it's right
+# - Copies tools/install.sh and tools/configure.sh to the root of the build output, so it's right
 #   there after upload.
 #
 # Never aborts the whole build over a missing *optional* tool (composer,
@@ -88,6 +88,9 @@ rm -rf \
 
 cp "$SCRIPT_DIR/install.sh" "$TARGET_DIR/install.sh"
 chmod +x "$TARGET_DIR/install.sh"
+# Konfigurations-Dialog (install.sh ruft ihn auf; später erneut aufrufbar).
+cp "$SCRIPT_DIR/configure.sh" "$TARGET_DIR/configure.sh"
+chmod +x "$TARGET_DIR/configure.sh"
 # Voraussetzungs-Check für den Webspace (per SSH vor/nach der Installation).
 cp "$SCRIPT_DIR/check_server.sh" "$TARGET_DIR/check_server.sh"
 chmod +x "$TARGET_DIR/check_server.sh"

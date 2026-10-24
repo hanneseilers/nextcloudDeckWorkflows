@@ -34,7 +34,7 @@ if (($_GET['format'] ?? '') === 'json') {
         'last_run_at' => $health->lastRunAt(),
         'minutes_since_last_run' => $health->minutesSinceLastRun(),
         'last_24h' => $stats,
-        'recent_webhook_pings' => $config->webhooks() !== null ? $health->recentWebhookPings() : null,
+        'recent_webhook_pings' => ($config->webhooks()['enabled'] ?? false) ? $health->recentWebhookPings() : null,
     ]);
     exit;
 }
@@ -93,7 +93,7 @@ if (($_GET['format'] ?? '') === 'json') {
 <p>Keine Ausführungen in den letzten 24 Stunden.</p>
 <?php endif; ?>
 
-<?php if ($config->webhooks() !== null): ?>
+<?php if ($config->webhooks()['enabled'] ?? false): ?>
 <h2>Webhook-Pings</h2>
 <p class="muted">Bestätigt, dass Nextclouds Webhook-Konfiguration diese Seite tatsächlich erreicht
 (unabhängig davon, ob <code>automation/main.py</code> den Ping schon verarbeitet hat).</p>
