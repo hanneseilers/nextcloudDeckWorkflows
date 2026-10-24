@@ -678,13 +678,15 @@ def main() -> None:
 
     logging.basicConfig(level=args.log_level or "INFO", format=LOG_FORMAT)
 
+    # Independent of everything below: keep the website's module list fresh on
+    # every invocation (also --list-modules: the docs say running it once is
+    # enough for the website to know the modules), whether or not Nextcloud
+    # config is even valid.
+    _write_modules_snapshot(MODULES_SNAPSHOT_PATH)
+
     if args.list_modules:
         print(json.dumps(_modules_snapshot(), indent=2))
         return
-
-    # Independent of everything below: keep the website's module list fresh on
-    # every invocation, whether or not Nextcloud config is even valid.
-    _write_modules_snapshot(MODULES_SNAPSHOT_PATH)
 
     if args.dry_run:
         run_dry_run()
