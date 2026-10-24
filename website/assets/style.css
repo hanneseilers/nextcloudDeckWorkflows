@@ -986,7 +986,8 @@ button.chip-remove:hover {
 /* The template shown over the editor (the "i" next to "Textvorlage") */
 dialog.template-modal {
     width: min(48rem, 92vw);
-    max-height: 85vh;
+    min-height: min(35rem, 90vh); /* tall enough to read a longer text without scrolling; the width stays */
+    max-height: 90vh;
     padding: 1rem 1.25rem;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -1017,6 +1018,7 @@ button.template-modal-close {
 }
 
 .template-modal-body pre {
+    min-height: min(25rem, 55vh);
     margin: 0;
     padding: 0.75rem;
     border: 1px solid var(--border);
