@@ -18,7 +18,15 @@ class AutomationRunner
                 return;
             }
             $repoRoot = dirname(__DIR__, 2);
-            $python = is_file("$repoRoot/.venv/bin/python") ? "$repoRoot/.venv/bin/python" : 'python3';
+            // The same interpreter the cron job uses: install.sh creates
+            // automation/.venv; a development checkout has .venv in the root.
+            $python = 'python3';
+            foreach (["$repoRoot/automation/.venv/bin/python", "$repoRoot/.venv/bin/python"] as $candidate) {
+                if (is_file($candidate)) {
+                    $python = $candidate;
+                    break;
+                }
+            }
             // The trailing `&` backgrounds the real work at the shell level,
             // detached from this PHP process, so `sh -c` itself returns
             // almost immediately regardless of how long the automation run

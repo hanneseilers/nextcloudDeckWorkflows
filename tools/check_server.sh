@@ -592,8 +592,12 @@ PHP
         if printf '%s\n' "$web_report" | grep -qx "proc_open:1"; then
             pass "proc_open im Webserver erlaubt - Webhooks und Einmal-Links lösen sofort einen Lauf aus"
             py_web="$(printf '%s\n' "$web_report" | sed -n 's/^python3://p')"
-            if [ -n "$py_web" ] || [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
-                pass "Der Webserver findet Python (${py_web:-$PROJECT_DIR/.venv/bin/python})"
+            venv_python=""
+            for candidate in "$PROJECT_DIR/automation/.venv/bin/python" "$PROJECT_DIR/.venv/bin/python"; do
+                [ -x "$candidate" ] && { venv_python="$candidate"; break; }
+            done
+            if [ -n "$venv_python" ] || [ -n "$py_web" ]; then
+                pass "Der Webserver findet Python (${venv_python:-$py_web})"
             else
                 warn "Der Webserver findet kein python3 im PATH und keine .venv im Projekt - Sofort-Läufe starten nicht"
             fi
