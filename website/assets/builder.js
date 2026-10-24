@@ -522,6 +522,108 @@
       || ((moduleName === 'format_text' || moduleName === 'add_comment') && key === 'text_template');
   }
 
+  // The template's text in a window over the page: closes with the X at the top
+  // right, a click outside the window, or Escape. Fetched when opened, so it is
+  // the current text.
+  function showTemplate(name, opener) {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'template-modal';
+    dialog.setAttribute('aria-labelledby', 'template-modal-title');
+
+    const header = document.createElement('div');
+    header.className = 'template-modal-header';
+    const title = document.createElement('h2');
+    title.id = 'template-modal-title';
+    title.textContent = name;
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'icon-btn template-modal-close';
+    close.textContent = '✕';
+    close.title = 'Schließen';
+    close.setAttribute('aria-label', 'Schließen');
+    header.append(title, close);
+    dialog.appendChild(header);
+
+    const content = document.createElement('div');
+    content.className = 'template-modal-body muted';
+    content.textContent = 'Lädt …';
+    dialog.appendChild(content);
+
+    const footer = document.createElement('p');
+    footer.className = 'small';
+    const edit = document.createElement('a');
+    edit.href = 'templates.php?name=' + encodeURIComponent(name);
+    edit.target = '_blank';
+    edit.rel = 'noopener';
+    edit.textContent = 'In „Vorlagen“ bearbeiten';
+    footer.appendChild(edit);
+    dialog.appendChild(footer);
+
+    const dispose = () => {
+      dialog.close();
+      dialog.remove();
+      if (opener && opener.isConnected) {
+        opener.focus();
+      }
+    };
+    close.addEventListener('click', dispose);
+    // A click on the dimmed area is a click on the <dialog> element itself, not on something inside it.
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) {
+        dispose();
+      }
+    });
+    dialog.addEventListener('cancel', (event) => { // Escape
+      event.preventDefault();
+      dispose();
+    });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    close.focus();
+
+    fetchJSON('api_template.php?name=' + encodeURIComponent(name)).then((data) => {
+      content.className = 'template-modal-body';
+      content.textContent = '';
+      if (data.subject) {
+        const subject = document.createElement('p');
+        const label = document.createElement('strong');
+        label.textContent = 'Betreff: ';
+        subject.append(label, ...highlightPlaceholders(data.subject));
+        content.appendChild(subject);
+      }
+      const text = document.createElement('pre');
+      text.append(...highlightPlaceholders(data.body || ''));
+      if (!data.body && !data.subject) {
+        text.textContent = '(leer)';
+      }
+      content.appendChild(text);
+    }).catch((error) => {
+      content.className = 'template-modal-body notice error';
+      content.textContent = error.message || 'Die Vorlage konnte nicht geladen werden.';
+    });
+  }
+
+  // Text and <code> pieces: the $placeholders of a template stand out.
+  function highlightPlaceholders(text) {
+    const pieces = [];
+    const pattern = /\$(?:\$|[_a-zA-Z][_a-zA-Z0-9]*|\{[_a-zA-Z][_a-zA-Z0-9]*\})/g;
+    let last = 0;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      pieces.push(document.createTextNode(text.slice(last, match.index)));
+      if (match[0] === '$$') {
+        pieces.push(document.createTextNode('$$'));
+      } else {
+        const code = document.createElement('code');
+        code.textContent = match[0];
+        pieces.push(code);
+      }
+      last = match.index + match[0].length;
+    }
+    pieces.push(document.createTextNode(text.slice(last)));
+    return pieces;
+  }
+
   function renderTemplateSelectField(entry) {
     const box = document.createElement('span');
     box.className = 'template-select';
@@ -548,6 +650,19 @@
       markDirty();
     });
     box.appendChild(select);
+    const info = document.createElement('button');
+    info.type = 'button';
+    info.className = 'icon-btn info-btn';
+    info.textContent = 'i';
+    info.title = 'Vorlage anzeigen';
+    info.setAttribute('aria-label', info.title);
+    const syncInfo = () => {
+      info.disabled = select.value === '';
+    };
+    syncInfo();
+    select.addEventListener('change', syncInfo);
+    info.addEventListener('click', () => showTemplate(select.value, info));
+    box.appendChild(info);
     const link = document.createElement('a');
     link.href = 'templates.php' + (saved && templateNames.includes(saved) ? '?name=' + encodeURIComponent(saved) : '');
     link.target = '_blank';

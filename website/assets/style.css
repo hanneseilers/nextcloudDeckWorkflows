@@ -982,3 +982,50 @@ button.chip-remove:hover {
     align-items: center;
     gap: 0.4rem 0.75rem;
 }
+
+/* The template shown over the editor (the "i" next to "Textvorlage") */
+dialog.template-modal {
+    width: min(48rem, 92vw);
+    max-height: 85vh;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: auto;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+
+dialog.template-modal::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.template-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.template-modal-header h2 {
+    margin: 0;
+    word-break: break-word;
+}
+
+button.template-modal-close {
+    flex: none;
+    margin-top: -0.25rem;
+}
+
+.template-modal-body pre {
+    margin: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, monospace;
+}
+
+.template-modal-body p {
+    margin: 0 0 0.5rem;
+}

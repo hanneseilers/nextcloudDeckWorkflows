@@ -71,7 +71,9 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   (open the first time, then as left). A save from a form that is outdated
   (another tab saved meanwhile) is refused and keeps the typed text; so does a
   failed create. The steps' "Textvorlage" dropdowns (send_email `template`,
-  format_text/add_comment `text_template`) offer the same names. Writes are atomic,
+  format_text/add_comment `text_template`) offer the same names; an "i" next to
+  each shows the template in a window over the editor (`api_template.php`,
+  read only; X, a click outside or Escape closes it). Writes are atomic,
   names can't reach outside the folder, files are LF/UTF-8/at most 100 KB. The old
   `config/email_templates/` is moved over on the first visit.
   `tools/test_template_store.php` is a standalone check of the store.
