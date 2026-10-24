@@ -43,6 +43,7 @@
   // available without adding a step. This list only feeds the field picker -
   // the actual value comes straight from the Deck API at run time, so any
   // other field name the API returns also works (via "Anderes Feld...").
+  // docs.php lists the same fields - keep both in sync.
   const CARD_FIELDS = [
     ['title', 'Titel'],
     ['description', 'Beschreibung'],

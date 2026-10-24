@@ -33,40 +33,54 @@ class NextcloudApi
         $this->appPassword = $appPassword;
     }
 
-    /** @return array<int, array{id: int, title: string}> */
+    /** @return array<int, array{id: int, title: string, archived: bool}> */
     public function listBoards(): array
     {
         $boards = $this->get(self::DECK_API . '/boards') ?? [];
         return array_map(
-            static fn (array $board) => ['id' => (int) $board['id'], 'title' => (string) $board['title']],
+            static fn (array $board) => [
+                'id' => (int) $board['id'],
+                'title' => (string) $board['title'],
+                'archived' => !empty($board['archived']),
+            ],
             $boards
         );
     }
 
-    /** @return array<int, array{id: int, title: string}> */
+    /** @return array<int, array{id: int, title: string, card_count: int}> */
     public function listStacks(int $boardId): array
     {
         $stacks = $this->get(self::DECK_API . '/boards/' . $boardId . '/stacks') ?? [];
         return array_map(
-            static fn (array $stack) => ['id' => (int) $stack['id'], 'title' => (string) $stack['title']],
+            static fn (array $stack) => [
+                'id' => (int) $stack['id'],
+                'title' => (string) $stack['title'],
+                // The stacks endpoint embeds the (non-archived) cards.
+                'card_count' => count($stack['cards'] ?? []),
+            ],
             $stacks
         );
     }
 
     /**
-     * The labels defined on a board, for the add_label label picker. Deck's
-     * single-board endpoint embeds them as `labels`. Not verified against a
-     * live Nextcloud instance - a missing/odd `labels` key just yields an
+     * The labels defined on a board, for the add_label label picker and
+     * boards.php. Deck's single-board endpoint embeds them as `labels`
+     * (documented; not verified against a live instance) - a missing/odd
+     * `labels` key just yields an
      * empty picker (the field still accepts a typed label id).
      *
-     * @return array<int, array{id: int, title: string}>
+     * @return array<int, array{id: int, title: string, color: string}>
      */
     public function listLabels(int $boardId): array
     {
         $board = $this->get(self::DECK_API . '/boards/' . $boardId) ?? [];
         $labels = [];
         foreach ($board['labels'] ?? [] as $label) {
-            $labels[] = ['id' => (int) $label['id'], 'title' => (string) $label['title']];
+            $labels[] = [
+                'id' => (int) $label['id'],
+                'title' => (string) $label['title'],
+                'color' => (string) ($label['color'] ?? ''), // hex without '#', e.g. "31CC7C"
+            ];
         }
         return $labels;
     }

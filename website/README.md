@@ -61,6 +61,20 @@ long random token in the URL is its credential) and, if you use webhooks,
   package), level (all / warnings and errors / errors only), text search, 100/
   300/1000 entries, optional refresh every 5 s. Times are server time, as in
   the file. `tools/test_log_reader.php` is a standalone check of the reader.
+- **Boards (`boards.php`):** board inspection - pick a Nextcloud instance
+  (preselected if there's only one), get its boards with ids (archived ones
+  last, marked), click one for its columns (id, card count) and labels (id,
+  colour). Live requests through `NextcloudApi`, each list fetched separately
+  so one failing request still shows the others; errors are shown on the
+  page. Useful for typing an id directly or checking that a label belongs
+  to the workflow's board (labels are per board - another board's label id
+  makes Deck answer "Label does not exist").
+- **Docs (`docs.php`):** reference of every step type from `modules.json`:
+  description, input fields (real names as in the YAML / "Felder der
+  Action", German label, help text, default value) and output fields - the
+  same texts as a step's "i" box in the editor, plus the "Karte" fields
+  (a copy of `CARD_FIELDS` in `assets/builder.js` - keep both in sync) and
+  the trigger events. A client-side filter narrows it by step or field name.
 - **Test runs ("Testlauf"):** the website never runs Python itself, so a test
   run is written to the `test_runs` table and `start_test_run.php` immediately
   starts `python -m automation.main --test-run <id>` in the background
