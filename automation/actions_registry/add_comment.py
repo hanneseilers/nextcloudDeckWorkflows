@@ -4,6 +4,7 @@ from string import Template
 from typing import Any, ClassVar
 
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.text_templates import load_template_text
 from automation.core.ports.action_module import ActionContext
 
 
@@ -16,23 +17,28 @@ class AddCommentAction(WorkflowAction):
 
     params:
       message: str - the comment text
+      text_template: str (optional) - name of a text template
+        (config/text_templates/<name>.txt, edited on the website's "Vorlagen"
+        page); its text is used instead of `message` (a `Subject:` line of the
+        template, meant for e-mails, is dropped)
     """
 
     ACTION_NAME: ClassVar[str] = "add_comment"
     LABEL: ClassVar[str] = "Kommentar hinzufügen"
     DESCRIPTION: ClassVar[str] = "Schreibt einen Kommentar an die Karte. $name im Text wird durch eine Variable ersetzt."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"message": "Variablen aus \"Variable setzen\" mit $name einsetzen, z. B. Ticket $nummer."}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar", "text_template": "Textvorlage (optional)"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"message": "Variablen aus \"Variable setzen\" mit $name einsetzen, z. B. Ticket $nummer.", "text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Kommentar."}
 
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar"}
 
     def default_input(self) -> dict[str, Any]:
-        return {"message": ""}
+        return {"message": "", "text_template": None}
 
     def default_output(self) -> dict[str, Any]:
         return {"message": ""}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        message = Template(params["message"]).safe_substitute(**context.variables)
+        text = load_template_text(params["text_template"]) if params.get("text_template") else params["message"]
+        message = Template(text).safe_substitute(**context.variables)
         context.deck.add_comment(card_id=context.event.card_id, message=message)
         return {"message": message}  # as posted, i.e. with $placeholders filled in

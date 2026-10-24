@@ -37,5 +37,5 @@ def test_unresolved_placeholder_is_left_as_is():
 def test_declares_its_input_and_output_shape():
     action = FormatTextAction()
 
-    assert action.default_input() == {"template": "", "values": {}}
+    assert action.default_input() == {"template": "", "text_template": None, "values": {}}
     assert action.default_output() == {"text": ""}

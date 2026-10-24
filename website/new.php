@@ -7,6 +7,7 @@ use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\EventTypes;
 use NextcloudDeckWorkflows\ModuleRegistry;
+use NextcloudDeckWorkflows\TemplateStore;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
@@ -151,6 +152,7 @@ Schritte ohne Kartenbezug (z. B. „E-Mail senden", „Zufallszahl erzeugen", �
 <button type="submit" class="button"><?= $isEdit ? 'Änderungen speichern' : 'Workflow speichern' ?></button>
 </form>
 
+<script id="templates-data" type="application/json"><?= json_encode(TemplateStore::fromRepoRoot()->names(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>
 <script id="modules-data" type="application/json"><?= $modules->rawModulesJson() ?></script>
 <?php if ($isEdit): ?>
 <script id="existing-workflow-data" type="application/json"><?= json_encode($existingWorkflow, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>

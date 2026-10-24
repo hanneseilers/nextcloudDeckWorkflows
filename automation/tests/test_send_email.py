@@ -8,6 +8,7 @@ import yaml
 from automation.actions_registry import send_email as send_email_module
 from automation.actions_registry.send_email import SendEmailAction
 from automation.adapters import smtp_config as smtp_config_module
+from automation.adapters import text_templates
 from automation.core.domain.models import DeckEvent, EventType
 from automation.core.ports.action_module import ActionContext
 from automation.testing.fakes import InMemoryActionRegistry, InMemoryDeckGateway
@@ -107,7 +108,7 @@ def test_send_email_from_a_template(tmp_path, monkeypatch, smtp_client, context)
     templates_dir = tmp_path / "email_templates"
     templates_dir.mkdir()
     (templates_dir / "greeting.txt").write_text("Subject: Hello $name\n\nWelcome, $name!\n")
-    monkeypatch.setattr(send_email_module, "TEMPLATES_DIR", templates_dir)
+    monkeypatch.setattr(text_templates, "TEMPLATES_DIR", templates_dir)
 
     SendEmailAction().execute(
         context,
@@ -128,7 +129,8 @@ def test_missing_smtp_config_raises_a_clear_error(monkeypatch, tmp_path, context
 
 def test_missing_template_raises_a_clear_error(tmp_path, monkeypatch, context):
     write_smtp_config(tmp_path, monkeypatch)
-    monkeypatch.setattr(send_email_module, "TEMPLATES_DIR", tmp_path / "email_templates")
+    monkeypatch.setattr(text_templates, "TEMPLATES_DIR", tmp_path / "text_templates")
+    monkeypatch.setattr(text_templates, "LEGACY_DIR", tmp_path / "legacy")
 
     with pytest.raises(FileNotFoundError):
         SendEmailAction().execute(context, {"to": "alice@example.com", "template": "does-not-exist"})

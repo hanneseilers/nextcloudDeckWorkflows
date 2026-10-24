@@ -509,6 +509,55 @@
     return select;
   }
 
+  // The text templates the "Vorlagen" page manages (names only).
+  let templateNames = [];
+  try {
+    templateNames = JSON.parse(document.getElementById('templates-data').textContent) || [];
+  } catch (e) { /* no list: the dropdown just offers "keine" */ }
+
+  // send_email's "template" and format_text's / add_comment's "text_template":
+  // the same text templates everywhere.
+  function isTemplateField(moduleName, key) {
+    return (moduleName === 'send_email' && key === 'template')
+      || ((moduleName === 'format_text' || moduleName === 'add_comment') && key === 'text_template');
+  }
+
+  function renderTemplateSelectField(entry) {
+    const box = document.createElement('span');
+    box.className = 'template-select';
+    const select = document.createElement('select');
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = '– keine Vorlage –';
+    select.appendChild(none);
+    const names = templateNames.slice();
+    // A saved name that is gone (deleted, renamed by hand) stays visible, marked.
+    const saved = typeof entry.value === 'string' ? entry.value : '';
+    if (saved !== '' && !names.includes(saved)) {
+      names.push(saved);
+    }
+    names.forEach((name) => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = templateNames.includes(name) ? name : name + ' (nicht gefunden)';
+      option.selected = name === saved;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', () => {
+      entry.value = select.value === '' ? null : select.value;
+      markDirty();
+    });
+    box.appendChild(select);
+    const link = document.createElement('a');
+    link.href = 'templates.php' + (saved && templateNames.includes(saved) ? '?name=' + encodeURIComponent(saved) : '');
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Vorlagen bearbeiten';
+    link.className = 'small';
+    box.appendChild(link);
+    return box;
+  }
+
   function isBoardIdField(moduleName, key) {
     return moduleName === 'copy_card' && key === 'target_board_id';
   }
@@ -1045,6 +1094,8 @@
       appendRefOperandFields(wrapper, entry, opts.owner);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
+    } else if (opts.isTemplate) {
+      wrapper.appendChild(renderTemplateSelectField(entry));
     } else if (opts.isActionName) {
       wrapper.appendChild(renderActionSelectField(entry, opts.onActionChange || render));
     } else if (opts.isBoardId) {
@@ -1095,6 +1146,7 @@
         isStackId: isStackIdField(target.module, key),
         isBoardId: isBoardIdField(target.module, key),
         isActionName: isActionNameField(target.module, key),
+        isTemplate: isTemplateField(target.module, key),
         rerenderOnChange: target.module === 'unassign_user' && key === 'all_users',
         onActionChange: () => {
           // Another action: its fields start from their defaults.

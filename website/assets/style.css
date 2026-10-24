@@ -879,3 +879,106 @@ button.chip-remove:hover {
     width: 26rem;
     max-width: 100%;
 }
+
+/* templates.php - text templates */
+.help-box {
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.help-box > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.help-body {
+    margin-top: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.help-body p,
+.help-body ul {
+    margin: 0.4rem 0;
+}
+
+.template-layout {
+    display: grid;
+    grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.template-list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.template-list li {
+    display: flex;
+    flex-direction: column;
+    padding: 0.35rem 0.5rem;
+    border-left: 3px solid transparent;
+    border-radius: 0 4px 4px 0;
+}
+
+.template-list li.is-selected {
+    border-left-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    font-weight: 600;
+}
+
+.template-list li a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: inherit;
+    text-decoration: none;
+    word-break: break-word;
+}
+
+.template-editor h2 {
+    margin-top: 0;
+}
+
+.template-form label {
+    display: block;
+    margin-bottom: 0.75rem;
+}
+
+.template-form input[type="text"],
+.template-form textarea {
+    display: block;
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+    margin-top: 0.25rem;
+}
+
+.template-form textarea {
+    font-family: ui-monospace, monospace;
+    min-height: 16rem;
+    resize: vertical;
+}
+
+.template-more {
+    margin-top: 1.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+    .template-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.template-select {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
+}

@@ -467,12 +467,28 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
 Sends mail via SMTP. Server settings are its own file, `config/smtp.yaml` (copy
 `config/smtp.example.yaml`; gitignored like the other real config files) -
 separate from `settings.yaml` since it's specific to this one action. Body/subject
-either come directly as `params.subject`/`params.body`, or from a template file
-in `config/email_templates/<name>.txt` (first line `Subject: ...`, blank line,
-then the body) referenced via `params.template`. `$placeholder` values from
-`params.template_data` are substituted (`string.Template.safe_substitute` -
-an unresolved placeholder is left as-is rather than raising). See
-`config/email_templates/example.txt`.
+either come directly as `params.subject`/`params.body`, or from a text template
+(see "Text templates" below) referenced via `params.template`. `$placeholder`
+values from `params.template_data` (and the workflow's variables) are
+substituted (`string.Template.safe_substitute` - an unresolved placeholder is
+left as-is rather than raising). `to` takes one address, several separated by
+comma/semicolon, or a list (one mail to all; refused addresses fail the step
+but the others still get it).
+
+### Text templates
+
+One kind of template for every text: `config/text_templates/<name>.txt`, created
+and edited on the website's **Vorlagen** page (new, edit, rename, delete -
+renaming can update the workflows that use the name, a template in use can't be
+deleted). The same list is offered as "Textvorlage" in `send_email`
+(`template`), `format_text` and `add_comment` (`text_template`): the template's
+text replaces the step's own text, and the `$placeholder`s are filled in as
+usual. An optional first paragraph `Subject: ...` followed by a blank line is the
+subject when the template is sent as an e-mail; every other action ignores it.
+Names: letters, digits, space, `_`, `-` (up to 60) - they are checked before they
+become a path. Templates from before this folder existed (`config/email_templates/`)
+are still found there and moved over by the website. Examples:
+`config/text_templates/example_email.txt`, `example_text.txt`.
 
 ## Webhooks (optional, polling remains the fallback)
 

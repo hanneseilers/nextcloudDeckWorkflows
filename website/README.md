@@ -62,6 +62,19 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   package), level (all / warnings and errors / errors only), text search, 100/
   300/1000 entries, optional refresh every 5 s. Times are server time, as in
   the file. `tools/test_log_reader.php` is a standalone check of the reader.
+- **Vorlagen (`templates.php`, `template_action.php`):** the editor for the text
+  templates in `config/text_templates/*.txt` (`src/TemplateStore.php`): list on
+  the left with how many workflows use each, editor on the right (optional
+  subject for e-mails + text, live list of the `$placeholders`, warning before
+  leaving with unsaved changes), rename (optionally updating the workflows that
+  name it), delete (refused while a workflow uses it), a collapsible help box
+  (open the first time, then as left). A save from a form that is outdated
+  (another tab saved meanwhile) is refused and keeps the typed text; so does a
+  failed create. The steps' "Textvorlage" dropdowns (send_email `template`,
+  format_text/add_comment `text_template`) offer the same names. Writes are atomic,
+  names can't reach outside the folder, files are LF/UTF-8/at most 100 KB. The old
+  `config/email_templates/` is moved over on the first visit.
+  `tools/test_template_store.php` is a standalone check of the store.
 - **Boards (`boards.php`):** board inspection - pick a Nextcloud instance
   (preselected if there's only one), get its boards with ids (archived ones
   last, marked), click one for its columns (id, card count) and labels (id,

@@ -1,0 +1,15 @@
+Subject: Beispiel für $name
+
+Hallo $name,
+
+dies ist eine Beispiel-Vorlage. Eine Vorlage ist reiner Text mit Platzhaltern;
+sie wird im Menü „Vorlagen“ bearbeitet und in einem Schritt bei „Textvorlage“
+ausgewählt - bei „E-Mail senden“, „Text zusammensetzen“ oder „Kommentar
+hinzufügen“.
+
+Die erste Zeile „Subject: …“ (gefolgt von einer Leerzeile) ist der Betreff,
+wenn die Vorlage als E-Mail verschickt wird. Sonst wird sie weggelassen.
+
+$name wird durch den Wert der gleichnamigen Variablen (Schritt „Variable
+setzen“) bzw. den gleichnamigen Eintrag unter „Werte“ ersetzt. Gibt es keinen
+Wert, bleibt $name unverändert stehen.

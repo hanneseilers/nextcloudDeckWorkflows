@@ -3,35 +3,25 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from pathlib import Path
 from string import Template
 from typing import Any, ClassVar, Optional
 
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.text_templates import load_template
 from automation.adapters.smtp_config import load_smtp_config, parse_recipients, send_email as smtp_send
-from automation.config.settings import REPO_ROOT
 from automation.core.ports.action_module import ActionContext
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DEDUPE_MINUTES = 10080  # 7 days - long enough for any cron restart
 
-TEMPLATES_DIR = REPO_ROOT / "config" / "email_templates"
-
-
 def _load_template(name: str) -> tuple[Optional[str], str]:
-    """Loads config/email_templates/<name>.txt. The optional first line
-    `Subject: ...` followed by a blank line sets the subject; everything after
-    is the body. Returns (subject_or_None, body)."""
+    """Loads the text template <name> (config/text_templates/<name>.txt, edited
+    on the website's "Vorlagen" page). The optional first line `Subject: ...`
+    followed by a blank line sets the subject; everything after is the body.
+    Returns (subject_or_None, body)."""
 
-    path = TEMPLATES_DIR / f"{name}.txt"
-    if not path.exists():
-        raise FileNotFoundError(f"Unknown email template '{name}' (expected {path})")
-    text = path.read_text()
-    header, separator, rest = text.partition("\n\n")
-    if separator and header.startswith("Subject:"):
-        return header[len("Subject:"):].strip(), rest
-    return None, text
+    return load_template(name)
 
 
 class SendEmailAction(WorkflowAction):
@@ -39,7 +29,8 @@ class SendEmailAction(WorkflowAction):
 
     Server settings come from config/smtp.yaml (module-specific, gitignored -
     copy config/smtp.example.yaml). The subject/body are either given directly
-    or loaded from a template file in config/email_templates/<name>.txt. Either
+    or loaded from a text template (config/text_templates/<name>.txt, edited on
+    the website's "Vorlagen" page; first line `Subject: ...` + blank line = subject). Either
     way, $placeholder values are substituted with string.Template.safe_substitute
     from context.variables (global, set via set_variable) merged with
     params['template_data'] (template_data wins on a name clash) - unresolved
@@ -51,7 +42,7 @@ class SendEmailAction(WorkflowAction):
         semicolon, or a list. Everybody gets the same single mail (all
         addresses are visible to all). If the server refuses some of them the
         mail still goes to the rest and the step then fails naming the refused.
-      template: str (optional) - name of a file in config/email_templates/
+      template: str (optional) - name of a text template (config/text_templates/)
       subject, body: str (optional) - used instead of `template`
       template_data: dict (optional) - values substituted into subject/body
       dedupe_minutes: number (optional, default 10080 = 7 days) - when a run
@@ -70,8 +61,8 @@ class SendEmailAction(WorkflowAction):
     ACTION_NAME: ClassVar[str] = "send_email"
     LABEL: ClassVar[str] = "E-Mail senden"
     DESCRIPTION: ClassVar[str] = "Verschickt eine E-Mail über den eingerichteten SMTP-Server."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"to": "Empfänger (mehrere mit Komma)", "subject": "Betreff", "body": "Text", "template": "Vorlage (optional)", "template_data": "Werte für die Vorlage", "dedupe_minutes": "Doppelversand-Schutz (Minuten)"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"to": "Mehrere Empfänger mit Komma oder Semikolon trennen, z. B. anna@example.com, bernd@example.com (in der YAML auch als Liste). Alle bekommen dieselbe Mail und sehen alle Adressen. Nur reine Adressen, keine Namen wie \"Anna <anna@example.com>\".", "template": "Name einer Datei aus config/email_templates/ - ersetzt Betreff und Text.", "dedupe_minutes": "Wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis innerhalb dieser Minuten nicht noch einmal raus. Neue Ereignisse, Testläufe und Zeitpläne senden immer. 0 = aus."}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"to": "Empfänger (mehrere mit Komma)", "subject": "Betreff", "body": "Text", "template": "Textvorlage (optional)", "template_data": "Werte für die Vorlage", "dedupe_minutes": "Doppelversand-Schutz (Minuten)"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"to": "Mehrere Empfänger mit Komma oder Semikolon trennen, z. B. anna@example.com, bernd@example.com (in der YAML auch als Liste). Alle bekommen dieselbe Mail und sehen alle Adressen. Nur reine Adressen, keine Namen wie \"Anna <anna@example.com>\".", "template": "Eine Textvorlage (Menü „Vorlagen“) - ersetzt Betreff und Text; steht in der Vorlage kein Betreff (erste Zeile „Subject: …“), gilt der hier eingetragene.", "dedupe_minutes": "Wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis innerhalb dieser Minuten nicht noch einmal raus. Neue Ereignisse, Testläufe und Zeitpläne senden immer. 0 = aus."}
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"sent": "Gesendet"}
 
     def default_input(self) -> dict[str, Any]:

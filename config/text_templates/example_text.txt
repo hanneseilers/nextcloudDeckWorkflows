@@ -1,0 +1,4 @@
+Ticket $nummer wurde angelegt: $titel
+
+Eine einfache Textvorlage ohne Betreff, z. B. für einen Kommentar:
+Bei „Kommentar hinzufügen“ unter „Textvorlage“ auswählen.

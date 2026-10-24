@@ -18,6 +18,8 @@ Workflow automation for Nextcloud Deck, built to run on shared webspace:
 - `website/` - a plain-PHP UI (no framework, no build step) for creating
   and managing workflows. Writes/reads the same `workflows/*.yaml` files
   and the same `automation/var/state.sqlite3` the Python side owns.
+- `config/text_templates/` - the text templates (`*.txt`) of the website's
+  "Vorlagen" page, read by `send_email`/`format_text`/`add_comment`.
 - `config/` - YAML config (`*.example.yaml` are templates; the real
   `*.yaml` files are gitignored, created locally or by `tools/configure.sh`,
   which `tools/install.sh` calls). The config schema (keys, defaults, German

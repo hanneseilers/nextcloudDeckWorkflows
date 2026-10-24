@@ -4,6 +4,7 @@ from string import Template
 from typing import Any, ClassVar
 
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.text_templates import load_template_text
 from automation.core.ports.action_module import ActionContext
 
 
@@ -18,6 +19,9 @@ class FormatTextAction(WorkflowAction):
 
     params:
       template: str - text with $name placeholders
+      text_template: str (optional) - name of a text template
+        (config/text_templates/<name>.txt, edited on the website's "Vorlagen"
+        page); its text is used instead of `template`
       values: dict - placeholder name -> value, e.g. {"title": {"$ref": "card.title"}}
 
     output:
@@ -28,17 +32,17 @@ class FormatTextAction(WorkflowAction):
     ACTION_NAME: ClassVar[str] = "format_text"
     LABEL: ClassVar[str] = "Text zusammensetzen"
     DESCRIPTION: ClassVar[str] = "Setzt einen Text aus festen Teilen und Werten zusammen."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"template": "Vorlage", "values": "Werte"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"template": "Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter Werte ersetzt.", "values": "Beispiel: {\"nummer\": {\"$ref\": \"schritt1.number\"}, \"titel\": {\"$ref\": \"card.title\"}} - links der Name, rechts der Wert."}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"template": "Vorlage", "text_template": "Textvorlage (optional)", "values": "Werte"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Vorlage.", "template": "Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter Werte ersetzt.", "values": "Beispiel: {\"nummer\": {\"$ref\": \"schritt1.number\"}, \"titel\": {\"$ref\": \"card.title\"}} - links der Name, rechts der Wert."}
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"text": "Text"}
 
     def default_input(self) -> dict[str, Any]:
-        return {"template": "", "values": {}}
+        return {"template": "", "text_template": None, "values": {}}
 
     def default_output(self) -> dict[str, Any]:
         return {"text": ""}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        template = params.get("template") or ""
+        template = load_template_text(params["text_template"]) if params.get("text_template") else params.get("template") or ""
         values = params.get("values") or {}
         return {"text": Template(template).safe_substitute(**values)}
