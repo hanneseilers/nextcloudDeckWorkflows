@@ -171,3 +171,78 @@ def test_roundtrip_with_a_nested_if_else(tmp_path):
     loaded = repo.get("wf-cond")
 
     assert loaded == workflow
+
+
+def _wf(workflow_id: str, enabled: bool = True) -> Workflow:
+    return Workflow(
+        id=workflow_id, name=workflow_id, instance="prod", board_id=1, enabled=enabled,
+        trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(ActionStep(module="log_action", params={"message": workflow_id}),),
+    )
+
+
+def test_workflows_in_nested_folders_are_found(tmp_path):
+    repo = YamlWorkflowRepository(tmp_path)
+    repo.save(_wf("top"))
+    (tmp_path / "support" / "tickets").mkdir(parents=True)
+    other = YamlWorkflowRepository(tmp_path)  # a second repo writing like the website does
+    for folder, wid in (("support", "in-support"), ("support/tickets", "deep")):
+        (tmp_path / folder / f"{wid}.yaml").write_text(
+            (tmp_path / "top.yaml").read_text().replace("id: top", f"id: {wid}").replace("name: top", f"name: {wid}")
+        )
+
+    assert sorted(w.id for w in repo.list_all()) == ["deep", "in-support", "top"]
+    assert other.get("deep").id == "deep"
+    assert other.get("nope") is None
+
+
+def test_save_keeps_a_workflow_in_its_folder_and_delete_finds_it(tmp_path):
+    (tmp_path / "a").mkdir()
+    repo = YamlWorkflowRepository(tmp_path)
+    repo.save(_wf("wf"))  # new -> top level
+    (tmp_path / "wf.yaml").rename(tmp_path / "a" / "wf.yaml")  # the website moved it into a folder
+
+    repo.save(_wf("wf", enabled=False))  # rewritten where it lives, not duplicated at the top
+
+    assert not (tmp_path / "wf.yaml").exists()
+    assert repo.get("wf").enabled is False
+    repo.delete("wf")
+    assert not (tmp_path / "a" / "wf.yaml").exists() and repo.get("wf") is None
+
+
+def test_changes_in_subfolders_invalidate_the_cache(tmp_path):
+    (tmp_path / "a").mkdir()
+    repo = YamlWorkflowRepository(tmp_path)
+    repo.save(_wf("one"))
+    assert [w.id for w in repo.list_enabled()] == ["one"]
+
+    (tmp_path / "one.yaml").rename(tmp_path / "a" / "one.yaml")  # moved: same mtime, other path
+
+    assert [w.id for w in repo.list_enabled()] == ["one"]
+    (tmp_path / "a" / "one.yaml").unlink()
+    assert repo.list_enabled() == []
+
+
+def test_a_duplicate_id_in_another_folder_is_ignored_with_an_error(tmp_path, caplog):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    repo = YamlWorkflowRepository(tmp_path)
+    repo.save(_wf("dup"))
+    text = (tmp_path / "dup.yaml").read_text()
+    (tmp_path / "dup.yaml").unlink()
+    (tmp_path / "a" / "dup.yaml").write_text(text)
+    (tmp_path / "b" / "dup.yaml").write_text(text)
+
+    with caplog.at_level("ERROR"):
+        assert [w.id for w in repo.list_all()] == ["dup"]
+
+    assert any("already used" in r.message for r in caplog.records)
+
+
+def test_hidden_folders_are_not_scanned(tmp_path):
+    (tmp_path / ".trash").mkdir()
+    repo = YamlWorkflowRepository(tmp_path)
+    repo.save(_wf("x"))
+    (tmp_path / "x.yaml").rename(tmp_path / ".trash" / "x.yaml")
+
+    assert repo.list_all() == []

@@ -23,7 +23,14 @@ logger = logging.getLogger(__name__)
 
 class YamlWorkflowRepository:
     """Implements WorkflowRepositoryPort. Stores one human-readable YAML file per
-    workflow under a directory (by default the top-level workflows/ storage)."""
+    workflow under a directory (by default the top-level workflows/ storage).
+
+    The directory may contain subfolders (the website's folders, nested as
+    deep as it likes - they only organize the files): every *.yaml below it
+    counts, except inside hidden (.dot) folders. A workflow's file is always
+    named <id>.yaml and ids are unique across all folders; should the same id
+    appear twice anyway, the first file in path order wins and the other is
+    logged and ignored (running both would double every action)."""
 
     def __init__(self, directory: Path) -> None:
         self._directory = Path(directory)
@@ -38,21 +45,38 @@ class YamlWorkflowRepository:
         return self._load_all()
 
     def get(self, workflow_id: str) -> Optional[Workflow]:
-        path = self._path_for(workflow_id)
-        if not path.exists():
+        path = self._existing_path(workflow_id)
+        if path is None:
             return None
         return self._parse(yaml.safe_load(path.read_text()))
 
     def save(self, workflow: Workflow) -> None:
-        self._path_for(workflow.id).write_text(yaml.safe_dump(self._to_dict(workflow), sort_keys=False))
+        # A workflow that already exists is rewritten where it lives (in its
+        # folder); a new one goes to the top level.
+        path = self._existing_path(workflow.id) or self._directory / f"{workflow.id}.yaml"
+        path.write_text(yaml.safe_dump(self._to_dict(workflow), sort_keys=False))
         self._cache = None  # force a fresh _load_all() even if mtimes happened to collide
 
     def delete(self, workflow_id: str) -> None:
-        self._path_for(workflow_id).unlink(missing_ok=True)
+        path = self._existing_path(workflow_id)
+        if path is not None:
+            path.unlink(missing_ok=True)
         self._cache = None
 
-    def _path_for(self, workflow_id: str) -> Path:
-        return self._directory / f"{workflow_id}.yaml"
+    def _yaml_files(self) -> list[Path]:
+        """Every workflow file below the directory, in path order, skipping
+        anything inside a hidden (.dot) folder."""
+
+        return sorted(
+            path for path in self._directory.rglob("*.yaml")
+            if not any(part.startswith(".") for part in path.relative_to(self._directory).parts[:-1])
+        )
+
+    def _existing_path(self, workflow_id: str) -> Optional[Path]:
+        for path in self._yaml_files():
+            if path.name == f"{workflow_id}.yaml":
+                return path
+        return None
 
     def _load_all(self) -> list[Workflow]:
         # WorkflowEngine.handle() calls list_enabled() once per event, and a
@@ -68,11 +92,20 @@ class YamlWorkflowRepository:
             return self._cache
 
         workflows = []
-        for path in sorted(self._directory.glob("*.yaml")):
+        seen_ids: dict[str, Path] = {}
+        for path in self._yaml_files():
             try:
                 data = yaml.safe_load(path.read_text())
                 if data:
-                    workflows.append(self._parse(data))
+                    workflow = self._parse(data)
+                    if workflow.id in seen_ids:
+                        logger.error(
+                            "Ignoring %s: workflow id '%s' is already used by %s (ids must be unique across folders)",
+                            path, workflow.id, seen_ids[workflow.id],
+                        )
+                        continue
+                    seen_ids[workflow.id] = path
+                    workflows.append(workflow)
             except Exception:
                 # A single malformed workflow file must not take every other
                 # workflow down with it - skip it, log it, keep going.
@@ -83,7 +116,9 @@ class YamlWorkflowRepository:
         return workflows
 
     def _directory_signature(self) -> tuple:
-        return tuple((path.name, path.stat().st_mtime_ns) for path in sorted(self._directory.glob("*.yaml")))
+        return tuple(
+            (str(path.relative_to(self._directory)), path.stat().st_mtime_ns) for path in self._yaml_files()
+        )
 
     @staticmethod
     def _parse(data: dict) -> Workflow:

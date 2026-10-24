@@ -21,7 +21,7 @@ config/smtp.yaml
 config/secret.key
 
 # Workflow definitions are runtime data created via the website, not source
-workflows/*.yaml
+workflows/**/*.yaml
 !workflows/.gitkeep
 
 # Build output of tools/build.sh - generated, never committed
