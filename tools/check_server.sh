@@ -20,7 +20,7 @@
 
 set -u
 
-MIN_PHP="8.2"      # symfony/yaml 7.4 (website/composer.lock) braucht PHP >= 8.2
+MIN_PHP="8.4.27"   # Projektvorgabe (website/composer.json)
 MIN_PYTHON="3.9"   # automation/vendor (tools/build.sh) ist für 3.9+ gebaut und dort getestet
 MIN_SQLITE="3.24.0" # ON CONFLICT ... DO UPDATE (Upserts) in Python und PHP
 CRON_LIMIT_HINT=900 # STRATO beendet Cron-Jobs nach 15 Minuten
@@ -79,6 +79,17 @@ if [ ! -d "$PROJECT_DIR" ]; then
     exit 2
 fi
 PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+
+# Runs PHP code from a temporary file - some hardened shared-hosting PHP CLI
+# builds disable `php -r`, but can always run a file.
+run_php() {
+    local file
+    file="$(mktemp "${TMPDIR:-/tmp}/check_server_XXXXXX.php")" || return 1
+    CLEANUP+=("$file")
+    printf '%s' "$1" > "$file"
+    "$PHP_BIN" -f "$file" 2>/dev/null
+    rm -f "$file"
+}
 
 # "a.b.c" >= "x.y.z"?
 version_ge() {
@@ -173,7 +184,7 @@ done
 section "PHP (Kommandozeile)"
 
 if [ -z "$PHP_BIN" ]; then
-    for candidate in php php8.5 php8.4 php8.3 php8.2 /bin/php /usr/bin/php /usr/local/bin/php; do
+    for candidate in php php8.5 php8.4 /bin/php /usr/bin/php /usr/local/bin/php; do
         if have "$candidate" || [ -x "$candidate" ]; then PHP_BIN="$candidate"; break; fi
     done
 fi
@@ -186,17 +197,17 @@ done
 if [ -z "$PHP_BIN" ]; then
     fail "Kein PHP auf der Kommandozeile gefunden (für composer/install.sh nötig; die Website nutzt das PHP des Webservers)"
 else
-    php_version="$("$PHP_BIN" -r 'echo PHP_VERSION;' 2>/dev/null)"
+    php_version="$(run_php '<?php echo PHP_VERSION;')"
     if [ -z "$php_version" ]; then
         fail "$PHP_BIN lässt sich nicht ausführen"
     elif version_ge "$php_version" "$MIN_PHP"; then
         pass "PHP $php_version ($PHP_BIN) >= $MIN_PHP"
     else
-        fail "PHP $php_version ($PHP_BIN) ist zu alt - mindestens $MIN_PHP nötig (symfony/yaml). Andere Version im Kunden-Login bzw. per --php wählen"
+        fail "PHP $php_version ($PHP_BIN) ist zu alt - mindestens $MIN_PHP nötig. Andere Version im Kunden-Login bzw. per --php wählen"
     fi
 
     if [ -n "$php_version" ]; then
-        php_report="$("$PHP_BIN" -r '
+        php_report="$(run_php '<?php
             $ext = ["pdo_sqlite", "curl", "dom", "mbstring", "openssl", "json", "session", "hash"];
             foreach ($ext as $e) { echo "ext:$e:", extension_loaded($e) ? "1" : "0", "\n"; }
             echo "ext:ctype:", extension_loaded("ctype") ? "1" : "0", "\n";
@@ -209,7 +220,7 @@ else
             $out = is_resource($p) ? trim(stream_get_contents($pipes[1])) : "";
             if (is_resource($p)) { proc_close($p); }
             echo "proc_open:", $out === "pong" ? "1" : "0", "\n";
-        ' 2>/dev/null)"
+        ')"
         for e in pdo_sqlite curl dom mbstring openssl json session hash; do
             if printf '%s\n' "$php_report" | grep -qx "ext:$e:1"; then
                 pass "PHP-Erweiterung $e"

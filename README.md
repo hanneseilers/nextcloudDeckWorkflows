@@ -16,7 +16,7 @@ All configuration and workflow data is stored as YAML files, requiring no databa
 
 ## Requirements
 
-- A shared webspace with PHP + Composer (for the website) and Python 3 (for the automation script)
+- A shared webspace with PHP 8.4.27+ (for the website) and Python 3 (for the automation script)
 - Access to a Nextcloud instance with the Deck app enabled
 - Ability to schedule a recurring cron job
 

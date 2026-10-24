@@ -111,6 +111,11 @@ section_env_checks() {
         # common thing to lock down), which just prints the usage text
         # instead of the version. `-v` is always available.
         info "PHP: $(php -v 2>/dev/null | head -n 1)"
+        local php_version
+        php_version="$(php -v 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+        if [ -n "$php_version" ] && [ "$(printf '%s\n%s\n' "8.4.27" "$php_version" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" != "8.4.27" ]; then
+            warn "PHP $php_version ist zu alt - die Website braucht mindestens PHP 8.4.27 (PHP-Version im Kunden-Login umstellen; die Kommandozeile kann eine andere Version als der Webserver haben)."
+        fi
         local ext
         for ext in curl mbstring; do
             if php -m 2>/dev/null | grep -qi "^${ext}\$"; then
