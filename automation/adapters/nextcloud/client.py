@@ -25,6 +25,10 @@ class NextcloudClient:
         # real cost over a run that makes a dozen+ calls to the same host.
         self._session = requests.Session()
 
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
     def get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
         return self._request("GET", path, params=params)
 

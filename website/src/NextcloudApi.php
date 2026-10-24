@@ -147,7 +147,7 @@ class NextcloudApi
             . '<d:prop><d:displayname/><d:resourcetype/></d:prop>'
             . '</d:propfind>';
         $xml = $this->requestXml('PROPFIND', $basePath, $body, 1);
-        return self::mapPropfindCalendars($xml, $basePath);
+        return self::mapPropfindCalendars($xml, $basePath, (string) parse_url($this->baseUrl, PHP_URL_PATH));
     }
 
     /**
@@ -157,7 +157,7 @@ class NextcloudApi
      *
      * @return array<int, array{id: string, title: string}>
      */
-    private static function mapPropfindCalendars(string $xml, string $basePath): array
+    private static function mapPropfindCalendars(string $xml, string $basePath, string $urlPrefix = ''): array
     {
         $doc = new \DOMDocument();
         if (!@$doc->loadXML($xml)) {
@@ -173,8 +173,8 @@ class NextcloudApi
             return [];
         }
         foreach ($responses as $response) {
-            $href = (string) $xpath->evaluate('string(d:href)', $response);
-            if (rtrim($href, '/') === rtrim($basePath, '/')) {
+            $href = self::relativeHref((string) $xpath->evaluate('string(d:href)', $response), $urlPrefix);
+            if (rawurldecode(rtrim($href, '/')) === rawurldecode(rtrim($basePath, '/'))) {
                 continue; // the calendar-home collection itself, not a calendar in it
             }
             $isCalendar = $xpath->query('.//d:propstat/d:prop/d:resourcetype/c:calendar', $response);
@@ -186,6 +186,23 @@ class NextcloudApi
             $calendars[] = ['id' => $href, 'title' => $title];
         }
         return $calendars;
+    }
+
+    /**
+     * A Nextcloud in a subdirectory (https://host/nextcloud) answers with
+     * hrefs including that prefix, but requests go to baseUrl + path - so the
+     * calendar id is stored relative to the base URL. Mirrors
+     * NextcloudCalendarGateway._relative() on the Python side, which also
+     * accepts ids that still carry the prefix.
+     */
+    private static function relativeHref(string $href, string $urlPrefix): string
+    {
+        $path = str_contains($href, '://') ? (string) parse_url($href, PHP_URL_PATH) : $href;
+        $prefix = rtrim($urlPrefix, '/');
+        if ($prefix !== '' && str_starts_with($path, $prefix . '/')) {
+            $path = substr($path, strlen($prefix));
+        }
+        return $path;
     }
 
     private function get(string $path): ?array

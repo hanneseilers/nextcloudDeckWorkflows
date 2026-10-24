@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from automation.adapters.nextcloud.client import NextcloudClient
 
+logger = logging.getLogger(__name__)
+
 DECK_API = "/index.php/apps/deck/api/v1.1"
-COMMENTS_API = "/ocs/v2.php/apps/comments/api/v1/deckCard"
+# Deck's own OCS comments API (documented at deck.readthedocs.io, "OCS API").
+DECK_OCS_API = "/ocs/v2.php/apps/deck/api/v1.0"
+# Deck rejects comments / card titles longer than this (titles with a 400).
+COMMENT_MAX_LENGTH = 1000
+TITLE_MAX_LENGTH = 255
+
+
+def _shorten(text: str, limit: int, what: str) -> str:
+    if len(text) <= limit:
+        return text
+    logger.warning("%s is %d characters long, Deck allows %d - shortened", what, len(text), limit)
+    return text[: limit - 1] + "…"
 
 
 class NextcloudDeckGateway:
@@ -33,7 +47,9 @@ class NextcloudDeckGateway:
         return board.get("labels") or []
 
     def set_title(self, board_id: int, stack_id: int, card_id: int, title: str) -> None:
-        self._update_card(board_id, stack_id, card_id, title=title)
+        self._update_card(
+            board_id, stack_id, card_id, title=_shorten(title, TITLE_MAX_LENGTH, f"Title of card {card_id}")
+        )
 
     def set_description(self, board_id: int, stack_id: int, card_id: int, description: str) -> None:
         self._update_card(board_id, stack_id, card_id, description=description)
@@ -70,7 +86,8 @@ class NextcloudDeckGateway:
         )
 
     def add_comment(self, card_id: int, message: str) -> None:
-        self._client.post(f"{COMMENTS_API}/{card_id}", json={"message": message})
+        message = _shorten(message, COMMENT_MAX_LENGTH, f"Comment on card {card_id}")
+        self._client.post(f"{DECK_OCS_API}/cards/{card_id}/comments", json={"message": message})
 
     def create_card(self, board_id: int, stack_id: int, title: str, description: str = "") -> dict[str, Any]:
         """Creates a fresh card - nothing but a title (and optionally a
@@ -79,6 +96,7 @@ class NextcloudDeckGateway:
         update instead of in the create call, since only title/type/order
         are guaranteed create parameters across Deck versions."""
 
+        title = _shorten(title, TITLE_MAX_LENGTH, "Title of the new card")
         created = self._client.post(
             f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards",
             json={"title": title, "type": "plain", "order": 0},
@@ -97,8 +115,10 @@ class NextcloudDeckGateway:
         owner = card.get("owner")
         if isinstance(owner, dict):
             owner = owner.get("uid") or owner.get("primaryKey")
-        # Deck's update also expects type/owner/order (its controller declares
-        # them as parameters) - sent back unchanged so they're never reset.
+        # The documented update parameters are title/description/type/order/
+        # duedate, all required. owner isn't documented for the update, but
+        # Deck's CardApiController declares it - sending it back unchanged is
+        # harmless if it's ignored and avoids a 400 where it's required.
         payload = {
             "title": card.get("title"),
             "type": card.get("type") or "plain",

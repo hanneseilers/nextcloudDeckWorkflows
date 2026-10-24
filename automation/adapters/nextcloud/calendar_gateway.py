@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from urllib.parse import quote, unquote, urlparse
 from xml.etree import ElementTree as ET
 
 from dateutil.rrule import rrulestr
@@ -43,7 +44,24 @@ class NextcloudCalendarGateway:
     def __init__(self, client: NextcloudClient, username: str) -> None:
         self._client = client
         self._username = username
-        self._base_path = f"/remote.php/dav/calendars/{username}/"
+        # CalDAV addresses calendars by the Nextcloud user id - normally the
+        # same as the login name configured here (not verified for setups
+        # where people log in with their e-mail address instead).
+        self._base_path = f"/remote.php/dav/calendars/{quote(username, safe='')}/"
+        # A Nextcloud installed in a subdirectory (https://host/nextcloud)
+        # returns hrefs including that prefix, while requests are sent to
+        # base_url + path - so hrefs are stored relative to base_url.
+        self._url_prefix = urlparse(getattr(client, "base_url", "")).path.rstrip("/")
+
+    def _relative(self, href: str) -> str:
+        """Turns a CalDAV href (absolute URL, server-absolute path, or an
+        already relative path) into a path relative to the configured base
+        URL. Also repairs calendar ids saved before this normalisation."""
+
+        path = urlparse(href).path if "://" in href else href
+        if self._url_prefix and path.startswith(self._url_prefix + "/"):
+            path = path[len(self._url_prefix):]
+        return path
 
     def list_calendars(self) -> list[dict[str, Any]]:
         body = (
@@ -57,8 +75,8 @@ class NextcloudCalendarGateway:
 
         calendars = []
         for response in root.findall(f"{_DAV}response"):
-            href = response.findtext(f"{_DAV}href") or ""
-            if href.rstrip("/") == self._base_path.rstrip("/"):
+            href = self._relative(response.findtext(f"{_DAV}href") or "")
+            if unquote(href).rstrip("/") == unquote(self._base_path).rstrip("/"):
                 continue  # the calendar-home collection itself, not a calendar in it
 
             prop = _first_prop(response)
@@ -118,7 +136,7 @@ class NextcloudCalendarGateway:
             "</c:comp-filter></c:comp-filter></c:filter>"
             "</c:calendar-query>"
         )
-        xml_text = self._client.request_xml("REPORT", calendar_id, body=body, depth=1)
+        xml_text = self._client.request_xml("REPORT", self._relative(calendar_id), body=body, depth=1)
         root = ET.fromstring(xml_text)
 
         for response in root.findall(f"{_DAV}response"):

@@ -185,9 +185,9 @@ def test_run_stops_at_max_run_seconds_and_the_next_run_finishes_the_rest(tmp_pat
     def fake_request(self, method, url, **kwargs):
         if method == "GET" and url.endswith("/stacks"):
             return FakeResponse([{"id": 10, "cards": [dict(c) for c in cards]}])
-        if method == "POST" and "deckCard" in url:
+        if method == "POST" and url.endswith("/comments"):
             _time.sleep(0.02)  # a slow Nextcloud
-            comments.append(int(url.rsplit("/", 1)[1]))
+            comments.append(int(url.rsplit("/", 2)[1]))
         return FakeResponse({})
 
     monkeypatch.setattr("requests.Session.request", fake_request)
@@ -589,13 +589,13 @@ def test_run_creates_a_link_and_executes_it_after_the_website_claims_it(tmp_path
     with sqlite3.connect(settings.state_db_path) as conn:
         rows = conn.execute("SELECT status, success_message FROM action_links").fetchall()
     assert rows == [("open", "Erledigt!")]
-    assert not any("deckCard" in url for _, url, _ in calls)  # creating the link must not run the action
+    assert not any(url.endswith("/comments") for _, url, _ in calls)  # creating the link must not run the action
 
     with sqlite3.connect(settings.state_db_path) as conn:  # website/link.php claims it
         conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
     run(settings)
 
-    assert ("POST", "https://cloud.example.com/ocs/v2.php/apps/comments/api/v1/deckCard/1",
+    assert ("POST", "https://cloud.example.com/ocs/v2.php/apps/deck/api/v1.0/cards/1/comments",
             {"message": "Per Link erledigt"}) in calls
     with sqlite3.connect(settings.state_db_path) as conn:
         status, error, payload = conn.execute("SELECT status, error, params_json FROM action_links").fetchone()
@@ -606,7 +606,7 @@ def test_run_creates_a_link_and_executes_it_after_the_website_claims_it(tmp_path
     assert logged == [("link-wf", "add_comment", 1)]
 
     run(settings)  # a done link never runs again
-    assert sum(1 for _, url, _ in calls if "deckCard" in url) == 1
+    assert sum(1 for _, url, _ in calls if url.endswith("/comments")) == 1
 
 
 def _insert_running_link(db_path, token_hash, running_at):
@@ -655,7 +655,7 @@ def test_run_marks_a_link_left_running_by_a_killed_process_as_failed_instead_of_
     assert statuses == {"stale": "error", "fresh": "running"}  # a recent one may still be running elsewhere
     assert "abgebrochen" in error
     assert logged == [("link-wf", "add_comment", 0, error)]
-    assert not any("deckCard" in url for _, url in calls)  # nothing was re-executed
+    assert not any(url.endswith("/comments") for _, url in calls)  # nothing was re-executed
 
 
 def _two_new_cards_environment(tmp_path, monkeypatch):
@@ -665,8 +665,8 @@ def _two_new_cards_environment(tmp_path, monkeypatch):
     def fake_request(self, method, url, **kwargs):
         if method == "GET" and url.endswith("/stacks"):
             return FakeResponse([{"id": 10, "cards": [dict(c) for c in cards]}])
-        if method == "POST" and "deckCard" in url:
-            comments.append(url.rsplit("/", 1)[1])
+        if method == "POST" and url.endswith("/comments"):
+            comments.append(url.rsplit("/", 2)[1])
         return FakeResponse({})
 
     monkeypatch.setattr("requests.Session.request", fake_request)
@@ -774,8 +774,8 @@ def _two_board_environment(tmp_path, monkeypatch):
             return FakeResponse(new)
         if method == "GET" and "/cards/" in url:
             return FakeResponse(cards[1][0])
-        if method == "POST" and "deckCard" in url:
-            comments.append(int(url.rsplit("/", 1)[1]))
+        if method == "POST" and url.endswith("/comments"):
+            comments.append(int(url.rsplit("/", 2)[1]))
         return FakeResponse({})
 
     monkeypatch.setattr("requests.Session.request", fake_request)

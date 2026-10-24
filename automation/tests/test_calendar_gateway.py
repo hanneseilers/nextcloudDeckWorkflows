@@ -12,11 +12,14 @@ class _FakeCalDavClient:
     ignoring the request body/depth (the gateway's own query construction
     isn't what these tests are checking)."""
 
-    def __init__(self, propfind_xml: str = "", report_xml: str = "") -> None:
+    def __init__(self, propfind_xml: str = "", report_xml: str = "", base_url: str = "https://cloud.example") -> None:
         self._propfind_xml = propfind_xml
         self._report_xml = report_xml
+        self.base_url = base_url
+        self.paths: list[tuple[str, str]] = []
 
     def request_xml(self, method: str, path: str, body: str = "", depth=None) -> str:
+        self.paths.append((method, path))
         if method == "PROPFIND":
             return self._propfind_xml
         if method == "REPORT":
@@ -219,3 +222,29 @@ def test_find_next_occurrence_returns_none_when_nothing_matches_the_time_range()
     gateway = _gateway(report_xml=xml)
 
     assert gateway.find_next_occurrence("/cal/personal/", "") is None
+
+
+def test_nextcloud_in_a_subdirectory_hrefs_are_stored_relative_to_the_base_url():
+    # The server answers with hrefs including the /nextcloud prefix; requests
+    # go to base_url + path, so the prefix must not end up in there twice.
+    served = "/nextcloud/remote.php/dav/calendars/alice/"
+    xml = _propfind_response(served, [(f"{served}personal/", "Personal")])
+    client = _FakeCalDavClient(propfind_xml=xml, report_xml="<d:multistatus xmlns:d=\"DAV:\"/>",
+                               base_url="https://host.example/nextcloud")
+    gateway = NextcloudCalendarGateway(client, "alice")
+
+    assert gateway.list_calendars() == [
+        {"id": "/remote.php/dav/calendars/alice/personal/", "title": "Personal"}
+    ]
+    # An id saved before the fix (with the prefix, or as a full URL) still works.
+    gateway.find_next_occurrence(f"{served}personal/", "x")
+    gateway.find_next_occurrence(f"https://host.example{served}personal/", "x")
+    assert [p for m, p in client.paths if m == "REPORT"] == [
+        "/remote.php/dav/calendars/alice/personal/"
+    ] * 2
+
+
+def test_user_name_is_url_encoded_in_the_calendar_home_path():
+    client = _FakeCalDavClient(propfind_xml="<d:multistatus xmlns:d=\"DAV:\"/>")
+    NextcloudCalendarGateway(client, "anna maier@example.org").list_calendars()
+    assert client.paths == [("PROPFIND", "/remote.php/dav/calendars/anna%20maier%40example.org/")]
