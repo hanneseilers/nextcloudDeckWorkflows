@@ -81,6 +81,12 @@ class NextcloudDeckGateway:
             json={"labelId": label_id},
         )
 
+    def remove_label(self, board_id: int, stack_id: int, card_id: int, label_id: int) -> None:
+        self._client.put(
+            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/removeLabel",
+            json={"labelId": label_id},
+        )
+
     def assign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
         self._client.put(
             f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/assignUser",

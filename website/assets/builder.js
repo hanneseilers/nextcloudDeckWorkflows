@@ -563,7 +563,7 @@
   }
 
   function isLabelIdField(moduleName, key) {
-    return moduleName === 'add_label' && key === 'label_id';
+    return (moduleName === 'add_label' || moduleName === 'remove_label') && key === 'label_id';
   }
 
   // Labels, stacks and boards: fetched once (cached), filtered client-side as

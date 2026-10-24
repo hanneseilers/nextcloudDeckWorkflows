@@ -129,3 +129,46 @@ def test_add_label_still_adds_when_the_name_lookup_fails():
     deck.list_labels = lambda board_id: (_ for _ in ()).throw(RuntimeError("down"))
     assert AddLabelAction().execute(make_context(deck), {"label_id": 99}) == {"label_id": 99, "label_name": None}
     assert ("add_label", 1, 10, 100, 99) in deck.calls
+
+
+def test_remove_label_takes_the_label_off_the_card():
+    from automation.actions_registry.remove_label import RemoveLabelAction
+
+    deck = make_deck()
+    deck.labels[1] = [{"id": 99, "title": "Dringend"}]
+    context = make_context(deck)
+    AddLabelAction().execute(context, {"label_id": 99})
+    assert deck.stacks[1][0]["cards"][0]["labels"] == [99]
+
+    out = RemoveLabelAction().execute(context, {"label_id": 99})
+
+    assert deck.stacks[1][0]["cards"][0]["labels"] == []
+    assert out == {"label_id": 99, "label_name": "Dringend", "removed": True}
+
+
+def test_remove_label_skips_a_label_the_card_does_not_have():
+    from automation.actions_registry.remove_label import RemoveLabelAction
+
+    deck = make_deck()
+    deck.stacks[1][0]["cards"][0]["labels"] = []  # Deck always returns the field, empty when there is none
+    out = RemoveLabelAction().execute(make_context(deck), {"label_id": 99})
+    assert out["removed"] is False
+    assert not [call for call in deck.calls if call[0] == "remove_label"]  # Deck would answer with an error
+
+
+def test_remove_label_understands_labels_as_deck_returns_them_and_keeps_the_others():
+    from automation.actions_registry.remove_label import RemoveLabelAction
+
+    deck = make_deck()
+    deck.stacks[1][0]["cards"][0]["labels"] = [{"id": 98, "title": "A"}, {"id": 99, "title": "B"}]
+    RemoveLabelAction().execute(make_context(deck), {"label_id": 99})
+    assert [e["id"] for e in deck.stacks[1][0]["cards"][0]["labels"]] == [98]
+
+
+def test_remove_label_still_tries_when_the_card_cannot_be_read():
+    from automation.actions_registry.remove_label import RemoveLabelAction
+
+    deck = make_deck()
+    deck.get_card = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("500"))
+    out = RemoveLabelAction().execute(make_context(deck), {"label_id": 99})
+    assert out["removed"] is True and ("remove_label", 1, 10, 100, 99) in deck.calls

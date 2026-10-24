@@ -26,8 +26,8 @@ class AddCommentAction(WorkflowAction):
     ACTION_NAME: ClassVar[str] = "add_comment"
     LABEL: ClassVar[str] = "Kommentar hinzufügen"
     DESCRIPTION: ClassVar[str] = "Schreibt einen Kommentar an die Karte. $name im Text wird durch eine Variable ersetzt."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar", "text_template": "Textvorlage (optional)"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"message": "Variablen aus \"Variable setzen\" mit $name einsetzen, z. B. Ticket $nummer.", "text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Kommentar."}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar (Text mit Platzhaltern)", "text_template": "Textvorlage (optional)"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"message": "Variablen aus \"Variable setzen\" mit $name einsetzen, z. B. Ticket $nummer.", "text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Kommentar; $name darin wird wie dort durch Variablen ersetzt."}
 
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar"}
 

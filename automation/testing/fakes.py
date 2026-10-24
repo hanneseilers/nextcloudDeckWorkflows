@@ -79,6 +79,16 @@ class InMemoryDeckGateway:
         if card is not None:
             card.setdefault("labels", []).append(label_id)
 
+    def remove_label(self, board_id: int, stack_id: int, card_id: int, label_id: int) -> None:
+        self.calls.append(("remove_label", board_id, stack_id, card_id, label_id))
+        card = self._find_card(board_id, stack_id, card_id)
+        if card is not None:
+            # a label is a plain id here (add_label) or a dict as Deck returns it
+            card["labels"] = [
+                entry for entry in card.get("labels", [])
+                if (entry.get("id") if isinstance(entry, dict) else entry) != label_id
+            ]
+
     def assign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
         self.calls.append(("assign_user", board_id, stack_id, card_id, user_id))
         card = self._find_card(board_id, stack_id, card_id)

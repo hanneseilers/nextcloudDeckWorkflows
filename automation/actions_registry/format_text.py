@@ -32,8 +32,8 @@ class FormatTextAction(WorkflowAction):
     ACTION_NAME: ClassVar[str] = "format_text"
     LABEL: ClassVar[str] = "Text zusammensetzen"
     DESCRIPTION: ClassVar[str] = "Setzt einen Text aus festen Teilen und Werten zusammen."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"template": "Vorlage", "text_template": "Textvorlage (optional)", "values": "Werte"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Vorlage.", "template": "Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter Werte ersetzt.", "values": "Beispiel: {\"nummer\": {\"$ref\": \"schritt1.number\"}, \"titel\": {\"$ref\": \"card.title\"}} - links der Name, rechts der Wert."}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"template": "Text (mit Platzhaltern)", "text_template": "Textvorlage (optional)", "values": "Werte"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Text.", "template": "Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter Werte ersetzt.", "values": "Beispiel: {\"nummer\": {\"$ref\": \"schritt1.number\"}, \"titel\": {\"$ref\": \"card.title\"}} - links der Name, rechts der Wert."}
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"text": "Text"}
 
     def default_input(self) -> dict[str, Any]:

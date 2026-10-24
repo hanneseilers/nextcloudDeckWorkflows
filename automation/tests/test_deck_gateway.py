@@ -75,3 +75,11 @@ def test_update_uses_the_cards_real_stack_not_a_stale_one():
     NextcloudDeckGateway(client).set_title(12, 46, 93, "Neu")  # 46 = stale, the card is in 50 now
     method, path, _ = client.calls[-1]
     assert (method, path) == ("PUT", f"{DECK_API}/boards/12/stacks/50/cards/93")
+
+
+def test_remove_label_uses_the_remove_label_endpoint_with_a_body():
+    client = RecordingClient()
+    NextcloudDeckGateway(client).remove_label(12, 46, 93, 50)
+    assert client.calls == [
+        ("PUT", f"{DECK_API}/boards/12/stacks/46/cards/93/removeLabel", {"labelId": 50})
+    ]

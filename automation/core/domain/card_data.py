@@ -30,3 +30,16 @@ def assigned_user_ids(card: Optional[dict[str, Any]]) -> list[str]:
         if found not in ids:
             ids.append(found)
     return ids
+
+
+def card_label_ids(card: Optional[dict[str, Any]]) -> list[str]:
+    """The ids (as text) of the labels on a Deck card's `labels` - dicts with an
+    `id` as Deck returns them, or plain ids. Best effort like assigned_user_ids:
+    anything unexpected is skipped, never raised."""
+
+    ids: list[str] = []
+    for entry in (card or {}).get("labels") or []:
+        found = entry.get("id") if isinstance(entry, dict) else entry
+        if isinstance(found, (int, str)) and not isinstance(found, bool) and str(found) not in ids:
+            ids.append(str(found))
+    return ids

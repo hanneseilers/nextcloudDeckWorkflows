@@ -28,7 +28,7 @@ def test_every_action_describes_itself_and_names_all_its_fields_in_german():
 
 def test_snapshot_carries_the_ui_metadata():
     modules = {m["name"]: m for m in _modules_snapshot()["modules"]}
-    assert modules["add_comment"]["param_labels"] == {"message": "Kommentar", "text_template": "Textvorlage (optional)"}
+    assert modules["add_comment"]["param_labels"] == {"message": "Kommentar (Text mit Platzhaltern)", "text_template": "Textvorlage (optional)"}
     assert modules["move_card"]["param_help"]["order"].startswith("Position")
     assert modules["calculate"]["output_labels"] == {"result": "Ergebnis"}
     assert modules["set_title"]["description"]
