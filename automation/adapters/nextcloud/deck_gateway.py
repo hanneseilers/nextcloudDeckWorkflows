@@ -46,6 +46,9 @@ class NextcloudDeckGateway:
         board = self._client.get(f"{DECK_API}/boards/{board_id}") or {}
         return board.get("labels") or []
 
+    def get_card(self, board_id: int, stack_id: int, card_id: int) -> dict[str, Any]:
+        return self._client.get(f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}") or {}
+
     def set_title(self, board_id: int, stack_id: int, card_id: int, title: str) -> None:
         self._update_card(
             board_id, stack_id, card_id, title=_shorten(title, TITLE_MAX_LENGTH, f"Title of card {card_id}")

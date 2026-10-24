@@ -606,13 +606,88 @@
     });
   }
 
+  // assign_user / unassign_user: one or several users. The chosen ones are
+  // shown as chips, the field below adds the next one (pick from the list, or
+  // type an id and press Enter / leave the field). Saved as the id itself for
+  // one user (as before) and as a list for several.
+  const userLabels = {}; // id -> display name, learned from search results
+
+  function userIdsOf(value) {
+    const parts = Array.isArray(value) ? value : [value];
+    const ids = [];
+    parts.forEach((part) => {
+      String(part === null || part === undefined ? '' : part).split(/[,;\n]/).forEach((piece) => {
+        const id = piece.trim();
+        if (id && !ids.includes(id)) {
+          ids.push(id);
+        }
+      });
+    });
+    return ids;
+  }
+
   function renderUserSearchField(entry) {
-    return renderTypeahead({
-      value: entry.value || '',
-      setValue: bindEntryValue(entry),
-      placeholder: 'Name eingeben (ab 3 Zeichen) oder User-Id direkt eintragen',
+    const box = document.createElement('div');
+    box.className = 'user-multi';
+    const chipsEl = document.createElement('div');
+    chipsEl.className = 'user-chips';
+    box.appendChild(chipsEl);
+
+    let ids = userIdsOf(entry.value);
+    let typed = '';
+
+    const store = () => {
+      entry.value = ids.length === 0 ? '' : ids.length === 1 ? ids[0] : ids.slice();
+      markDirty();
+    };
+    const drawChips = () => {
+      chipsEl.innerHTML = '';
+      chipsEl.hidden = ids.length === 0;
+      ids.forEach((id) => {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.title = id;
+        chip.append(userLabels[id] && userLabels[id] !== id ? userLabels[id] + ' (' + id + ')' : id);
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'chip-remove';
+        remove.textContent = '✕';
+        remove.title = 'Benutzer „' + id + '" entfernen';
+        remove.setAttribute('aria-label', remove.title);
+        remove.addEventListener('click', () => {
+          ids = ids.filter((other) => other !== id);
+          store();
+          drawChips();
+        });
+        chip.appendChild(remove);
+        chipsEl.appendChild(chip);
+      });
+    };
+    const addTyped = () => {
+      userIdsOf(typed).forEach((id) => {
+        if (!ids.includes(id)) {
+          ids.push(id);
+        }
+      });
+      typed = '';
+      input.value = '';
+      store();
+      drawChips();
+    };
+
+    const field = renderTypeahead({
+      value: '',
+      setValue: (value) => {
+        typed = value;
+      },
+      placeholder: 'Benutzer hinzufügen: Name eingeben (ab 3 Zeichen) oder User-Id + Enter',
       minChars: 3,
       debounceMs: 300,
+      onPick: (item) => {
+        userLabels[item.id] = item.label;
+        typed = item.id;
+        addTyped();
+      },
       loadOptions: async (query) => {
         if (!instanceEl.value) {
           return [];
@@ -623,6 +698,23 @@
         return (data.users || []).map((user) => ({ id: user.id, label: user.label }));
       },
     });
+    const input = field.querySelector('input');
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault(); // not "save the workflow"
+        if (typed.trim()) {
+          addTyped();
+        }
+      }
+    });
+    input.addEventListener('blur', () => {
+      if (typed.trim()) {
+        addTyped();
+      }
+    });
+    box.appendChild(field);
+    drawChips();
+    return box;
   }
 
   // Calendars are a short, per-instance list (like boards/stacks) - fetched
@@ -884,6 +976,9 @@
     input.addEventListener('input', () => {
       if (isCheckbox) {
         entry.value = input.checked;
+        if (opts.rerenderOnChange) {
+          render(); // e.g. "alle entfernen" hides the user field
+        }
       } else if (isTextarea) {
         // Object/array field: keep the textarea's raw JSON text parsed into a
         // real value. On invalid JSON, flag it and keep the last good value -
@@ -977,6 +1072,14 @@
     row.className = 'param-row';
 
     const module = modulesByName[target.module] || {};
+    // "Alle Benutzer entfernen" is on: there is nobody to name.
+    if (target.module === 'unassign_user' && key === 'user_id'
+        && target.params.all_users && target.params.all_users.source === 'literal' && target.params.all_users.value === true) {
+      const note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = 'Es werden alle Benutzer entfernt, die gerade zugewiesen sind.';
+      return note;
+    }
     const label = document.createElement('label');
     label.textContent = (module.param_labels || {})[key] || key;
     label.title = key; // the technical name, as stored in the YAML
@@ -992,6 +1095,7 @@
         isStackId: isStackIdField(target.module, key),
         isBoardId: isBoardIdField(target.module, key),
         isActionName: isActionNameField(target.module, key),
+        rerenderOnChange: target.module === 'unassign_user' && key === 'all_users',
         onActionChange: () => {
           // Another action: its fields start from their defaults.
           step.params.action_params = { source: 'literal', value: {} };

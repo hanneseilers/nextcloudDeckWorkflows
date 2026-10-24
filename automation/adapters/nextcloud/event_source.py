@@ -2,32 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 
+from automation.core.domain.card_data import assigned_user_ids
 from automation.core.domain.models import DeckEvent, EventType
 from automation.core.ports.deck_gateway import DeckGatewayPort
 from automation.core.ports.event_source import SnapshotStorePort
 
 
 def _assignee_ids(card: dict[str, Any]) -> set[str]:
-    """Best-effort extraction of assigned user ids from a Deck card's
-    `assignedUsers`. Not verified against a live Nextcloud instance - tries
-    the participant-wrapped shape first, then a couple of flatter fallbacks,
-    and simply yields no ids (never raises) if the shape doesn't match any of
-    them, so a schema mismatch degrades to "no CARD_ASSIGNED event" rather
-    than crashing the poll.
-    """
+    """The assigned user ids of a card (best effort, see assigned_user_ids)."""
 
-    ids: set[str] = set()
-    for entry in card.get("assignedUsers") or []:
-        if not isinstance(entry, dict):
-            continue
-        participant = entry.get("participant")
-        if isinstance(participant, dict) and participant.get("uid"):
-            ids.add(str(participant["uid"]))
-        elif entry.get("uid"):
-            ids.add(str(entry["uid"]))
-        elif entry.get("id") is not None:
-            ids.add(str(entry["id"]))
-    return ids
+    return set(assigned_user_ids(card))
 
 
 def _label_ids(card: dict[str, Any]) -> set[str]:

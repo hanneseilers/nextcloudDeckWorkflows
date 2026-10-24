@@ -8,7 +8,7 @@ class RecordingDeckGateway:
     (instance, board_id) in a set shared across the run - so the fixed-point
     loop in main.py only polls again the boards that can have changed: those
     that had events, plus those an action wrote to (e.g. copy_card's target
-    board). Read calls (list_*) and calls without a board (add_comment - its
+    board). Read calls (list_*, get_*) and calls without a board (add_comment - its
     card's board had the event anyway) pass straight through."""
 
     def __init__(self, inner: Any, instance: str, written: set[tuple[str, int]]) -> None:
@@ -18,7 +18,7 @@ class RecordingDeckGateway:
 
     def __getattr__(self, name: str) -> Any:
         target = getattr(self._inner, name)
-        if name.startswith("list_") or not callable(target):
+        if name.startswith(("list_", "get_")) or not callable(target):
             return target
 
         def recording(*args: Any, **kwargs: Any) -> Any:

@@ -35,6 +35,13 @@ class InMemoryDeckGateway:
     def list_labels(self, board_id: int) -> list[dict[str, Any]]:
         return self.labels.get(board_id, [])
 
+    def get_card(self, board_id: int, stack_id: int, card_id: int) -> dict[str, Any]:
+        self.calls.append(("get_card", board_id, stack_id, card_id))
+        card = self._find_card(board_id, stack_id, card_id)
+        if card is None:
+            raise KeyError(f"no card {card_id}")
+        return dict(card)
+
     def set_title(self, board_id: int, stack_id: int, card_id: int, title: str) -> None:
         self.calls.append(("set_title", board_id, stack_id, card_id, title))
         card = self._find_card(board_id, stack_id, card_id)
@@ -77,12 +84,17 @@ class InMemoryDeckGateway:
         card = self._find_card(board_id, stack_id, card_id)
         if card is not None:
             card.setdefault("assignees", []).append(user_id)
+            # as Deck returns it - what the actions read back through get_card
+            card.setdefault("assignedUsers", []).append({"participant": {"uid": user_id, "type": 0}})
 
     def unassign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
         self.calls.append(("unassign_user", board_id, stack_id, card_id, user_id))
         card = self._find_card(board_id, stack_id, card_id)
         if card is not None and user_id in card.get("assignees", []):
             card["assignees"].remove(user_id)
+            card["assignedUsers"] = [
+                entry for entry in card.get("assignedUsers", []) if entry["participant"]["uid"] != user_id
+            ]
 
     def add_comment(self, card_id: int, message: str) -> None:
         self.calls.append(("add_comment", card_id, message))

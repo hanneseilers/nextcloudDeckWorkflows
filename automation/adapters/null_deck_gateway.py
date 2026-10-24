@@ -33,6 +33,9 @@ class NullDeckGateway:
     def list_labels(self, board_id: int) -> list[dict[str, Any]]:
         return self._unsupported()
 
+    def get_card(self, board_id: int, stack_id: int, card_id: int) -> dict[str, Any]:
+        return self._unsupported()
+
     def set_title(self, board_id: int, stack_id: int, card_id: int, title: str) -> None:
         self._unsupported()
 
