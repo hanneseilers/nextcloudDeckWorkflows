@@ -113,14 +113,14 @@ try {
     (new WebhookPingStore($config->stateDbPath()))->recordPing($instanceName, $boardId);
 
     // Best-effort only: try to make automation/main.py react immediately
-    // instead of waiting for the next cron tick - but not more often than
-    // every WebhookThrottle::RUN_INTERVAL seconds, however many pings arrive
-    // (a run already started picks the other boards' pings up as well).
+    // instead of waiting for the next cron tick - while a run is going on
+    // not more often than every WebhookThrottle::RUN_INTERVAL seconds,
+    // however many pings arrive (main.py queues one run behind it).
     // proc_open/exec are commonly disabled on shared hosting - if this
     // silently does nothing, the ping above is still recorded correctly and
     // gets picked up on the next regular cron invocation regardless, just
     // not instantly.
-    if ($throttle->claimRun()) {
+    if ($throttle->claimRun(WebhookThrottle::runInProgress(dirname($config->stateDbPath()) . '/run.lock'))) {
         AutomationRunner::triggerNow();
     }
 

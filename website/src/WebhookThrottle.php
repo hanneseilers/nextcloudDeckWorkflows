@@ -12,12 +12,11 @@ namespace NextcloudDeckWorkflows;
  *  - valid pings: VALID_LIMIT per VALID_WINDOW seconds in total - a runaway
  *    or abused sender can't hammer the database.
  *  - automation runs started by a ping: at most one per RUN_INTERVAL seconds
- *    (the ping itself is always recorded, so a skipped start loses nothing -
- *    the run that is already coming picks the board up). Short on purpose:
- *    main.py itself queues a run behind a running one (--wait-lock, a single
- *    waiter), so more starts than this are wasted processes, while a long
- *    interval would leave a change that arrives right after a finished run
- *    waiting for the next cron tick.
+ *    while a run is in progress
+ *    (main.py queues one more behind it, so further starts are wasted
+ *    processes); with none in progress a ping always starts one, so a change
+ *    arriving right after a finished run doesn't wait for the next cron tick.
+ *    The ping itself is always recorded, so a skipped start loses nothing.
  *
  * Times are plain epoch seconds - they never leave PHP, so there is no
  * UTC/local question as with the timestamps shared with the Python side.
@@ -62,11 +61,46 @@ class WebhookThrottle
         });
     }
 
-    /** True (and remembered) if an automation run may be started now. */
-    public function claimRun(): bool
+    /**
+     * Whether an automation run is going on right now: probes the run lock
+     * (automation/var/run.lock, held by main.py for the whole run) without
+     * keeping it. null = can't tell (no flock, file not usable).
+     */
+    public static function runInProgress(string $lockPath): ?bool
     {
-        return $this->transaction(function (\PDO $pdo, int $now): bool {
-            if ($this->waitFor($pdo, 'run', '', 1, self::RUN_INTERVAL, $now) > 0) {
+        if (!function_exists('flock')) {
+            return null;
+        }
+        $handle = @fopen($lockPath, 'c');
+        if ($handle === false) {
+            return null;
+        }
+        try {
+            if (flock($handle, LOCK_SH | LOCK_NB, $wouldBlock)) {
+                flock($handle, LOCK_UN);
+                return false;
+            }
+            return $wouldBlock ? true : null;
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /**
+     * True (and remembered) if an automation run may be started now. With
+     * no run in progress, always: a ping that arrives right after a finished
+     * run must not wait for the next cron tick. While one is going on (or
+     * that can't be told), at most every RUN_INTERVAL seconds - main.py
+     * queues a run behind a running one (--wait-lock, a single waiter), so
+     * more starts than that are wasted processes. A flood of pings is
+     * limited by admitValid() anyway.
+     *
+     * @param bool|null $runInProgress runInProgress()'s answer
+     */
+    public function claimRun(?bool $runInProgress = null): bool
+    {
+        return $this->transaction(function (\PDO $pdo, int $now) use ($runInProgress): bool {
+            if ($runInProgress !== false && $this->waitFor($pdo, 'run', '', 1, self::RUN_INTERVAL, $now) > 0) {
                 return false;
             }
             $this->insert($pdo, 'run', '', $now);

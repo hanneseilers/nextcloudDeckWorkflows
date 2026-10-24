@@ -53,8 +53,23 @@ check('first ping may start a run', $throttle->claimRun() === true);
 check('a second one right after may not', $throttle->claimRun() === false);
 $now += WebhookThrottle::RUN_INTERVAL - 1;
 check('still not just before the interval is over', $throttle->claimRun() === false);
-$now += 2;
+check('...also when it can not be told whether a run is going on', $throttle->claimRun(null) === false);
+check('...and while a run is in progress', $throttle->claimRun(true) === false);
+check('but with no run in progress a ping always starts one', $throttle->claimRun(false) === true);
+$now += WebhookThrottle::RUN_INTERVAL + 1;
 check('a run may be started again after the interval', $throttle->claimRun() === true);
+
+// -- the run lock probe (same flock main.py's RunLock takes) ----------------------
+$lockFile = sys_get_temp_dir() . '/ncdw_run_' . bin2hex(random_bytes(4)) . '.lock';
+check('no lock file yet: no run in progress', WebhookThrottle::runInProgress($lockFile) === false);
+$held = fopen($lockFile, 'c');
+flock($held, LOCK_EX | LOCK_NB);
+check('a held exclusive lock means a run is in progress', WebhookThrottle::runInProgress($lockFile) === true);
+flock($held, LOCK_UN);
+fclose($held);
+check('released: no run in progress', WebhookThrottle::runInProgress($lockFile) === false);
+check('an unusable path means unknown', WebhookThrottle::runInProgress('/nonexistent-dir/run.lock') === null);
+@unlink($lockFile);
 
 // -- old rows are removed ----------------------------------------------------
 $now += 7200;

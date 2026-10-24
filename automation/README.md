@@ -519,8 +519,10 @@ Basic Auth, so the secret is the only credential):
   no IP is stored) and that client gets 429 with `Retry-After` - even with the
   right secret until the window passes; at most 60 valid pings per minute in
   total (429 above); an automation run is started at most every 2 seconds
-  (the ping is recorded either way; a change arriving within those 2 seconds
-  after a run that has already finished is picked up by the next cron run).
+  *while another run is in progress* (the website probes `run.lock`;
+  `main.py` queues one run behind it) - with no run in progress, a ping
+  always starts one, so a change right after a finished run isn't left to the
+  next cron tick. The ping is recorded either way.
 - A wrong secret and a missing one look the same (403); "not configured" is
   a bare 404.
 
