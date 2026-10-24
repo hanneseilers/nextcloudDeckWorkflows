@@ -792,3 +792,21 @@ tr.is-selected td {
 .step-outputs.card-info {
     margin-left: 0;
 }
+
+/* "Einmal-Link erstellen": the fields of the action the link runs */
+.linked-action {
+    margin: 0.25rem 0 0.75rem 0;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-radius: 0 4px 4px 0;
+}
+
+.linked-action-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.linked-action .param-row:last-child {
+    margin-bottom: 0;
+}

@@ -432,7 +432,7 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   and `link.php` must be reachable without the site's Basic Auth - see
   `website/README.md`.
 - **Params:** `action` (any action but `create_action_link` itself),
-  `action_params` (its params; `$ref`s are resolved when the link is
+  `action_params` (its params - the editor shows them as the chosen action's own fields; `$ref`s are resolved when the link is
   *created*, so they capture that moment), `success_message` (shown on
   success, empty = "Die Aktion wurde erfolgreich ausgeführt."),
   `valid_days` (days from creation the link can be used, 0/empty = no

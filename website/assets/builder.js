@@ -293,6 +293,44 @@
     return params;
   }
 
+  // "Einmal-Link erstellen" runs another action: its fields are edited right in
+  // the step, exactly like that action as a step of its own. They live in
+  // step.actionFields ({field: entry}, same entries as step.params) and become
+  // the `action_params` object when saving. Returns the chosen action's module,
+  // or null while no action is chosen / it is picked through a reference (the
+  // fields are unknown then - the plain "Felder der Action" JSON row is shown).
+  function syncActionFields(step) {
+    if (step.module !== 'create_action_link') {
+      return null;
+    }
+    const chosen = step.params.action;
+    const module = chosen && chosen.source === 'literal' && chosen.value !== 'create_action_link'
+      ? modulesByName[chosen.value]
+      : null;
+    const saved = step.params.action_params;
+    if (!module || !saved || saved.source !== 'literal') {
+      step.actionFields = null;
+      step.actionFieldsFor = null;
+      return null;
+    }
+    if (step.actionFieldsFor !== module.name) {
+      // First time (or another action chosen): the saved values - if any - on
+      // top of the action's defaults, like a standalone step loaded for editing.
+      const loaded = saved.value !== null && typeof saved.value === 'object' && !Array.isArray(saved.value) ? saved.value : {};
+      step.actionFields = defaultParamsFor(module.name);
+      step.actionExtra = {}; // keys the action doesn't declare (hand-written YAML): kept as they are
+      Object.keys(loaded).forEach((key) => {
+        if (key in step.actionFields) {
+          step.actionFields[key] = toInternalOperand(loaded[key]);
+        } else {
+          step.actionExtra[key] = loaded[key];
+        }
+      });
+      step.actionFieldsFor = module.name;
+    }
+    return module;
+  }
+
   function makeActionNode() {
     const firstModule = moduleNames[0] || '';
     return {
@@ -450,7 +488,7 @@
 
   // The action an one-time link runs: a dropdown of every action (not the
   // link action itself), value = the technical name.
-  function renderActionSelectField(entry) {
+  function renderActionSelectField(entry, onChange) {
     const select = document.createElement('select');
     const placeholder = document.createElement('option');
     placeholder.value = '';
@@ -466,7 +504,7 @@
     });
     select.addEventListener('change', () => {
       entry.value = select.value;
-      render(); // the step's info box lists the chosen action's fields
+      onChange(); // the step shows the chosen action's fields
     });
     return select;
   }
@@ -913,7 +951,7 @@
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
     } else if (opts.isActionName) {
-      wrapper.appendChild(renderActionSelectField(entry));
+      wrapper.appendChild(renderActionSelectField(entry, opts.onActionChange || render));
     } else if (opts.isBoardId) {
       wrapper.appendChild(renderBoardSearchField(entry));
     } else if (opts.isStackId) {
@@ -931,32 +969,41 @@
 
   // -- rendering: step tree ----------------------------------------------------
 
-  function renderParamRow(step, key, defaultValue) {
+  // One field of a step. `target` = {module, params}: the step itself, or - for
+  // "Einmal-Link erstellen" - the action it runs; `step` stays the node whose
+  // position decides which earlier steps a reference may pick from.
+  function renderParamRow(step, key, defaultValue, target = { module: step.module, params: step.params }) {
     const row = document.createElement('div');
     row.className = 'param-row';
 
-    const module = modulesByName[step.module] || {};
+    const module = modulesByName[target.module] || {};
     const label = document.createElement('label');
     label.textContent = (module.param_labels || {})[key] || key;
     label.title = key; // the technical name, as stored in the YAML
     row.appendChild(label);
 
     row.appendChild(
-      renderValueOrRefEditor(step.params[key], {
+      renderValueOrRefEditor(target.params[key], {
         owner: step,
         defaultValue,
-        isUserId: isUserIdField(step.module, key),
-        isCalendarId: isCalendarIdField(step.module, key),
-        isLabelId: isLabelIdField(step.module, key),
-        isStackId: isStackIdField(step.module, key),
-        isBoardId: isBoardIdField(step.module, key),
-        isActionName: isActionNameField(step.module, key),
+        isUserId: isUserIdField(target.module, key),
+        isCalendarId: isCalendarIdField(target.module, key),
+        isLabelId: isLabelIdField(target.module, key),
+        isStackId: isStackIdField(target.module, key),
+        isBoardId: isBoardIdField(target.module, key),
+        isActionName: isActionNameField(target.module, key),
+        onActionChange: () => {
+          // Another action: its fields start from their defaults.
+          step.params.action_params = { source: 'literal', value: {} };
+          step.actionFieldsFor = null;
+          render();
+        },
         // copy_card's target column belongs to its own target board, not the workflow's.
-        stackBoardIdOf: step.module === 'copy_card'
-          ? () => (step.params.target_board_id || {}).value
+        stackBoardIdOf: target.module === 'copy_card'
+          ? () => (target.params.target_board_id || {}).value
           : undefined,
-        formatHint: formatHintFor(step.module, key),
-        germanDateTime: isGermanDateTimeField(step.module, key),
+        formatHint: formatHintFor(target.module, key),
+        germanDateTime: isGermanDateTimeField(target.module, key),
       })
     );
 
@@ -984,15 +1031,15 @@
 
   // calculate reads as one line - left value, operation dropdown, right value
   // - instead of three stacked param rows.
-  function renderCalculateRow(step) {
+  function renderCalculateRow(step, params = step.params) {
     const row = document.createElement('div');
     row.className = 'calc-row';
-    row.appendChild(renderValueOrRefEditor(step.params.left, {
+    row.appendChild(renderValueOrRefEditor(params.left, {
       owner: step,
       defaultValue: modulesByName.calculate.input.left,
     }));
 
-    const opEntry = step.params.op;
+    const opEntry = params.op;
     if (opEntry.source === 'ref') {
       row.appendChild(renderValueOrRefEditor(opEntry, { owner: step }));
     } else {
@@ -1016,11 +1063,42 @@
       row.appendChild(opSelect);
     }
 
-    row.appendChild(renderValueOrRefEditor(step.params.right, {
+    row.appendChild(renderValueOrRefEditor(params.right, {
       owner: step,
       defaultValue: modulesByName.calculate.input.right,
     }));
     return row;
+  }
+
+  // The fields of the action a one-time link runs - the same rows as that
+  // action would have as a step of its own.
+  function renderLinkedActionFields(step, linked) {
+    const box = document.createElement('div');
+    box.className = 'linked-action';
+    const heading = document.createElement('div');
+    heading.className = 'linked-action-title';
+    heading.textContent = 'Felder von „' + moduleLabel(linked.name) + '" (läuft beim Aufruf des Links)';
+    box.appendChild(heading);
+    if (linked.description) {
+      const description = document.createElement('p');
+      description.className = 'muted small';
+      description.textContent = linked.description + ' Verweise auf frühere Schritte gelten zum Zeitpunkt, an dem der Link erstellt wird.';
+      box.appendChild(description);
+    }
+    const target = { module: linked.name, params: step.actionFields };
+    const keys = Object.keys(linked.input || {});
+    if (linked.name === 'calculate' && target.params.left && target.params.op && target.params.right) {
+      box.appendChild(renderCalculateRow(step, target.params));
+    } else {
+      keys.forEach((key) => box.appendChild(renderParamRow(step, key, linked.input[key], target)));
+    }
+    if (keys.length === 0) {
+      const none = document.createElement('p');
+      none.className = 'muted';
+      none.textContent = 'Diese Action hat keine Felder.';
+      box.appendChild(none);
+    }
+    return box;
   }
 
   function renderActionNode(step, list, index) {
@@ -1048,6 +1126,8 @@
     moduleSelect.addEventListener('change', () => {
       step.module = moduleSelect.value;
       step.params = defaultParamsFor(step.module);
+      step.actionFields = null;
+      step.actionFieldsFor = null;
       render();
     });
     header.appendChild(moduleSelect);
@@ -1085,10 +1165,23 @@
 
     if (module) {
       const keys = Object.keys(module.input || {});
+      const linkedModule = syncActionFields(step);
       if (step.module === 'calculate' && step.params.left && step.params.op && step.params.right) {
         paramsEl.appendChild(renderCalculateRow(step));
       } else {
         keys.forEach((key) => {
+          if (step.module === 'create_action_link' && key === 'action_params' && linkedModule) {
+            paramsEl.appendChild(renderLinkedActionFields(step, linkedModule));
+            return;
+          }
+          if (step.module === 'create_action_link' && key === 'action_params' && !linkedModule
+              && step.params.action && step.params.action.source === 'literal') {
+            const hint = document.createElement('p');
+            hint.className = 'muted';
+            hint.textContent = 'Zuerst oben eine Action wählen - ihre Felder erscheinen dann hier.';
+            paramsEl.appendChild(hint);
+            return;
+          }
           paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
         });
       }
@@ -1160,21 +1253,6 @@
     addParagraph(box, inputs.length === 0 ? 'Dieser Schritt hat keine Eingabefelder.' : 'Eingabefelder:');
     if (inputs.length > 0) {
       box.appendChild(renderFieldList(inputs, module.param_labels || {}, module.param_help || {}));
-    }
-
-    // "Einmal-Link erstellen" takes another action's fields as a JSON object:
-    // show which ones the chosen action needs.
-    const chosen = step.module === 'create_action_link' && step.params.action && step.params.action.source === 'literal'
-      ? modulesByName[step.params.action.value]
-      : null;
-    if (chosen) {
-      const chosenInputs = Object.keys(chosen.input || {});
-      addParagraph(box, 'Felder der gewählten Action „' + moduleLabel(chosen.name) + '" (für „Felder der Action"):');
-      if (chosenInputs.length > 0) {
-        box.appendChild(renderFieldList(chosenInputs, chosen.param_labels || {}, chosen.param_help || {}));
-      } else {
-        addParagraph(box, 'Diese Action hat keine Felder.', 'muted');
-      }
     }
 
     addParagraph(box, outputs.length === 0
@@ -1423,6 +1501,13 @@
         return;
       }
       Object.keys(node.params).forEach((key) => renameOperand(node.params[key]));
+      // A one-time link's action fields (and keys it has no field for).
+      Object.keys(node.actionFields || {}).forEach((key) => renameOperand(node.actionFields[key]));
+      if (node.actionExtra) {
+        Object.keys(node.actionExtra).forEach((key) => {
+          node.actionExtra[key] = renameInValue(node.actionExtra[key]);
+        });
+      }
       if (oldId) {
         seen[oldId] = newId;
       }
@@ -1483,6 +1568,14 @@
       Object.keys(node.params).forEach((key) => {
         params[key] = operandValue(node.params[key]);
       });
+      if (syncActionFields(node)) {
+        // The fields edited under the chosen action become the link's action_params.
+        const actionParams = { ...(node.actionExtra || {}) };
+        Object.keys(node.actionFields).forEach((key) => {
+          actionParams[key] = operandValue(node.actionFields[key]);
+        });
+        params.action_params = actionParams;
+      }
 
       return { id, module: node.module, params };
     });

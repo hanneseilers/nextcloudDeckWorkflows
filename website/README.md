@@ -70,6 +70,14 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   page. Useful for typing an id directly or checking that a label belongs
   to the workflow's board (labels are per board - another board's label id
   makes Deck answer "Label does not exist").
+- **"Einmal-Link erstellen"** shows the chosen action's fields right in the
+  step - the same rows (pickers, "Wert übernehmen", date fields ...) the action
+  has as a step of its own - instead of a JSON box. They are saved as the
+  step's `action_params` object (`syncActionFields()` in `assets/builder.js`);
+  keys the action doesn't declare (hand-written YAML) are kept, and picking
+  another action starts from that action's defaults. If the action itself is
+  taken from a reference, its fields are unknown and the JSON row stays.
+  References inside the fields follow renamed steps like any other.
 - **Form controls** (inputs, dropdowns, textareas) share one look through the
   `--control-*` variables at the top of `assets/style.css` (applied with a
   zero-specificity `:where()` rule), so filters, folder forms and the log page
