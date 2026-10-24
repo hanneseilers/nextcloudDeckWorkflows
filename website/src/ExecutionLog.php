@@ -45,6 +45,14 @@ class ExecutionLog
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->exec('PRAGMA busy_timeout = 5000');
 
+        // The database file can exist without this table: the website itself
+        // creates it for a test-run request or webhook ping that arrives
+        // before `python -m automation.main` ever ran.
+        $hasTable = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'execution_log'")->fetchColumn();
+        if ($hasTable === false) {
+            return [];
+        }
+
         // Rows, not runs, carry workflow_id/event_type/card_id - but LIMIT
         // has to apply to *runs*, since a run can span several action rows.
         // Find the most recent $limit run ids first (MAX(id) as an

@@ -26,6 +26,14 @@ class TestRunStore
     {
         $testRunId = bin2hex(random_bytes(16));
         $pdo = $this->connect();
+        // A test run can be requested before `python -m automation.main` ever
+        // ran (it creates this table) - create it here, same schema, so the
+        // request is simply waiting for that first run instead of failing.
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS test_runs ('
+            . 'id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, card_id INTEGER NOT NULL, '
+            . 'status TEXT NOT NULL, run_id TEXT, error TEXT, created_at TEXT NOT NULL, completed_at TEXT)'
+        );
         $stmt = $pdo->prepare(
             "INSERT INTO test_runs (id, workflow_id, card_id, status, created_at) "
             . "VALUES (:id, :workflow_id, :card_id, 'pending', :created_at)"
@@ -46,9 +54,13 @@ class TestRunStore
             return null;
         }
         $pdo = $this->connect();
-        $stmt = $pdo->prepare('SELECT * FROM test_runs WHERE id = :id');
-        $stmt->execute([':id' => $testRunId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM test_runs WHERE id = :id');
+            $stmt->execute([':id' => $testRunId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            return null; // the table doesn't exist yet - nothing was requested
+        }
         if ($row === false) {
             return null;
         }
@@ -58,6 +70,10 @@ class TestRunStore
 
     private function connect(): \PDO
     {
+        $dir = dirname($this->dbPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
         $pdo = new \PDO('sqlite:' . $this->dbPath);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         // Waits instead of immediately failing with "database is locked" if
