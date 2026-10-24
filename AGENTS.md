@@ -23,8 +23,9 @@ Workflow automation for Nextcloud Deck, built to run on shared webspace:
 - `tools/build.sh` / `tools/install.sh` - package a deployable upload and
   guide a shared-hosting install. Not needed for local dev.
 
-Both halves read/write the **same files** (`workflows/*.yaml`,
-`automation/var/state.sqlite3`, `config/*.yaml`) - there is no API
+Both halves read/write the **same files** (`workflows/**/*.yaml`,
+`automation/var/state.sqlite3`, `config/*.yaml`; the website's workflow
+folders are real subdirectories, ids are unique across them) - there is no API
 between them, no shared process, and PHP never shells out to Python (it's
 often disabled on shared hosting) or vice versa. If you need the website
 to react to something Python computed, write it to one of those shared

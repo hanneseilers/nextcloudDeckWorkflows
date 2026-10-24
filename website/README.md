@@ -52,7 +52,20 @@ long random token in the URL is its credential) and, if you use webhooks,
   (`src/ModuleRegistry.php`) - written automatically by every
   `python -m automation.main` run (see `automation/main.py`). If that file
   doesn't exist yet, run `python -m automation.main --list-modules` once.
-- Reads/writes `workflows/*.yaml` (`src/WorkflowRepository.php`) in the exact
+- **Folders:** the overview navigates a real directory tree below `workflows/`
+  (breadcrumb, subfolders with counts). Folders can be created, renamed, moved
+  and deleted (only when empty - nothing is removed along with a folder) from
+  the page; workflows can be created in a folder, moved between folders, and
+  the editor has an "Ordner" dropdown. Folder names are plain (letters
+  incl. umlauts, digits, space, `-`, `_`; up to 60 characters; at most 6 levels
+  deep) - every path is validated in `WorkflowRepository::normalizeFolder`
+  before touching the filesystem. A workflow's id stays unique across all
+  folders (the file is always `<id>.yaml`), the automation reads the whole tree,
+  hidden (`.name`) and symlinked folders are ignored. The folder is just where
+  the file lies - it isn't stored in the YAML, so moving a workflow never
+  changes its history. `tools/test_workflow_repository.php` is a standalone
+  check of the repository.
+- Reads/writes `workflows/**/*.yaml` (`src/WorkflowRepository.php`) in the exact
   schema `automation/adapters/persistence/yaml_workflow_repository.py` expects,
   including the `{"$ref": "<step_id>.<field>"}` output-to-input mapping
   convention from `automation/core/domain/engine.py`.

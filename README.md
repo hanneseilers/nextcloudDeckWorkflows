@@ -6,7 +6,7 @@ Workflow automation for the [Nextcloud Deck](https://apps.nextcloud.com/apps/dec
 
 - **website/** — A web UI for selecting a configured Nextcloud instance and its boards/decks, and defining automation workflows for them. See [website/README.md](website/README.md).
 - **automation/** — A Python script that periodically executes the configured workflows in the background (e.g. via cron job). See [automation/README.md](automation/README.md).
-- **workflows/** — Storage for the workflow definitions created via the website.
+- **workflows/** — Storage for the workflow definitions created via the website; they can be organized in real subfolders (managed in the website).
 - **config/** — YAML configuration files (Nextcloud connections, credentials, general settings).
 
 Want to add your own capability beyond the modules shipped here (e.g. a
