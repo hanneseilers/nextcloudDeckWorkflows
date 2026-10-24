@@ -34,7 +34,7 @@ regelmäßig, ob sich auf den konfigurierten Boards etwas geändert hat, und
 führt die passenden Workflows aus.
 
 **Voraussetzung für alles Folgende:** mindestens eine Nextcloud-Instanz ist
-in `config/nextcloud.yaml` eingetragen (siehe `config/nextcloud.example.yaml`)
+in `config/nextcloud.yaml` eingetragen (das erledigt `./configure.sh`, siehe README)
 und das Automatisierungs-Skript wurde schon mindestens einmal ausgeführt
 (`python -m automation.main --list-modules` reicht aus), damit die Website
 die verfügbaren Module kennt.

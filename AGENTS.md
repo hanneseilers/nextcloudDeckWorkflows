@@ -19,9 +19,13 @@ Workflow automation for Nextcloud Deck, built to run on shared webspace:
   and managing workflows. Writes/reads the same `workflows/*.yaml` files
   and the same `automation/var/state.sqlite3` the Python side owns.
 - `config/` - YAML config (`*.example.yaml` are templates; the real
-  `*.yaml` files are gitignored, created locally or by `tools/install.sh`).
-- `tools/build.sh` / `tools/install.sh` - package a deployable upload and
-  guide a shared-hosting install. Not needed for local dev.
+  `*.yaml` files are gitignored, created locally or by `tools/configure.sh`,
+  which `tools/install.sh` calls). The config schema (keys, defaults, German
+  explanations) lives in `automation/config/configure.py`; the examples are
+  generated from it (`--write-examples`) and a test checks they match - when
+  you add a setting, add it there too, not only to `settings.py`/`Config.php`.
+- `tools/build.sh` / `tools/install.sh` / `tools/configure.sh` - package a
+  deployable upload, guide a shared-hosting install, and (re)configure it. Not needed for local dev.
 
 Both halves read/write the **same files** (`workflows/**/*.yaml`,
 `automation/var/state.sqlite3`, `config/*.yaml`; the website's workflow

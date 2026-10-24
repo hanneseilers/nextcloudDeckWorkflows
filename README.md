@@ -26,11 +26,24 @@ The repository itself isn't directly uploadable (dev-only files, no `vendor/`, n
 
 1. On your dev machine: `tools/build.sh` exports the current (or a given) git ref, strips developer-only files, bundles `website/vendor/` via Composer, and produces an upload-ready folder and `.zip`/`.tar.gz` in `build/upload/`.
 2. Upload that folder/archive to your webspace - into the domain's document root or any subdirectory (e.g. `/tools/deck/`); the included `.htaccess` sends visitors on to `website/` and blocks everything else (see `website/README.md`).
-3. On the server, inside the uploaded directory: run `./install.sh` - it walks you through PHP/Python dependencies, writes `config/*.yaml` interactively, optionally sets up HTTP Basic Auth for `website/`, checks write permissions, offers to add the cron job, and verifies everything at the end.
+3. On the server, inside the uploaded directory: run `./install.sh` - it walks you through PHP/Python dependencies, runs `./configure.sh` (see below) to write `config/*.yaml`, optionally sets up HTTP Basic Auth for `website/`, checks write permissions, offers to add the cron job, and verifies everything at the end.
+
+### Configuration: `configure.sh`
+
+`./configure.sh` (in the upload folder; `tools/configure.sh` in the repository) reads `config/nextcloud.yaml`, `settings.yaml` and `smtp.yaml` and goes through every value: what is already set is offered for adoption (Enter), what is missing is proposed with its default and marked `[NEU]`. The files are always written complete - every value with a comment saying what it is for, including the optional sections (`error_notifications`, `webhooks`, written with `enabled: false`) - and the previous file is kept as `*.yaml.bak`. `install.sh` uses it for its configuration step, so a first install proposes all defaults.
+
+```bash
+./configure.sh                            # all files
+./configure.sh settings                   # one file (nextcloud | settings | smtp)
+./configure.sh --missing                  # only values a newer version added
+./configure.sh --get settings.public_url  # print one value
+```
+
+The `config/*.example.yaml` templates are generated from the same definition (`python -m automation.config.configure --write-examples`); a test fails if they drift apart.
 
 ## Getting started (manual / development setup)
 
-1. Configure your Nextcloud connection(s) in `config/` (copy the `*.example.yaml` files).
+1. Configure your Nextcloud connection(s): `tools/configure.sh`, or copy the `config/*.example.yaml` files by hand.
 2. Use the website to create and manage workflows for your decks; workflows are saved as YAML files in `workflows/`.
 3. Schedule `automation/` to run periodically via cron to execute the workflows in the background.
 

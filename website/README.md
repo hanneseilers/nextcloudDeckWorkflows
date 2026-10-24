@@ -69,6 +69,11 @@ long random token in the URL is its credential) and, if you use webhooks,
   page. Useful for typing an id directly or checking that a label belongs
   to the workflow's board (labels are per board - another board's label id
   makes Deck answer "Label does not exist").
+- **Form controls** (inputs, dropdowns, textareas) share one look through the
+  `--control-*` variables at the top of `assets/style.css` (applied with a
+  zero-specificity `:where()` rule), so filters, folder forms and the log page
+  match the editor. The navigation has no "new workflow" button - workflows
+  are created in the folder view ("Workflow hier anlegen").
 - **Step ids** are assigned by the editor, not typed: `<module>_<n>` in run
   order across all if/else branches (`add_label_1`, `add_label_2`, ...),
   re-assigned on every add/remove/move/module change (`assignStepIds()` in

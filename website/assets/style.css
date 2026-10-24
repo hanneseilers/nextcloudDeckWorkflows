@@ -3,6 +3,24 @@
     --border: #ccc;
     --danger: #b3261e;
     --accent: #2f6f4f;
+    /* Form controls - one look everywhere (workflow editor, filters, folder
+       forms, log page ...), so nothing falls back to the browser's smaller
+       default. */
+    --control-font-size: 1rem;
+    --control-padding: 0.4rem;
+    --control-radius: 4px;
+    --control-border: 1px solid var(--border);
+}
+
+/* :where() keeps the specificity at zero, so every rule below (widths,
+   display, per-page tweaks) still wins over it. */
+:where(input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="submit"], [type="button"],
+        [type="reset"], [type="range"], [type="color"], [type="file"], [type="image"]), select, textarea) {
+    font: inherit;
+    font-size: var(--control-font-size); /* not the smaller text of a surrounding hint/details block */
+    padding: var(--control-padding);
+    border: var(--control-border);
+    border-radius: var(--control-radius);
 }
 
 body {
@@ -111,10 +129,6 @@ fieldset textarea {
     width: 100%;
     max-width: 480px;
     margin-top: 0.25rem;
-    padding: 0.4rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font: inherit;
 }
 
 .step {

@@ -311,8 +311,7 @@ What that means for the settings here (defaults changed accordingly):
 
 ```bash
 pip install -r automation/requirements-dev.txt
-cp config/nextcloud.example.yaml config/nextcloud.yaml   # then fill in your instance(s)
-cp config/settings.example.yaml config/settings.yaml
+tools/configure.sh                   # asks for every config value (or: copy config/*.example.yaml by hand)
 
 python -m automation.main            # one real run, driven by workflows/*.yaml
 python -m automation.main --dry-run  # wiring smoke test, no config/network needed

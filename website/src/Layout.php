@@ -40,7 +40,7 @@ final class Layout
                 . self::icon($icon) . ' ' . h($label) . '</a>';
         }
         $version = self::version();
-        echo '</span><a class="button with-icon" href="new.php">' . self::icon('plus') . ' Neuer Workflow</a>'
+        echo '</span>'
             . ($version !== '' ? '<span class="app-version" title="Version von Nextcloud Deck Workflows">v' . h($version) . '</span>' : '')
             . '</nav>'
             . '<header><h1>' . h($heading) . '</h1></header>';
