@@ -610,6 +610,25 @@
     });
   }
 
+  // A string like "{$ref: step.field}" inside a JSON value: written in the
+  // YAML-like shorthand the docs use, but quoted - which makes it plain text.
+  // Returns the first one found ({text, ref}) or null.
+  function findRefAsText(value) {
+    if (typeof value === 'string') {
+      const match = /^\s*\{\s*"?\$ref"?\s*:\s*"?([^"}\s]+)"?\s*\}\s*$/.exec(value);
+      return match ? { text: value.trim(), ref: match[1] } : null;
+    }
+    if (value !== null && typeof value === 'object') {
+      for (const item of Object.values(value)) {
+        const found = findRefAsText(item);
+        if (found) {
+          return found;
+        }
+      }
+    }
+    return null;
+  }
+
   // Renders the literal-vs-ref editor for any {source, value, refStep,
   // refField} entry - used for both a module's params (where the literal
   // side's input type comes from the module's declared default value) and an
@@ -832,8 +851,17 @@
         // real value. On invalid JSON, flag it and keep the last good value -
         // collectPayload() refuses to submit while any field is flagged.
         try {
-          entry.value = input.value.trim() === '' ? opts.defaultValue : JSON.parse(input.value);
-          input.classList.remove('invalid');
+          const parsed = input.value.trim() === '' ? opts.defaultValue : JSON.parse(input.value);
+          const refText = findRefAsText(parsed);
+          if (refText) {
+            // "{$ref: a.b}" in quotes is just text - the engine would insert it as it is.
+            input.classList.add('invalid');
+            input.dataset.errorMessage = '„' + refText.text + '" steht in Anführungszeichen und ist damit nur Text, '
+              + 'kein Verweis. Ein Verweis ist ein Objekt ohne Anführungszeichen drumherum: {"$ref": "' + refText.ref + '"}';
+          } else {
+            entry.value = parsed;
+            input.classList.remove('invalid');
+          }
         } catch (e) {
           input.classList.add('invalid');
           input.dataset.errorMessage = 'Ungültiges JSON: ' + e.message;

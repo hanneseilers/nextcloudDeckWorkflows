@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional
 
@@ -276,6 +277,9 @@ class WorkflowEngine:
             )
 
 
+_REF_AS_TEXT = re.compile(r'^\s*\{\s*"?\$ref"?\s*:\s*"?([^"}\s]+)"?\s*\}\s*$')
+
+
 def _resolve_params(params: Any, outputs_by_step: dict[str, dict[str, Any]]) -> Any:
     """Recursively resolves a step's params against prior steps' outputs.
 
@@ -292,6 +296,12 @@ def _resolve_params(params: Any, outputs_by_step: dict[str, dict[str, Any]]) -> 
         return {key: _resolve_params(value, outputs_by_step) for key, value in params.items()}
     if isinstance(params, list):
         return [_resolve_params(item, outputs_by_step) for item in params]
+    if isinstance(params, str) and _REF_AS_TEXT.match(params):
+        # The shorthand from the docs, but as a quoted string: it's plain text.
+        logger.warning(
+            "A value is the text %r, not a reference - write it as an object: {\"$ref\": \"%s\"}",
+            params.strip(), _REF_AS_TEXT.match(params).group(1),
+        )
     return params
 
 

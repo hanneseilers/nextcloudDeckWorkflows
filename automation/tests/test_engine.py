@@ -527,3 +527,16 @@ def test_test_runs_and_single_runs_are_not_subject_to_the_once_per_run_rule():
     engine.run_single(workflow, event, deck)
 
     assert len(action.calls) == 3
+
+
+def test_a_quoted_ref_shorthand_is_text_and_logs_a_warning(caplog):
+    from automation.core.domain.engine import _resolve_params
+
+    with caplog.at_level("WARNING"):
+        result = _resolve_params(
+            {"link": "{$ref: create_action_link_1.url}", "ok": {"$ref": "card.title"}, "plain": "Freigabe $name"},
+            {"card": {"title": "T"}},
+        )
+    assert result["link"] == "{$ref: create_action_link_1.url}"  # unchanged: it IS text
+    assert result["ok"] == "T" and result["plain"] == "Freigabe $name"
+    assert any("create_action_link_1.url" in record.getMessage() for record in caplog.records)
