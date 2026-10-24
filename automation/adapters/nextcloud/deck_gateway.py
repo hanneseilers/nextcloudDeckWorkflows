@@ -50,8 +50,11 @@ class NextcloudDeckGateway:
         )
 
     def add_label(self, board_id: int, stack_id: int, card_id: int, label_id: int) -> None:
+        # Deck's documented endpoint is PUT .../assignLabel with the label id in
+        # the body - a PUT to .../label/{id} is answered with 405 by real instances.
         self._client.put(
-            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/label/{label_id}"
+            f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/assignLabel",
+            json={"labelId": label_id},
         )
 
     def assign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
@@ -91,8 +94,16 @@ class NextcloudDeckGateway:
         # this avoids accidentally clearing title/description/duedate on every call.
         path = f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}"
         card = self._client.get(path) or {}
+        owner = card.get("owner")
+        if isinstance(owner, dict):
+            owner = owner.get("uid") or owner.get("primaryKey")
+        # Deck's update also expects type/owner/order (its controller declares
+        # them as parameters) - sent back unchanged so they're never reset.
         payload = {
             "title": card.get("title"),
+            "type": card.get("type") or "plain",
+            "owner": owner,
+            "order": card.get("order") or 0,
             "description": card.get("description"),
             "duedate": card.get("duedate"),
         }
