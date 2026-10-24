@@ -344,8 +344,33 @@
     return node.displayNumber || node.id;
   }
 
-  function collectVariableNames(list) {
-    return collectAllSteps(list)
+  // The action steps that run before `target` (an action or if node): every
+  // step earlier in the tree, including both branches of an if/else that
+  // precedes it - but not the other branch of the if/else `target` sits in,
+  // nor anything after it, since those can't have produced a value yet.
+  function stepsBefore(target, list = state.steps) {
+    const result = [];
+    for (const node of list) {
+      if (node === target) {
+        return { found: true, steps: result };
+      }
+      if (node.kind === 'action') {
+        result.push(node);
+        continue;
+      }
+      for (const branch of [node.then, node.else]) {
+        const inner = stepsBefore(target, branch);
+        if (inner.found) {
+          return { found: true, steps: result.concat(inner.steps) };
+        }
+      }
+      result.push(...collectAllSteps(node.then), ...collectAllSteps(node.else));
+    }
+    return { found: false, steps: result };
+  }
+
+  function variableNamesFrom(steps) {
+    return steps
       .filter((node) => node.module === 'set_variable' && node.params.name && node.params.name.source === 'literal')
       .map((node) => node.params.name.value)
       .filter((name) => !!name);
@@ -592,8 +617,18 @@
   // Appends the ref-picker UI (source-step select + output-field picker
   // listing the source's known fields, with a free-text fallback) to `wrapper` for an entry whose
   // source is "ref".
-  function appendRefOperandFields(wrapper, entry) {
-    const refSources = [{ id: 'card' }, { id: 'vars' }, ...collectAllSteps(state.steps)];
+  function appendRefOperandFields(wrapper, entry, owner) {
+    // Only steps that run before this one can have produced a value.
+    const earlier = owner ? stepsBefore(owner).steps : collectAllSteps(state.steps);
+    const refSources = [{ id: 'card' }, { id: 'vars' }, ...earlier];
+    // A saved reference to a later (or deleted) step stays visible - marked -
+    // instead of silently showing an empty choice.
+    if (entry.refStep && !refSources.some((source) => source.id === entry.refStep)) {
+      const later = collectAllSteps(state.steps).find((node) => node.id === entry.refStep);
+      refSources.push(later
+        ? { ...later, warning: ' – kommt erst danach, hat hier noch keinen Wert' }
+        : { id: entry.refStep, module: null, warning: ' – unbekannter Schritt' });
+    }
     const refSelect = document.createElement('select');
     const emptyOpt = document.createElement('option');
     emptyOpt.value = '';
@@ -602,7 +637,7 @@
     refSources.forEach((source) => {
       const option = document.createElement('option');
       option.value = source.id;
-      option.textContent = sourceLabel(source);
+      option.textContent = (source.module || source.id === 'card' || source.id === 'vars' ? sourceLabel(source) : source.id) + (source.warning || '');
       option.title = source.id;
       option.selected = source.id === entry.refStep;
       refSelect.appendChild(option);
@@ -618,7 +653,7 @@
         return CARD_FIELDS;
       }
       if (stepId === 'vars') {
-        return collectVariableNames(state.steps).map((name) => [name, name]);
+        return variableNamesFrom(earlier).map((name) => [name, name]);
       }
       const refStepObj = refSources.find((s) => s.id === stepId);
       const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
@@ -845,7 +880,7 @@
     wrapper.appendChild(sourceSelect);
 
     if (entry.source === 'ref') {
-      appendRefOperandFields(wrapper, entry);
+      appendRefOperandFields(wrapper, entry, opts.owner);
     } else if (opts.isUserId) {
       wrapper.appendChild(renderUserSearchField(entry));
     } else if (opts.isActionName) {
@@ -879,6 +914,7 @@
 
     row.appendChild(
       renderValueOrRefEditor(step.params[key], {
+        owner: step,
         defaultValue,
         isUserId: isUserIdField(step.module, key),
         isCalendarId: isCalendarIdField(step.module, key),
@@ -923,12 +959,13 @@
     const row = document.createElement('div');
     row.className = 'calc-row';
     row.appendChild(renderValueOrRefEditor(step.params.left, {
+      owner: step,
       defaultValue: modulesByName.calculate.input.left,
     }));
 
     const opEntry = step.params.op;
     if (opEntry.source === 'ref') {
-      row.appendChild(renderValueOrRefEditor(opEntry, {}));
+      row.appendChild(renderValueOrRefEditor(opEntry, { owner: step }));
     } else {
       const opSelect = document.createElement('select');
       // A hand-written op outside the four known ones is shown as-is instead
@@ -951,6 +988,7 @@
     }
 
     row.appendChild(renderValueOrRefEditor(step.params.right, {
+      owner: step,
       defaultValue: modulesByName.calculate.input.right,
     }));
     return row;
@@ -985,6 +1023,15 @@
     });
     header.appendChild(moduleSelect);
 
+    const infoBtn = document.createElement('button');
+    infoBtn.type = 'button';
+    infoBtn.className = 'icon-btn info-btn';
+    infoBtn.textContent = 'i';
+    infoBtn.title = 'Welche Werte liefert dieser Schritt?';
+    infoBtn.setAttribute('aria-label', infoBtn.title);
+    infoBtn.setAttribute('aria-expanded', step.showOutputs ? 'true' : 'false');
+    header.appendChild(infoBtn);
+
     header.appendChild(renderMoveRemoveControls(list, index));
     wrapper.appendChild(header);
 
@@ -995,6 +1042,15 @@
       description.textContent = module.description;
       wrapper.appendChild(description);
     }
+
+    const outputsEl = renderOutputsInfo(step, module);
+    outputsEl.hidden = !step.showOutputs;
+    infoBtn.addEventListener('click', () => {
+      step.showOutputs = !step.showOutputs; // UI state only - not part of the saved workflow
+      outputsEl.hidden = !step.showOutputs;
+      infoBtn.setAttribute('aria-expanded', step.showOutputs ? 'true' : 'false');
+    });
+    wrapper.appendChild(outputsEl);
     const paramsEl = document.createElement('div');
     paramsEl.className = 'params';
 
@@ -1038,6 +1094,41 @@
     return wrapper;
   }
 
+  // What a step hands on to later steps - its output fields - and how to use them.
+  function renderOutputsInfo(step, module) {
+    const box = document.createElement('div');
+    box.className = 'step-outputs';
+    const outputs = Object.keys((module && module.output) || {});
+    const labels = (module && module.output_labels) || {};
+    const intro = document.createElement('p');
+    if (outputs.length === 0) {
+      intro.textContent = 'Dieser Schritt liefert keine Werte für spätere Schritte.';
+      box.appendChild(intro);
+    } else {
+      intro.textContent = 'Dieser Schritt liefert für spätere Schritte:';
+      box.appendChild(intro);
+      const listEl = document.createElement('ul');
+      outputs.forEach((name) => {
+        const item = document.createElement('li');
+        item.textContent = (labels[name] || name) + (labels[name] ? ' (' + name + ')' : '');
+        listEl.appendChild(item);
+      });
+      box.appendChild(listEl);
+      const how = document.createElement('p');
+      how.className = 'muted';
+      how.textContent = 'Verwenden: in einem späteren Schritt bei einem Feld „Wert übernehmen" wählen, dann '
+        + '„Schritt ' + step.displayNumber + ': ' + moduleLabel(step.module) + '" und das gewünschte Feld.';
+      box.appendChild(how);
+    }
+    if (step.module === 'set_variable') {
+      const note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = 'Außerdem steht der Wert in späteren Schritten unter „Variablen" und in Texten als $Name zur Verfügung.';
+      box.appendChild(note);
+    }
+    return box;
+  }
+
   function renderMoveRemoveControls(list, index) {
     const controls = document.createElement('span');
     controls.className = 'step-controls';
@@ -1076,7 +1167,7 @@
     // Left value, operator and right value each get their own line.
     const conditionEl = document.createElement('div');
     conditionEl.className = 'if-condition';
-    conditionEl.appendChild(renderValueOrRefEditor(node.condition.left, {}));
+    conditionEl.appendChild(renderValueOrRefEditor(node.condition.left, { owner: node }));
 
     const opSelect = document.createElement('select');
     CONDITION_OPS.forEach(([value, text]) => {
@@ -1093,7 +1184,7 @@
     opRow.appendChild(opSelect);
     conditionEl.appendChild(opRow);
 
-    conditionEl.appendChild(renderValueOrRefEditor(node.condition.right, {}));
+    conditionEl.appendChild(renderValueOrRefEditor(node.condition.right, { owner: node }));
     wrapper.appendChild(conditionEl);
 
     wrapper.appendChild(renderBranch('Dann:', node.then));

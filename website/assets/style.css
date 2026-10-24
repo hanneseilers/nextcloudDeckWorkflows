@@ -526,3 +526,28 @@ button:disabled {
     font-size: 0.75rem;
     color: #999;
 }
+
+.info-btn {
+    font-style: italic;
+    font-weight: 700;
+    font-family: Georgia, serif;
+}
+
+.step-outputs {
+    margin: 0 0 0.5rem 2.5rem;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid var(--accent);
+    background: #f4f8f6;
+    font-size: 0.9rem;
+}
+
+.step-outputs p,
+.step-outputs ul {
+    margin: 0.2rem 0;
+}
+
+@media (max-width: 640px) {
+    .step-outputs {
+        margin-left: 0;
+    }
+}
