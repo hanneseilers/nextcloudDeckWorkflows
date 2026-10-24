@@ -69,6 +69,17 @@ long random token in the URL is its credential) and, if you use webhooks,
   page. Useful for typing an id directly or checking that a label belongs
   to the workflow's board (labels are per board - another board's label id
   makes Deck answer "Label does not exist").
+- **Step ids** are assigned by the editor, not typed: `<module>_<n>` in run
+  order across all if/else branches (`add_label_1`, `add_label_2`, ...),
+  re-assigned on every add/remove/move/module change (`assignStepIds()` in
+  `assets/builder.js`), so they're always unique. References in params,
+  conditions and JSON values follow a renamed step; a reference to a removed
+  step becomes `<id>-entfernt` (shown as "unbekannter Schritt") instead of
+  silently pointing at the step that inherits its name. Older workflows are
+  renamed the first time they're opened and saved - a reference to an id
+  that was used twice resolves to the latest step before it, which is also
+  what the engine did at run time. Hand-written YAML may still use any id;
+  the step's "i" box shows its id.
 - **Docs (`docs.php`):** reference of every step type from `modules.json`:
   description, input fields (real names as in the YAML / "Felder der
   Action", German label, help text, default value) and output fields - the

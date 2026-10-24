@@ -92,7 +92,6 @@
     }
   });
   let idManuallyEdited = false;
-  let stepCounter = 1; // unique default step ids regardless of nesting/removal
 
   const stepsEl = document.getElementById('steps');
   const errorEl = document.getElementById('error-banner');
@@ -298,7 +297,7 @@
     const firstModule = moduleNames[0] || '';
     return {
       kind: 'action',
-      id: 'step' + stepCounter++,
+      id: '', // assigned by assignStepIds() on the next render
       module: firstModule,
       params: defaultParamsFor(firstModule),
     };
@@ -1074,25 +1073,6 @@
     }
     wrapper.appendChild(paramsEl);
 
-    // Rarely needed, so out of the way: the name later steps use to refer to
-    // this step's output (the "Wert übernehmen" list shows it as "Schritt N").
-    const advanced = document.createElement('details');
-    advanced.className = 'step-advanced';
-    const summary = document.createElement('summary');
-    summary.textContent = 'Erweitert';
-    advanced.appendChild(summary);
-    const idLabel = document.createElement('label');
-    idLabel.textContent = 'Schritt-Id (technischer Name für Verweise) ';
-    const idInput = document.createElement('input');
-    idInput.type = 'text';
-    idInput.value = step.id;
-    idInput.addEventListener('input', () => {
-      step.id = idInput.value;
-    });
-    idLabel.appendChild(idInput);
-    advanced.appendChild(idLabel);
-    wrapper.appendChild(advanced);
-
     return wrapper;
   }
 
@@ -1135,6 +1115,19 @@
     box.className = 'step-outputs';
     const inputs = Object.keys((module && module.input) || {});
     const outputs = Object.keys((module && module.output) || {});
+
+    // The step's id (assigned automatically, see assignStepIds) - the name a
+    // reference to it uses in the YAML.
+    const idLine = document.createElement('p');
+    idLine.append('Schritt-Id: ');
+    const idCode = document.createElement('code');
+    idCode.className = 'step-id';
+    idCode.textContent = step.id;
+    idLine.appendChild(idCode);
+    idLine.append(outputs.length > 0
+      ? ' – in der YAML z. B. {$ref: ' + step.id + '.' + outputs[0] + '}'
+      : ' – wird automatisch aus Modul und Nummer vergeben');
+    box.appendChild(idLine);
 
     addParagraph(box, inputs.length === 0 ? 'Dieser Schritt hat keine Eingabefelder.' : 'Eingabefelder:');
     if (inputs.length > 0) {
@@ -1314,7 +1307,108 @@
     });
   }
 
+  // Step ids are not typed by hand: every action step is named after its
+  // module plus how often that module has come up so far, in the order the
+  // steps run ("add_label_1", "add_label_2", ...), across all if/else
+  // branches - so they are always unique. Re-assigned on every render (add,
+  // remove, move, module change); every reference to a renamed step - in
+  // params, conditions and JSON values like template_data - follows it.
+  let assignedIds = new Set(); // the ids handed out by the previous assignStepIds()
+
+  function assignStepIds() {
+    const counts = {};
+    const order = []; // [node, newId, oldId] in run order
+    (function walk(list) {
+      list.forEach((node) => {
+        if (node.kind === 'if') {
+          order.push([node, null, null]);
+          walk(node.then);
+          walk(node.else);
+          return;
+        }
+        counts[node.module] = (counts[node.module] || 0) + 1;
+        order.push([node, node.module + '_' + counts[node.module], node.id]);
+      });
+    })(state.steps);
+
+    // A reference means the latest step with that id that ran before it -
+    // that's what the engine resolves at run time, which also settles ids
+    // that a workflow saved by an older version used twice. Failing that
+    // (a reference to a later step), the first step with that id.
+    const firstByOldId = {};
+    order.forEach(([node, newId, oldId]) => {
+      if (newId !== null && oldId && !(oldId in firstByOldId)) {
+        firstByOldId[oldId] = newId;
+      }
+    });
+    const seen = {};
+    const rename = (oldId) => {
+      if (oldId === 'card' || oldId === 'vars') {
+        return oldId;
+      }
+      if (oldId in seen) {
+        return seen[oldId];
+      }
+      if (oldId in firstByOldId) {
+        return firstByOldId[oldId];
+      }
+      // The step was removed: its name may now go to another step of the
+      // same module, so the reference must not silently move over to that
+      // one - it is marked instead (shown as "unbekannter Schritt").
+      return assignedIds.has(oldId) ? oldId + '-entfernt' : oldId;
+    };
+    const renameInValue = (value) => {
+      if (Array.isArray(value)) {
+        return value.map(renameInValue);
+      }
+      if (value !== null && typeof value === 'object') {
+        if (Object.keys(value).length === 1 && typeof value.$ref === 'string') {
+          const dot = value.$ref.indexOf('.');
+          const stepId = dot === -1 ? value.$ref : value.$ref.slice(0, dot);
+          return { $ref: rename(stepId) + (dot === -1 ? '' : value.$ref.slice(dot)) };
+        }
+        const copy = {};
+        Object.keys(value).forEach((key) => {
+          copy[key] = renameInValue(value[key]);
+        });
+        return copy;
+      }
+      return value;
+    };
+    const renameOperand = (entry) => {
+      if (!entry) {
+        return;
+      }
+      if (entry.source === 'ref') {
+        if (entry.refStep) {
+          entry.refStep = rename(entry.refStep);
+        }
+      } else {
+        entry.value = renameInValue(entry.value);
+      }
+    };
+
+    order.forEach(([node, newId, oldId]) => {
+      if (newId === null) {
+        renameOperand(node.condition.left);
+        renameOperand(node.condition.right);
+        return;
+      }
+      Object.keys(node.params).forEach((key) => renameOperand(node.params[key]));
+      if (oldId) {
+        seen[oldId] = newId;
+      }
+    });
+    order.forEach(([node, newId]) => {
+      if (newId !== null) {
+        node.id = newId;
+      }
+    });
+    assignedIds = new Set(order.filter(([, newId]) => newId !== null).map(([, newId]) => newId));
+  }
+
   function render() {
+    assignStepIds();
     assignNumbers(state.steps, '');
     stepsEl.innerHTML = '';
     renderStepList(state.steps, stepsEl);
@@ -1493,7 +1587,9 @@
     Object.keys(raw.params || {}).forEach((key) => {
       params[key] = toInternalOperand(raw.params[key]);
     });
-    return { kind: 'action', id: raw.id || 'step' + stepCounter++, module: raw.module, params };
+    // The saved id is kept only until the first render: assignStepIds() then
+    // renames it (and every reference to it) to the module_N scheme.
+    return { kind: 'action', id: raw.id || '', module: raw.module, params };
   }
 
   function initializeForEdit(existing) {

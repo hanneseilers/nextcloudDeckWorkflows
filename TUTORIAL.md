@@ -108,7 +108,8 @@ Im Workflow aus Schritt 1, unter **4. Was passiert?**:
 
 1. **+ Schritt** (vor dem bestehenden `add_comment`-Schritt per
    ↑ nach oben verschieben), Modul „Variable setzen“ (`set_variable`):
-   - unter „Erweitert“ die Schritt-Id `titel` eintragen (darauf verweisen spätere Schritte)
+   - die Schritt-Id vergibt der Editor selbst aus Modul und Nummer: `set_variable_1`
+     (erstes „Variable setzen“ im Workflow; steht in der Info-Box „i“ des Schritts)
    - Feld „Name“ (`name`): `titel`
    - Feld „Wert“ (`value`): auf **Wert übernehmen** umschalten, Quelle „Karte“,
      Ausgabefeld `title`
@@ -120,7 +121,7 @@ Im Workflow aus Schritt 1, unter **4. Was passiert?**:
 
 ```yaml
 actions:
-  - id: titel
+  - id: set_variable_1
     module: set_variable
     params:
       name: "titel"
@@ -146,10 +147,10 @@ eine Fälligkeit von 3 Tagen gesetzt werden.
 
 1. Unter **2. Wo?**: Spalte jetzt auf "Neu" setzen (statt "Alle Spalten").
 2. Unter **4. Was passiert?**, zwei neue Schritte am Ende hinzufügen:
-   - Modul „Datum verschieben“ (`date_offset`), Id `faellig`, Feld „Tage“ (`days`) = `3` (Feld „Ausgangsdatum“ (`base`)
+   - Modul „Datum verschieben“ (`date_offset`) - Id `date_offset_1` -, Feld „Tage“ (`days`) = `3` (Feld „Ausgangsdatum“ (`base`)
      leer lassen - dann wird ab heute gerechnet)
    - Modul „Fälligkeitsdatum setzen“ (`set_due_date`), Feld „Fälligkeitsdatum“ (`due_date`) auf **Wert übernehmen** umschalten,
-     Quelle `faellig`, Ausgabefeld `date`
+     Quelle „Schritt …: Datum verschieben“ (`date_offset_1`), Ausgabefeld `date`
 3. **Workflow speichern**.
 
 ### YAML
@@ -159,7 +160,7 @@ trigger:
   event: card_created
   stack_id: 10   # die Id der Spalte "Neu"
 actions:
-  - id: titel
+  - id: set_variable_1
     module: set_variable
     params:
       name: "titel"
@@ -167,17 +168,17 @@ actions:
   - module: add_comment
     params:
       message: "Ticket zu '$titel' wurde erfasst."
-  - id: faellig
+  - id: date_offset_1
     module: date_offset
     params:
       days: 3
   - module: set_due_date
     params:
-      due_date: {$ref: faellig.date}
+      due_date: {$ref: date_offset_1.date}
 ```
 
 `date_offset` ohne `base` rechnet ab dem aktuellen Zeitpunkt; sein Ergebnis
-(`faellig.date`) wird direkt in `set_due_date` weitergereicht - zwei
+(`date_offset_1.date`) wird direkt in `set_due_date` weitergereicht - zwei
 Module, die zusammenarbeiten, ohne dass eine eigene Code-Zeile dafür nötig
 war.
 
@@ -206,7 +207,7 @@ Unter **4. Was passiert?**, am Ende **+ Wenn/Sonst** hinzufügen:
 
 ```yaml
 actions:
-  # ... (titel, add_comment, faellig, set_due_date wie in Schritt 3) ...
+  # ... (set_variable_1, add_comment, date_offset_1, set_due_date wie in Schritt 3) ...
   - type: if
     condition:
       left: {$ref: card.title}
@@ -244,13 +245,13 @@ gespeicherte Liste geprüft, siehe automation/README.md).
 
 Am Ende der Schrittliste:
 
-1. Modul „Zufallszahl erzeugen“ (`generate_random_number`), Id `nummer`. Felder: `list_name` =
+1. Modul „Zufallszahl erzeugen“ (`generate_random_number`) - Id `generate_random_number_1`. Felder: `list_name` =
    `tickets`, `min_digits` = `4` (also mind. 4-stellig, z. B. "0273"),
    `save` = aktiviert (Standard - die Nummer wird als "vergeben"
    gespeichert).
-2. Modul „Variable setzen“ (`set_variable`), Id `nummer_var`: `name` = `ticket_nr`, `value`
-   per Referenz von `nummer`, Feld „Zahl“ (`number`).
-3. Modul „Beschreibung setzen“ (`set_description`), Feld `description` per Referenz von `nummer`,
+2. Modul „Variable setzen“ (`set_variable`) - Id `set_variable_2`, das zweite „Variable setzen“: `name` = `ticket_nr`, `value`
+   per Referenz von `generate_random_number_1`, Feld „Zahl“ (`number`).
+3. Modul „Beschreibung setzen“ (`set_description`), Feld `description` per Referenz von `generate_random_number_1`,
    Feld „Zahl“ (`number`) - die Nummer wird so direkt auf der Karte gespeichert,
    nicht nur in diesem einen Workflow-Lauf.
 4. Im bestehenden `add_comment`-Schritt die Nachricht erweitern, z. B.
@@ -261,20 +262,20 @@ Am Ende der Schrittliste:
 
 ```yaml
 actions:
-  # ... (titel, faellig, set_due_date, if/else wie zuvor) ...
-  - id: nummer
+  # ... (set_variable_1, date_offset_1, set_due_date, if/else wie zuvor) ...
+  - id: generate_random_number_1
     module: generate_random_number
     params:
       list_name: "tickets"
       min_digits: 4
-  - id: nummer_var
+  - id: set_variable_2
     module: set_variable
     params:
       name: "ticket_nr"
-      value: {$ref: nummer.number}
+      value: {$ref: generate_random_number_1.number}
   - module: set_description
     params:
-      description: {$ref: nummer.number}
+      description: {$ref: generate_random_number_1.number}
   - module: add_comment
     params:
       message: "Ticket-Nr: $ticket_nr. Ticket zu '$titel' wurde erfasst."

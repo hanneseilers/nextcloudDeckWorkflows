@@ -470,7 +470,6 @@ tr.is-disabled td:not(.actions) {
     margin-left: auto;
 }
 
-.step-advanced,
 details.advanced {
     margin: 0.25rem 0 0 2.5rem;
     font-size: 0.9rem;
@@ -480,7 +479,6 @@ details.advanced {
     margin-left: 0;
 }
 
-.step-advanced summary,
 details.advanced summary {
     cursor: pointer;
     color: #666;
@@ -492,8 +490,7 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
-    .step-description,
-    .step-advanced {
+    .step-description {
         margin-left: 0;
     }
     .workflow-table th:nth-child(2),
