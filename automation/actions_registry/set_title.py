@@ -9,10 +9,14 @@ SetTitleAction = make_simple_card_action(
     param_label="Titel",
     param_name="title",
     default_value="",
+    output_label="Titel",
     deck_method="set_title",
     doc="""Renames the triggering card (changes its title).
 
     params:
       title: str - the new card title
+
+    output:
+      title: str - the title that was set
     """,
 )

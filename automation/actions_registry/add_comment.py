@@ -24,10 +24,15 @@ class AddCommentAction(WorkflowAction):
     PARAM_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar"}
     PARAM_HELP: ClassVar[dict[str, str]] = {"message": "Variablen aus \"Variable setzen\" mit $name einsetzen, z. B. Ticket $nummer."}
 
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"message": "Kommentar"}
+
     def default_input(self) -> dict[str, Any]:
+        return {"message": ""}
+
+    def default_output(self) -> dict[str, Any]:
         return {"message": ""}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         message = Template(params["message"]).safe_substitute(**context.variables)
         context.deck.add_comment(card_id=context.event.card_id, message=message)
-        return {}
+        return {"message": message}  # as posted, i.e. with $placeholders filled in

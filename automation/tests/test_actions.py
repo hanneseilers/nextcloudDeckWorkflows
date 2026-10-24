@@ -31,7 +31,7 @@ def test_set_title_renames_the_card():
     output = SetTitleAction().execute(make_context(deck), {"title": "New title"})
 
     assert deck.stacks[1][0]["cards"][0]["title"] == "New title"
-    assert output == {}
+    assert output == {"title": "New title"}
 
 
 def test_set_description_changes_content():
@@ -97,3 +97,35 @@ def test_set_variable_writes_into_the_shared_context_variables():
 
     assert context.variables == {"greeting": "hi"}
     assert output == {"name": "greeting", "value": "hi"}
+
+
+def test_card_edit_actions_return_what_they_set():
+    from automation.actions_registry.add_comment import AddCommentAction
+    from automation.actions_registry.set_due_date import SetDueDateAction
+
+    deck = make_deck()
+    ctx = make_context(deck)
+    ctx.variables["nr"] = "0042"
+
+    assert SetDescriptionAction().execute(ctx, {"description": "Text"}) == {"description": "Text"}
+    assert SetDueDateAction().execute(ctx, {"due_date": "2026-12-31T00:00:00+00:00"}) == {"due_date": "2026-12-31T00:00:00+00:00"}
+    assert SetDueDateAction().execute(ctx, {}) == {"due_date": None}  # cleared
+    assert AddCommentAction().execute(ctx, {"message": "Ticket $nr"}) == {"message": "Ticket 0042"}
+
+
+def test_add_label_returns_id_and_name_from_the_board_labels():
+    from automation.actions_registry.add_label import AddLabelAction
+
+    deck = make_deck()
+    deck.labels[1] = [{"id": 99, "title": "Priorität hoch"}, {"id": 100, "title": "Bug"}]
+    assert AddLabelAction().execute(make_context(deck), {"label_id": 99}) == {"label_id": 99, "label_name": "Priorität hoch"}
+    assert AddLabelAction().execute(make_context(deck), {"label_id": 7}) == {"label_id": 7, "label_name": None}
+
+
+def test_add_label_still_adds_when_the_name_lookup_fails():
+    from automation.actions_registry.add_label import AddLabelAction
+
+    deck = make_deck()
+    deck.list_labels = lambda board_id: (_ for _ in ()).throw(RuntimeError("down"))
+    assert AddLabelAction().execute(make_context(deck), {"label_id": 99}) == {"label_id": 99, "label_name": None}
+    assert ("add_label", 1, 10, 100, 99) in deck.calls

@@ -17,6 +17,7 @@ class InMemoryDeckGateway:
 
     def __init__(self, stacks: Optional[dict[int, list[dict[str, Any]]]] = None) -> None:
         self.stacks: dict[int, list[dict[str, Any]]] = stacks or {}
+        self.labels: dict[int, list[dict[str, Any]]] = {}
         self.calls: list[tuple] = []
 
     def list_boards(self) -> list[dict[str, Any]]:
@@ -30,6 +31,9 @@ class InMemoryDeckGateway:
             if stack["id"] == stack_id:
                 return stack.get("cards", [])
         return []
+
+    def list_labels(self, board_id: int) -> list[dict[str, Any]]:
+        return self.labels.get(board_id, [])
 
     def set_title(self, board_id: int, stack_id: int, card_id: int, title: str) -> None:
         self.calls.append(("set_title", board_id, stack_id, card_id, title))

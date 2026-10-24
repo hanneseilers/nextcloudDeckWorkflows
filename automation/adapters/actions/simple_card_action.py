@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 from automation.adapters.actions.base import WorkflowAction
 from automation.core.ports.action_module import ActionContext
@@ -16,6 +16,7 @@ def make_simple_card_action(
     default_value: Any,
     deck_method: str,
     optional: bool = False,
+    output_label: Optional[str] = None,
     doc: str,
 ) -> type[WorkflowAction]:
     """Builds a WorkflowAction subclass for the common "write one field of the
@@ -27,6 +28,8 @@ def make_simple_card_action(
     here), since the deck gateway differs per run. `optional=True` (only
     set_due_date needs this) reads the param with .get() instead of [...],
     so a missing/None value is tolerated instead of raising KeyError.
+    With `output_label` the action returns the value it wrote under the
+    param's own name (e.g. {"title": ...}), so later steps can use it.
     """
 
     class _SimpleCardAction(WorkflowAction):
@@ -34,9 +37,13 @@ def make_simple_card_action(
         LABEL: ClassVar[str] = label
         DESCRIPTION: ClassVar[str] = description
         PARAM_LABELS: ClassVar[dict[str, str]] = {param_name: param_label}
+        OUTPUT_LABELS: ClassVar[dict[str, str]] = {param_name: output_label} if output_label else {}
 
         def default_input(self) -> dict[str, Any]:
             return {param_name: default_value}
+
+        def default_output(self) -> dict[str, Any]:
+            return {param_name: default_value} if output_label else {}
 
         def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
             value = params.get(param_name) if optional else params[param_name]
@@ -46,7 +53,7 @@ def make_simple_card_action(
                 card_id=context.event.card_id,
                 **{param_name: value},
             )
-            return {}
+            return {param_name: value} if output_label else {}
 
     _SimpleCardAction.__doc__ = doc
     _SimpleCardAction.__name__ = action_name

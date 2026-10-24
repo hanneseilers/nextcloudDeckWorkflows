@@ -9,6 +9,7 @@ SetDueDateAction = make_simple_card_action(
     param_label="Fälligkeitsdatum",
     param_name="due_date",
     default_value=None,
+    output_label="Fälligkeitsdatum",
     deck_method="set_due_date",
     optional=True,
     doc="""Sets (or clears) the due date of the triggering card.
@@ -16,5 +17,8 @@ SetDueDateAction = make_simple_card_action(
     params:
       due_date: str | None - ISO-8601 timestamp (e.g. "2026-01-31T00:00:00+00:00"),
                               or null/omitted to clear the due date
+
+    output:
+      due_date: str | None - the due date that was set (None = cleared)
     """,
 )

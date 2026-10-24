@@ -26,6 +26,12 @@ class NextcloudDeckGateway:
                 return stack.get("cards", [])
         return []
 
+    def list_labels(self, board_id: int) -> list[dict[str, Any]]:
+        # The single-board endpoint embeds the board's labels (not verified
+        # against a live instance - same assumption as the website's picker).
+        board = self._client.get(f"{DECK_API}/boards/{board_id}") or {}
+        return board.get("labels") or []
+
     def set_title(self, board_id: int, stack_id: int, card_id: int, title: str) -> None:
         self._update_card(board_id, stack_id, card_id, title=title)
 

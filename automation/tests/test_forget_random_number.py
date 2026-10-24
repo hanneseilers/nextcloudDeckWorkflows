@@ -50,3 +50,11 @@ def test_raises_a_clear_error_when_no_sequence_store_is_configured():
 
 def test_declares_its_input_shape():
     assert ForgetRandomNumberAction().default_input() == {"list_name": "default", "number": ""}
+
+
+def test_reports_whether_the_number_was_removed():
+    store = InMemorySequenceStore()
+    store.add_number("default", "0042")
+
+    assert ForgetRandomNumberAction().execute(make_context(store), {"number": "0042"}) == {"removed": True}
+    assert ForgetRandomNumberAction().execute(make_context(store), {"number": "0042"}) == {"removed": False}

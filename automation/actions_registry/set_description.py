@@ -9,6 +9,7 @@ SetDescriptionAction = make_simple_card_action(
     param_label="Beschreibung",
     param_name="description",
     default_value="",
+    output_label="Beschreibung",
     deck_method="set_description",
     doc="""Replaces the content/description of the triggering card.
 

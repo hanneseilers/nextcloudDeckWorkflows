@@ -23,21 +23,29 @@ class ForgetRandomNumberAction(WorkflowAction):
       list_name: str - same list generate_random_number used (default "default")
       number: str - the number to remove
 
-    output: (none)
+    output:
+      removed: bool - true if the number was in the list and got removed,
+        false if it wasn't there (nothing to do)
     """
 
     ACTION_NAME: ClassVar[str] = "forget_random_number"
     LABEL: ClassVar[str] = "Zufallszahl entfernen"
     DESCRIPTION: ClassVar[str] = "Gibt eine zuvor erzeugte Zufallszahl wieder frei, damit sie erneut vergeben werden kann."
     PARAM_LABELS: ClassVar[dict[str, str]] = {"list_name": "Liste", "number": "Zahl"}
+    OUTPUT_LABELS: ClassVar[dict[str, str]] = {"removed": "Entfernt (ja/nein)"}
 
     def default_input(self) -> dict[str, Any]:
         return {"list_name": "default", "number": ""}
+
+    def default_output(self) -> dict[str, Any]:
+        return {"removed": False}
 
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         if context.sequence_store is None:
             raise RuntimeError("forget_random_number: no sequence store available for this run")
 
         list_name = str(params.get("list_name") or "default")
-        context.sequence_store.remove_number(list_name, str(params["number"]))
-        return {}
+        number = str(params["number"])
+        removed = context.sequence_store.contains_number(list_name, number)
+        context.sequence_store.remove_number(list_name, number)
+        return {"removed": removed}
