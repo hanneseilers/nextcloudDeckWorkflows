@@ -36,6 +36,7 @@ if (!is_array($payload)) {
 
 $config = Config::fromRepoRoot();
 $modules = ModuleRegistry::fromRepoRoot();
+$modules->refreshIfStale(); // an outdated list (after an update) is renewed in the background
 $workflows = new WorkflowRepository($config->workflowsDir());
 
 $errors = [];
@@ -136,7 +137,10 @@ function processSteps(array $steps, ModuleRegistry $modules, array &$errors, arr
 
         $moduleName = (string) ($step['module'] ?? '');
         if ($modules->get($moduleName) === null) {
-            $errors[] = 'Schritt ' . ($index + 1) . ": unbekanntes Modul '$moduleName'.";
+            $errors[] = 'Schritt ' . ($index + 1) . ": unbekanntes Modul '$moduleName'."
+                . (!$modules->isFresh()
+                    ? ' Die Modulliste ist veraltet (die Software wurde aktualisiert) und wird gerade erneuert - bitte in ein paar Sekunden noch einmal speichern.'
+                    : '');
             continue;
         }
 

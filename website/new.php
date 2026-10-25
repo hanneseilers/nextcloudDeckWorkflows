@@ -13,6 +13,7 @@ use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
 $modules = ModuleRegistry::fromRepoRoot();
+$modulesStale = !$modules->refreshIfStale(); // an outdated list is renewed in the background
 $eventTypes = EventTypes::labels();
 
 $editId = (string) ($_GET['id'] ?? '');
@@ -43,6 +44,10 @@ if ($currentFolder !== '' && !in_array($currentFolder, $allFolders, true)) {
 
 ?>
 <?php Layout::start($isEdit ? 'Workflow bearbeiten' : 'Neuer Workflow', $isEdit ? 'Workflow bearbeiten: ' . (string) $existingWorkflow['name'] : 'Neuer Workflow'); ?>
+
+<?php if ($modulesStale && $modules->isAvailable()): ?>
+    <?= Layout::staleModulesNotice() ?>
+<?php endif; ?>
 
 <?php if ($editId !== '' && $existingWorkflow === null): ?>
     <p class="notice error">Workflow '<?= h($editId) ?>' nicht gefunden.</p>

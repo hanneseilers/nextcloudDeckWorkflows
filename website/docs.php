@@ -10,6 +10,7 @@ use NextcloudDeckWorkflows\ModuleRegistry;
 // as in the YAML and in "Felder der Action") and the values it hands on -
 // the same texts as a step's "i" box in the editor, all on one page.
 $registry = ModuleRegistry::fromRepoRoot();
+$modulesStale = !$registry->refreshIfStale(); // an outdated list is renewed in the background
 $modules = $registry->all();
 usort($modules, static fn (array $a, array $b) => strcoll(mb_strtolower($a['label'] ?? $a['name']), mb_strtolower($b['label'] ?? $b['name'])));
 
@@ -45,6 +46,10 @@ function defaultValue(mixed $value): string
 }
 ?>
 <?php Layout::start('Doku', 'Dokumentation', 'docs'); ?>
+
+<?php if ($modulesStale && $registry->isAvailable()): ?>
+    <?= Layout::staleModulesNotice() ?>
+<?php endif; ?>
 
 <?php if (!$registry->isAvailable()): ?>
     <p class="notice">Noch keine <code>automation/var/modules.json</code> - sie entsteht beim ersten Lauf von

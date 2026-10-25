@@ -17,6 +17,16 @@ class AutomationRunner
     }
 
     /**
+     * Has the automation write a new module list (`--list-modules`) - after an
+     * update, so the editor shows the new fields without waiting for the next cron
+     * run. Takes about a second and needs no Nextcloud, config or lock.
+     */
+    public static function refreshModules(): void
+    {
+        self::start('--list-modules');
+    }
+
+    /**
      * Starts just this one queued test run (`--test-run <id>`): no board
      * polling, so the answer is there in seconds. The id comes from
      * TestRunStore (hex only) and is validated again before it reaches a shell.

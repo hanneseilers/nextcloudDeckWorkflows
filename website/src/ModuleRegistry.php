@@ -7,6 +7,13 @@ namespace NextcloudDeckWorkflows;
  * (any mode - see automation/main.py::_write_modules_snapshot). No shell_exec
  * of Python is needed from PHP, which is often disabled on shared webspace -
  * the snapshot file is refreshed on every automation run instead.
+ *
+ * After an update the file is still the old version's until the next run - with
+ * a cron job every few hours the editor would offer the old fields (and refuse
+ * a new module as "unknown") for hours. So the snapshot carries a fingerprint
+ * of the modules' code (automation/adapters/actions/loader.py::code_fingerprint),
+ * isFresh() compares it with the code that is there now, and refreshInBackground()
+ * has the automation write a new one right away (best effort, see AutomationRunner).
  */
 class ModuleRegistry
 {
@@ -45,6 +52,66 @@ class ModuleRegistry
     public function isAvailable(): bool
     {
         return is_file($this->snapshotPath);
+    }
+
+    /** Where the modules' code lives, relative to automation/ - the same list as FINGERPRINT_DIRS in loader.py. */
+    private const FINGERPRINT_DIRS = ['actions_registry', 'adapters/actions'];
+
+    /**
+     * The fingerprint of the code that is installed now: sha1 over
+     * "<path>\0<sha1 of the content>\n" for every *.py of the module folders,
+     * sorted by path - computed exactly like code_fingerprint() in Python.
+     */
+    public function currentFingerprint(): string
+    {
+        $automation = dirname($this->snapshotPath, 2);
+        $entries = [];
+        foreach (self::FINGERPRINT_DIRS as $directory) {
+            foreach (glob($automation . '/' . $directory . '/*.py') ?: [] as $file) {
+                $entries[$directory . '/' . basename($file)] = sha1_file($file);
+            }
+        }
+        ksort($entries, SORT_STRING);
+        $digest = '';
+        foreach ($entries as $relative => $contentHash) {
+            $digest .= $relative . "\0" . $contentHash . "\n";
+        }
+        return sha1($digest);
+    }
+
+    /** The fingerprint the snapshot was written with, '' if it has none (written by an older version). */
+    public function snapshotFingerprint(): string
+    {
+        if (!is_file($this->snapshotPath)) {
+            return '';
+        }
+        $data = json_decode((string) file_get_contents($this->snapshotPath), true);
+        return is_array($data) && is_string($data['fingerprint'] ?? null) ? $data['fingerprint'] : '';
+    }
+
+    /** True if the module list was written by the code that is installed now. */
+    public function isFresh(): bool
+    {
+        return $this->isAvailable() && hash_equals($this->currentFingerprint(), $this->snapshotFingerprint());
+    }
+
+    /**
+     * Asks for a new module list if the current one is missing or outdated - at
+     * most once every 30 seconds however many pages are opened meanwhile. True
+     * if the list is fresh already, false if a refresh was (or just had been)
+     * started or couldn't be (then the next automation run writes it).
+     */
+    public function refreshIfStale(): bool
+    {
+        if ($this->isFresh()) {
+            return true;
+        }
+        $marker = dirname($this->snapshotPath) . '/modules.refresh';
+        if (!is_file($marker) || filemtime($marker) < time() - 30) {
+            @touch($marker);
+            AutomationRunner::refreshModules();
+        }
+        return false;
     }
 
     /**

@@ -93,6 +93,18 @@ final class Layout
         return is_file($file) ? trim((string) file_get_contents($file)) : '';
     }
 
+    /**
+     * The notice shown while the module list is older than the code (after an
+     * update): it is being renewed right now - the page has to be loaded again.
+     */
+    public static function staleModulesNotice(): string
+    {
+        return '<p class="notice" id="modules-stale" role="status">Die Software wurde aktualisiert - die Liste der Schritte und '
+            . 'ihrer Felder wird gerade neu erzeugt und enthält bis dahin evtl. noch nicht alles Neue. '
+            . '<a href="">Seite neu laden</a> (nach ein paar Sekunden; im Editor vorher speichern). Klappt es nicht, '
+            . 'einmal <code>python -m automation.main --list-modules</code> ausführen oder den nächsten Cron-Lauf abwarten.</p>';
+    }
+
     public static function end(): void
     {
         echo '</body></html>';

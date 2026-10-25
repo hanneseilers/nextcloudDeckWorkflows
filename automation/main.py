@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from automation import actions_registry
-from automation.adapters.actions.loader import ModuleLoader
+from automation.adapters.actions.loader import ModuleLoader, code_fingerprint
 from automation.adapters.nextcloud.calendar_gateway import NextcloudCalendarGateway
 from automation.adapters.nextcloud.client import NextcloudClient
 from automation.adapters.nextcloud.deck_gateway import NextcloudDeckGateway
@@ -605,13 +606,16 @@ def _modules_snapshot() -> dict[str, Any]:
             "input": action.default_input(),
             "output": action.default_output(),
         })
-    return {"modules": modules}
+    return {"modules": modules, "fingerprint": code_fingerprint(Path(__file__).resolve().parent)}
 
 
 def _write_modules_snapshot(path: Path) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(_modules_snapshot(), indent=2))
+        # Written whole or not at all: the website may read it at any moment.
+        temp = path.with_name(path.name + ".tmp")
+        temp.write_text(json.dumps(_modules_snapshot(), indent=2))
+        os.replace(temp, path)
     except Exception:
         # The website falls back to "no modules found" if this is stale/missing -
         # never let a snapshot-writing problem stop the actual workflow run.

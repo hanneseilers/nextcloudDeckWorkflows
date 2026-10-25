@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import inspect
 import logging
 import pkgutil
+from pathlib import Path
 from types import ModuleType
 
 from automation.adapters.actions.base import WorkflowAction
@@ -79,3 +81,25 @@ def _drop_modules_with_unmet_requirements(
                 del available[name]
                 changed = True
     return available
+
+
+# The code the module list (modules.json) is made from: the actions and what they are built with.
+# Relative to the automation/ folder - website/src/ModuleRegistry.php hashes the same files the same way.
+FINGERPRINT_DIRS = ("actions_registry", "adapters/actions")
+
+
+def code_fingerprint(automation_dir: Path) -> str:
+    """A hash of the modules' source files. It goes into modules.json, so the
+    website can tell that the list was written by an older version of the code
+    (after an update) and have it renewed, instead of showing the old fields
+    until the next cron run. sha1 over `<path>\0<sha1 of the content>\n` for every
+    *.py of FINGERPRINT_DIRS, sorted by path."""
+
+    entries = []
+    for directory in FINGERPRINT_DIRS:
+        for path in (Path(automation_dir) / directory).glob("*.py"):
+            entries.append((f"{directory}/{path.name}", hashlib.sha1(path.read_bytes()).hexdigest()))
+    digest = hashlib.sha1()
+    for relative, content_hash in sorted(entries):
+        digest.update(f"{relative}\0{content_hash}\n".encode())
+    return digest.hexdigest()

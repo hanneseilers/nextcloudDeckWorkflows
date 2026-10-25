@@ -80,3 +80,41 @@ def test_setup_file_logging_degrades_when_the_directory_is_not_writable(tmp_path
     blocker = tmp_path / "file"
     blocker.write_text("x")  # a file where the log directory should be
     assert setup_file_logging(blocker / "var") is None
+
+
+def test_the_snapshot_carries_a_fingerprint_of_the_modules_code():
+    from pathlib import Path
+
+    from automation.adapters.actions.loader import code_fingerprint
+
+    snapshot = _modules_snapshot()
+    automation_dir = Path(__file__).resolve().parents[1]
+    assert snapshot["fingerprint"] == code_fingerprint(automation_dir) and len(snapshot["fingerprint"]) == 40
+
+
+def test_the_fingerprint_changes_with_the_code_and_ignores_everything_else(tmp_path):
+    from automation.adapters.actions.loader import code_fingerprint
+
+    (tmp_path / "actions_registry").mkdir()
+    (tmp_path / "adapters" / "actions").mkdir(parents=True)
+    (tmp_path / "actions_registry" / "a.py").write_text("x = 1\n")
+    (tmp_path / "adapters" / "actions" / "b.py").write_text("y = 1\n")
+    first = code_fingerprint(tmp_path)
+
+    (tmp_path / "actions_registry" / "__pycache__").mkdir()
+    (tmp_path / "actions_registry" / "notes.txt").write_text("not code")
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "c.py").write_text("z = 1\n")
+    assert code_fingerprint(tmp_path) == first  # other folders/files don't count
+
+    (tmp_path / "actions_registry" / "a.py").write_text("x = 2\n")  # same size, other content
+    assert code_fingerprint(tmp_path) != first
+    (tmp_path / "actions_registry" / "a.py").write_text("x = 1\n")
+    (tmp_path / "actions_registry" / "new.py").write_text("")  # a new module file
+    assert code_fingerprint(tmp_path) != first
+
+
+def test_the_snapshot_is_written_atomically_without_leftovers(tmp_path):
+    path = tmp_path / "var" / "modules.json"
+    _write_modules_snapshot(path)
+    assert json.loads(path.read_text())["fingerprint"] and not list(path.parent.glob("*.tmp"))

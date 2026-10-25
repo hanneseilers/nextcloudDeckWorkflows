@@ -48,6 +48,17 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   the same files `automation/config/settings.py` reads. Nextcloud credentials
   are only ever used server-side (`src/NextcloudApi.php`, via cURL); they never
   reach the browser.
+- **The module list is renewed after an update by the website itself.**
+  `modules.json` carries a fingerprint of the modules' code
+  (`code_fingerprint()` in `automation/adapters/actions/loader.py`;
+  `ModuleRegistry::currentFingerprint()` computes the same hash in PHP).
+  If it differs - or is missing, as in a file an older version wrote - the editor,
+  the Doku page and `save.php` have `python -m automation.main --list-modules`
+  started in the background (`AutomationRunner::refreshModules()`, best effort,
+  at most every 30 s) and the editor shows a notice with a "Seite neu laden" link;
+  `save.php` explains an "unknown module" that is only unknown to the old list.
+  Without this a new field (or module) stayed invisible until the next cron run -
+  hours, with a cron job every few hours.
 - Reads the list of available action modules and their `default_input()`/
   `default_output()` shapes from `automation/var/modules.json`
   (`src/ModuleRegistry.php`) - written automatically by every
