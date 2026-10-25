@@ -521,6 +521,17 @@ class SqliteStateStore:
         conn.commit()
         return token
 
+    def revoke_links(self, *, instance: str, board_id: int, card_id: int, workflow_id: Optional[str] = None) -> int:
+        conn = self._connect()
+        cursor = conn.execute(
+            "UPDATE action_links SET status = 'revoked', finished_at = ?, card_json = NULL, params_json = NULL, "
+            "variables_json = NULL, extra_steps_json = NULL WHERE status = 'open' AND instance = ? AND board_id = ? "
+            "AND card_id = ?" + (" AND workflow_id = ?" if workflow_id is not None else ""),
+            (datetime.now(timezone.utc).isoformat(), instance, board_id, card_id) + ((workflow_id,) if workflow_id is not None else ()),
+        )
+        conn.commit()
+        return cursor.rowcount
+
     def claimed_links(self) -> list[dict[str, Any]]:
         """Links the website has claimed (visited) that main.py hasn't run yet."""
 
@@ -592,7 +603,7 @@ class SqliteStateStore:
     def purge_finished_links(self, older_than_iso: str) -> None:
         conn = self._connect()
         conn.execute(
-            "DELETE FROM action_links WHERE status IN ('done', 'error') AND finished_at < ?",
+            "DELETE FROM action_links WHERE status IN ('done', 'error', 'revoked') AND finished_at < ?",
             (older_than_iso,),
         )
         conn.commit()

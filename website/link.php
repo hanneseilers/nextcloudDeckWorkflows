@@ -49,6 +49,9 @@ $tokenHash = hash('sha256', $token);
 
 $store = new ActionLinkStore(Config::fromRepoRoot()->stateDbPath());
 $link = $store->find($tokenHash);
+if ($link !== null && $link['status'] === 'revoked') {
+    page(410, 'invalid', 'Dieser Link wurde zurückgezogen und kann nicht mehr verwendet werden.');
+}
 if ($link === null || $link['status'] !== 'open') {
     page(410, 'invalid', $invalid);
 }

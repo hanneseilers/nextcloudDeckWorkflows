@@ -179,6 +179,7 @@ class WorkflowEngine:
             workflow_id=workflow_id,
             copy_store=self._copy_store,
             display_timezone=self._display_timezone,
+            link_store=self._link_store,  # for revoke_action_links
         )
         context.current_stack_id = current_stack_id
         result = ExecutionResult(workflow_id=workflow_id, event=event)

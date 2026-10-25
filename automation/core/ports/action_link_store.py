@@ -30,3 +30,9 @@ class ActionLinkStorePort(Protocol):
         `module`/`params` are the link's first action, `extra_steps` ([{"module",
         "params"}], at most four) the ones that follow it."""
         ...
+
+    def revoke_links(self, *, instance: str, board_id: int, card_id: int, workflow_id: Optional[str] = None) -> int:
+        """Switches off the card's links that are still open (not the ones already
+        visited or run) - only `workflow_id`'s, or every workflow's if None.
+        Returns how many."""
+        ...

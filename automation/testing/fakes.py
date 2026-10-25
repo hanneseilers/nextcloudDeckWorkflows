@@ -219,6 +219,16 @@ class InMemoryActionLinkStore:
         self.links.append(kwargs)
         return f"token{len(self.links)}"
 
+    def revoke_links(self, *, instance, board_id, card_id, workflow_id=None) -> int:
+        hit = [
+            link for link in self.links
+            if not link.get("revoked") and link["event"].instance == instance and link["event"].board_id == board_id
+            and link["event"].card_id == card_id and (workflow_id is None or link["workflow_id"] == workflow_id)
+        ]
+        for link in hit:
+            link["revoked"] = True
+        return len(hit)
+
 
 class InMemoryDuplicateGuard:
     """Fake DuplicateGuardPort - remembers keys forever (tests don't age them)."""

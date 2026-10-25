@@ -494,6 +494,15 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   `create_action_link` step, not the click). An empty `action_2` is skipped, so
   a gap closes. Open links created before this existed still run unchanged
   (`action_links.extra_steps_json` is NULL for them).
+- **Links that exclude each other:** the action `revoke_action_links` ("Einmal-Links
+  der Karte deaktivieren") makes the card's still unused links invalid
+  (`all_workflows: true` includes other workflows' links; default = only this
+  workflow's). For an "annehmen"/"ablehnen" pair, add it as the last action of
+  *both* links: whichever is used first switches the other off, which then shows
+  "Dieser Link wurde zurückgezogen" (status `revoked`, payload wiped). Only open
+  links are affected - the link being run, and one somebody visited a moment ago,
+  keep their outcome. It also works as an ordinary workflow step (e.g. when the
+  card is moved).
 - **One-time:** only the SHA-256 of the token is stored. The first visit
   claims the link atomically; every later visit - even a concurrent one -
   sees "ungültig oder bereits verwendet". A failed action also uses the link
