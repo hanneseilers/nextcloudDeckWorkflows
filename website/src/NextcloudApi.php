@@ -106,9 +106,14 @@ class NextcloudApi
     }
 
     /**
-     * Searches Nextcloud users by (partial) name, for the assign_user/
-     * unassign_user user-id picker. Returns at most one entry per user id,
-     * exact matches first.
+     * Searches Nextcloud users AND groups by (partial) name, for the assign_user/
+     * unassign_user picker. A user is returned with the plain user id, a group
+     * as `group:<group id>` (the token the automation reads, see
+     * automation/adapters/actions/user_ids.py) with "Gruppe: <name>" as label.
+     * At most one entry per id, exact matches first, users before groups.
+     *
+     * Which groups show up is Nextcloud's decision (sharing with groups can be
+     * switched off, or limited to the searcher's own groups).
      *
      * @return array<int, array{id: string, label: string}>
      */
@@ -118,7 +123,7 @@ class NextcloudApi
             'format' => 'json',
             'search' => $query,
             'itemType' => 'file',
-            'shareType' => 0, // users only, not groups/circles/etc.
+            'shareType' => [0, 1], // users and groups (not teams/emails/remote)
         ]);
         return self::mapShareesResponse(is_array($response) ? $response : []);
     }
@@ -133,16 +138,24 @@ class NextcloudApi
     {
         $data = $response['ocs']['data'] ?? [];
 
-        $users = [];
-        foreach ([$data['exact']['users'] ?? [], $data['users'] ?? []] as $group) {
-            foreach ($group as $entry) {
-                $id = (string) ($entry['value']['shareWith'] ?? '');
-                if ($id !== '' && !isset($users[$id])) {
-                    $users[$id] = ['id' => $id, 'label' => (string) ($entry['label'] ?? $id)];
+        $found = [];
+        // users first (exact matches before the rest), then the groups the same way
+        foreach (['users' => '', 'groups' => 'group:'] as $key => $prefix) {
+            foreach ([$data['exact'][$key] ?? [], $data[$key] ?? []] as $entries) {
+                foreach ($entries as $entry) {
+                    $id = (string) ($entry['value']['shareWith'] ?? '');
+                    if ($id === '' || isset($found[$prefix . $id])) {
+                        continue;
+                    }
+                    $label = (string) ($entry['label'] ?? $id);
+                    $found[$prefix . $id] = [
+                        'id' => $prefix . $id,
+                        'label' => $prefix === '' ? $label : 'Gruppe: ' . $label,
+                    ];
                 }
             }
         }
-        return array_values($users);
+        return array_values($found);
     }
 
     /**

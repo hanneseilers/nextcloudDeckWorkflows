@@ -1031,3 +1031,8 @@ button.template-modal-close {
 .template-modal-body p {
     margin: 0 0 0.5rem;
 }
+
+.chip.chip-group {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    font-weight: 600;
+}

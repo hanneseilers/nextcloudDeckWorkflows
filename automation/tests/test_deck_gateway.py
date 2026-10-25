@@ -83,3 +83,17 @@ def test_remove_label_uses_the_remove_label_endpoint_with_a_body():
     assert client.calls == [
         ("PUT", f"{DECK_API}/boards/12/stacks/46/cards/93/removeLabel", {"labelId": 50})
     ]
+
+
+def test_assign_and_unassign_send_the_participant_type():
+    client = RecordingClient()
+    gateway = NextcloudDeckGateway(client)
+    gateway.assign_user(12, 46, 93, "anna")
+    gateway.assign_user(12, 46, 93, "foerderkreis", participant_type=1)
+    gateway.unassign_user(12, 46, 93, "foerderkreis", participant_type=1)
+    base = f"{DECK_API}/boards/12/stacks/46/cards/93"
+    assert client.calls == [
+        ("PUT", f"{base}/assignUser", {"userId": "anna", "type": 0}),
+        ("PUT", f"{base}/assignUser", {"userId": "foerderkreis", "type": 1}),
+        ("PUT", f"{base}/unassignUser", {"userId": "foerderkreis", "type": 1}),
+    ]

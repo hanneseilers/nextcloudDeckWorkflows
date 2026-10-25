@@ -89,21 +89,30 @@ class InMemoryDeckGateway:
                 if (entry.get("id") if isinstance(entry, dict) else entry) != label_id
             ]
 
-    def assign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
-        self.calls.append(("assign_user", board_id, stack_id, card_id, user_id))
+    def assign_user(
+        self, board_id: int, stack_id: int, card_id: int, user_id: str, participant_type: int = 0
+    ) -> None:
+        # (the type is only recorded when it isn't the default - a user)
+        self.calls.append(("assign_user", board_id, stack_id, card_id, user_id) + ((participant_type,) if participant_type else ()))
         card = self._find_card(board_id, stack_id, card_id)
         if card is not None:
             card.setdefault("assignees", []).append(user_id)
             # as Deck returns it - what the actions read back through get_card
-            card.setdefault("assignedUsers", []).append({"participant": {"uid": user_id, "type": 0}})
+            card.setdefault("assignedUsers", []).append(
+                {"participant": {"uid": user_id, "type": participant_type}, "type": participant_type}
+            )
 
-    def unassign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
-        self.calls.append(("unassign_user", board_id, stack_id, card_id, user_id))
+    def unassign_user(
+        self, board_id: int, stack_id: int, card_id: int, user_id: str, participant_type: int = 0
+    ) -> None:
+        self.calls.append(("unassign_user", board_id, stack_id, card_id, user_id) + ((participant_type,) if participant_type else ()))
         card = self._find_card(board_id, stack_id, card_id)
-        if card is not None and user_id in card.get("assignees", []):
-            card["assignees"].remove(user_id)
+        if card is not None:
+            if user_id in card.get("assignees", []):
+                card["assignees"].remove(user_id)
             card["assignedUsers"] = [
-                entry for entry in card.get("assignedUsers", []) if entry["participant"]["uid"] != user_id
+                entry for entry in card.get("assignedUsers", [])
+                if not (entry["participant"]["uid"] == user_id and entry.get("type", 0) == participant_type)
             ]
 
     def add_comment(self, card_id: int, message: str) -> None:

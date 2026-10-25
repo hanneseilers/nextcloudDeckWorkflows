@@ -56,10 +56,14 @@ class NullDeckGateway:
     def remove_label(self, board_id: int, stack_id: int, card_id: int, label_id: int) -> None:
         self._unsupported()
 
-    def assign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
+    def assign_user(
+        self, board_id: int, stack_id: int, card_id: int, user_id: str, participant_type: int = 0
+    ) -> None:
         self._unsupported()
 
-    def unassign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
+    def unassign_user(
+        self, board_id: int, stack_id: int, card_id: int, user_id: str, participant_type: int = 0
+    ) -> None:
         self._unsupported()
 
     def add_comment(self, card_id: int, message: str) -> None:

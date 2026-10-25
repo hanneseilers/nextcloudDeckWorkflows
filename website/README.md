@@ -149,7 +149,8 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
 ## Typeahead pickers
 
 Anywhere a field refers to real Nextcloud data by id - board, column
-("Spalte"/stack), a user (`assign_user`/`unassign_user`'s `user_id`), a
+("Spalte"/stack), a user or group (`assign_user`/`unassign_user`'s `user_id`; a group is
+`group:<id>`, found by the same search - the Sharees API with `shareType` 0 and 1), a
 calendar (`calendar_lookup`'s `calendar_id`) - the UI is a type-to-filter
 field with a clickable dropdown (`renderTypeahead()` in
 `assets/builder.js`), not a plain `<select>` or a raw id text box. Board/

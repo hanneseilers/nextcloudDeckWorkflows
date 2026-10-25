@@ -17,6 +17,26 @@ function check(string $name, bool $ok): void
     }
 }
 
+$sharees = new ReflectionMethod(NextcloudApi::class, 'mapShareesResponse');
+$entry = fn (string $label, string $with, int $type) => ['label' => $label, 'value' => ['shareType' => $type, 'shareWith' => $with]];
+$response = ['ocs' => ['data' => [
+    'exact' => ['users' => [$entry('Anna Schmidt', 'anna', 0)], 'groups' => [$entry('Förderkreis', 'foerderkreis', 1)]],
+    'users' => [$entry('Anna Schmidt', 'anna', 0), $entry('Annabelle', 'annabelle', 0)],
+    'groups' => [$entry('Förderkreis', 'foerderkreis', 1), $entry('Anna-Team', 'anna-team', 1)],
+]]];
+$found = $sharees->invoke(null, $response);
+check('sharees: users first with the plain id, then groups as group:<id> labelled "Gruppe: ..."', $found === [
+    ['id' => 'anna', 'label' => 'Anna Schmidt'],
+    ['id' => 'annabelle', 'label' => 'Annabelle'],
+    ['id' => 'group:foerderkreis', 'label' => 'Gruppe: Förderkreis'],
+    ['id' => 'group:anna-team', 'label' => 'Gruppe: Anna-Team'],
+]);
+check('sharees: a group named like a user is a separate entry', count($sharees->invoke(null, ['ocs' => ['data' => [
+    'users' => [$entry('Staff', 'staff', 0)], 'groups' => [$entry('Staff', 'staff', 1)]]]])) === 2);
+check('sharees: only users (no groups key) still works, and so does an empty answer',
+    $sharees->invoke(null, ['ocs' => ['data' => ['users' => [$entry('A', 'a', 0)]]]]) === [['id' => 'a', 'label' => 'A']]
+    && $sharees->invoke(null, []) === []);
+
 $map = new ReflectionMethod(NextcloudApi::class, 'mapPropfindCalendars');
 
 function propfind(string $home, array $calendars): string

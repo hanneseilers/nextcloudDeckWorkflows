@@ -87,16 +87,21 @@ class NextcloudDeckGateway:
             json={"labelId": label_id},
         )
 
-    def assign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
+    def assign_user(
+        self, board_id: int, stack_id: int, card_id: int, user_id: str, participant_type: int = 0
+    ) -> None:
+        # Deck's `type`: 0 user, 1 group (userId is then the group id), 7 team.
         self._client.put(
             f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/assignUser",
-            json={"userId": user_id},
+            json={"userId": user_id, "type": participant_type},
         )
 
-    def unassign_user(self, board_id: int, stack_id: int, card_id: int, user_id: str) -> None:
+    def unassign_user(
+        self, board_id: int, stack_id: int, card_id: int, user_id: str, participant_type: int = 0
+    ) -> None:
         self._client.put(
             f"{DECK_API}/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/unassignUser",
-            json={"userId": user_id},
+            json={"userId": user_id, "type": participant_type},
         )
 
     def add_comment(self, card_id: int, message: str) -> None:

@@ -294,9 +294,10 @@ What that means for the settings here (defaults changed accordingly):
 - `max_run_seconds` (default **600**): below the 15-minute kill, leaving room
   for the event still running when the budget ends. With an hourly or daily
   cron there is no shorter interval to stay under.
-- `health_stale_minutes`: raise it to the cron interval plus slack (e.g. 90
-  for hourly, 1560 for daily), otherwise `health.php` reports the automation
-  as stopped between runs.
+- `health_stale_minutes` (default **720 = 12 hours**): how long the last run
+  may be ago before `health.php` warns and answers 503. Lower it (e.g. 15) for a
+  job that runs every few minutes to notice a stop sooner; with a daily cron use
+  at least 1560 (26 hours), otherwise it warns between runs.
 - `dedupe_minutes` of `send_email` (default **10080 = 7 days**): a killed
   run is restarted at the next scheduled slot, hours or a day later - the
   window covers that. It only matches the very same event, so the long
@@ -462,6 +463,19 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   more than 15 minutes as failed (history entry "Verarbeitung abgebrochen")
   instead of running it again - a rerun could execute the action twice.
 
+## Assigning users and groups
+
+`assign_user` / `unassign_user` take one or several assignees in `user_id`
+(a list, or separated by comma/semicolon). Besides users, a **Nextcloud group**
+can be assigned: write it `group:<group id>` (`group:foerderkreis`) - Deck puts
+the group on the card as a whole. Nothing looks up the group's members: for
+that the group has to have access to the board (Deck refuses the assignment
+otherwise - the step then says so and the other assignees still get assigned).
+Deck sends no notifications for groups. `unassign_user` with `all_users: true`
+removes users and groups; somebody who isn't assigned is skipped, so a rerun
+changes nothing. Uses Deck's `type` of `assignUser`/`unassignUser`: 0 user, 1
+group (7 would be a team - the editor doesn't offer teams).
+
 ## send_email
 
 Sends mail via SMTP. Server settings are its own file, `config/smtp.yaml` (copy
@@ -625,7 +639,7 @@ run continues and only logs to the console.
 
 `website/health.php` shows whether `main.py` is still running (via the
 heartbeat above - stale after `health_stale_minutes` from `config/settings.yaml`,
-default 15; raise it if your host starts the job less often, e.g. 90 for hourly)
+default 720 = 12 hours; lower it for a job that runs every few minutes, use at least 1560 for a daily one)
 and simple
 run statistics for the last 24 hours, overall and per workflow. The history is
 kept `history_retention_days` (default 90) and then deleted at the end of a

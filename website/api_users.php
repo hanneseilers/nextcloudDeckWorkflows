@@ -10,10 +10,10 @@ ApiEndpoint::run(function (NextcloudApi $api) {
 
     // Mirrors the builder's own 3-character throttle - also enforced here so a
     // request bypassing the browser can't trigger a (likely huge) unfiltered
-    // user listing.
+    // user/group listing.
     if (mb_strlen($query) < 3) {
         return ['users' => []];
     }
 
-    return ['users' => $api->searchUsers($query)];
+    return ['users' => $api->searchUsers($query)]; // users and groups (ids of groups: group:<id>)
 });

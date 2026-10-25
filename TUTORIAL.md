@@ -199,7 +199,8 @@ Unter **4. Was passiert?**, am Ende **+ Wenn/Sonst** hinzufügen:
    `dringend`.
 2. Im **Dann:**-Zweig, zwei Schritte: `add_label` (Feld „Label“ (`label_id`): die Id
    des Prioritäts-Labels, z. B. `99`) und `assign_user` (Feld „Benutzer“ (`user_id`):
-   Name eintippen und auswählen - z. B. eine zweite Support-Ebene).
+   Name eintippen und auswählen - z. B. eine zweite Support-Ebene; auch eine ganze
+   Nextcloud-Gruppe lässt sich auswählen, wenn sie Zugriff auf das Board hat).
 3. Im **Sonst:**-Zweig: `assign_user` mit dem Erstsupport-Benutzer.
 4. **Workflow speichern**.
 

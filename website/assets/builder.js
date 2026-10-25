@@ -770,11 +770,19 @@
     });
   }
 
-  // assign_user / unassign_user: one or several users. The chosen ones are
-  // shown as chips, the field below adds the next one (pick from the list, or
+  // assign_user / unassign_user: one or several users and groups. The chosen ones
+  // are shown as chips, the field below adds the next one (pick from the list, or
   // type an id and press Enter / leave the field). Saved as the id itself for
-  // one user (as before) and as a list for several.
-  const userLabels = {}; // id -> display name, learned from search results
+  // one (as before) and as a list for several. A group is `group:<group id>` -
+  // Deck assigns it to the card as a whole (the group needs access to the board).
+  const userLabels = {}; // id/token -> display text, learned from search results
+
+  function assigneeText(id) {
+    if (userLabels[id] && userLabels[id] !== id) {
+      return id.startsWith('group:') ? userLabels[id] : userLabels[id] + ' (' + id + ')';
+    }
+    return id.startsWith('group:') ? 'Gruppe: ' + id.slice('group:'.length) : id;
+  }
 
   function userIdsOf(value) {
     const parts = Array.isArray(value) ? value : [value];
@@ -809,14 +817,14 @@
       chipsEl.hidden = ids.length === 0;
       ids.forEach((id) => {
         const chip = document.createElement('span');
-        chip.className = 'chip';
+        chip.className = id.startsWith('group:') ? 'chip chip-group' : 'chip';
         chip.title = id;
-        chip.append(userLabels[id] && userLabels[id] !== id ? userLabels[id] + ' (' + id + ')' : id);
+        chip.append(assigneeText(id));
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'chip-remove';
         remove.textContent = '✕';
-        remove.title = 'Benutzer „' + id + '" entfernen';
+        remove.title = assigneeText(id) + ' entfernen';
         remove.setAttribute('aria-label', remove.title);
         remove.addEventListener('click', () => {
           ids = ids.filter((other) => other !== id);
@@ -844,7 +852,7 @@
       setValue: (value) => {
         typed = value;
       },
-      placeholder: 'Benutzer hinzufügen: Name eingeben (ab 3 Zeichen) oder User-Id + Enter',
+      placeholder: 'Benutzer oder Gruppe hinzufügen: Name eingeben (ab 3 Zeichen) oder Id + Enter',
       minChars: 3,
       debounceMs: 300,
       onPick: (item) => {
@@ -1243,7 +1251,7 @@
         && target.params.all_users && target.params.all_users.source === 'literal' && target.params.all_users.value === true) {
       const note = document.createElement('p');
       note.className = 'muted';
-      note.textContent = 'Es werden alle Benutzer entfernt, die gerade zugewiesen sind.';
+      note.textContent = 'Es werden alle Benutzer und Gruppen entfernt, die gerade zugewiesen sind.';
       return note;
     }
     const label = document.createElement('label');

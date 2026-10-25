@@ -4,13 +4,17 @@ import pytest
 
 from automation.actions_registry.assign_user import AssignUserAction
 from automation.actions_registry.unassign_user import UnassignUserAction
-from automation.adapters.actions.user_ids import parse_user_ids
-from automation.core.domain.card_data import assigned_user_ids
+from automation.adapters.actions.user_ids import parse_user_ids, participant_of, token_of
+from automation.core.domain.card_data import assigned_participants, assigned_user_ids
 from automation.tests.test_actions import make_context, make_deck
 
 
 def assigned(deck):
     return [e["participant"]["uid"] for e in deck.stacks[1][0]["cards"][0].get("assignedUsers", [])]
+
+
+def assigned_tokens(deck):
+    return assigned_participants(deck.stacks[1][0]["cards"][0])
 
 
 def calls(deck, name):
@@ -76,10 +80,10 @@ def test_assign_continues_after_one_user_fails_and_then_reports_it():
     deck = make_deck()
     original = deck.assign_user
 
-    def flaky(board_id, stack_id, card_id, user_id):
+    def flaky(board_id, stack_id, card_id, user_id, participant_type=0):
         if user_id == "kaputt":
             raise RuntimeError("404 no such user")
-        original(board_id, stack_id, card_id, user_id)
+        original(board_id, stack_id, card_id, user_id, participant_type)
 
     deck.assign_user = flaky
     with pytest.raises(RuntimeError, match="kaputt: 404"):
@@ -154,12 +158,99 @@ def test_unassign_continues_after_a_failure_and_reports_it():
     AssignUserAction().execute(context, {"user_id": ["anna", "bernd", "carla"]})
     original = deck.unassign_user
 
-    def flaky(board_id, stack_id, card_id, user_id):
+    def flaky(board_id, stack_id, card_id, user_id, participant_type=0):
         if user_id == "bernd":
             raise RuntimeError("500")
-        original(board_id, stack_id, card_id, user_id)
+        original(board_id, stack_id, card_id, user_id, participant_type)
 
     deck.unassign_user = flaky
     with pytest.raises(RuntimeError, match="bernd"):
         UnassignUserAction().execute(context, {"all_users": True})
     assert assigned(deck) == ["bernd"]
+
+
+# -- groups ---------------------------------------------------------------------------
+
+def test_tokens_and_participants_round_trip():
+    assert participant_of("anna") == ("anna", 0)
+    assert participant_of("group:foerderkreis") == ("foerderkreis", 1)
+    assert participant_of("Group: Mit Leerzeichen") == ("Mit Leerzeichen", 1)
+    assert participant_of("circle:abc") == ("abc", 7)
+    for token in ("anna", "group:foerderkreis", "circle:abc", "remote:x@y"):
+        assert token_of(*participant_of(token)) == token
+    assert parse_user_ids("anna, group:foerderkreis; group:vorstand") == ["anna", "group:foerderkreis", "group:vorstand"]
+
+
+def test_assigned_participants_tells_users_from_groups_with_the_same_name():
+    card = {"assignedUsers": [
+        {"participant": {"uid": "staff", "type": 0}, "type": 0},
+        {"participant": {"uid": "staff", "type": 1}, "type": 1},          # a group named like a user
+        {"participant": {"primaryKey": "vorstand"}, "type": 1},           # group without uid
+        {"participant": {"uid": "x", "type": 7}},                         # type only on the participant
+        {"uid": "legacy"}, {"participant": {"uid": "anna"}},              # no type at all = a user
+        {"participant": {"uid": "weird", "type": True}}, "junk", {},
+    ]}
+    assert assigned_participants(card) == ["staff", "group:staff", "group:vorstand", "circle:x", "legacy", "anna", "weird"]
+    assert assigned_participants(None) == [] and assigned_participants({}) == []
+
+
+def test_a_group_is_assigned_as_a_group_with_deck_type_1():
+    deck = make_deck()
+    out = AssignUserAction().execute(make_context(deck), {"user_id": ["anna", "group:foerderkreis"]})
+    assert out == {"user_ids": ["anna", "group:foerderkreis"]}
+    assert ("assign_user", 1, 10, 100, "anna") in deck.calls                  # a user: unchanged call
+    assert ("assign_user", 1, 10, 100, "foerderkreis", 1) in deck.calls       # the group id with type 1, not the token
+    assert assigned_tokens(deck) == ["anna", "group:foerderkreis"]
+
+
+def test_a_group_already_assigned_is_skipped_and_a_user_of_the_same_name_is_not_confused_with_it():
+    deck = make_deck()
+    context = make_context(deck)
+    AssignUserAction().execute(context, {"user_id": "group:staff"})
+    AssignUserAction().execute(context, {"user_id": ["group:staff", "staff"]})   # the group is there, the USER 'staff' is not
+    assert [c for c in deck.calls if c[0] == "assign_user"] == [
+        ("assign_user", 1, 10, 100, "staff", 1), ("assign_user", 1, 10, 100, "staff"),
+    ]
+    assert assigned_tokens(deck) == ["group:staff", "staff"]
+
+
+def test_a_group_without_board_access_fails_with_a_hint_and_the_others_still_get_assigned():
+    deck = make_deck()
+    original = deck.assign_user
+
+    def deck_says_no(board_id, stack_id, card_id, user_id, participant_type=0):
+        if participant_type == 1:
+            raise RuntimeError("PUT .../assignUser failed: 400 The user is not part of the board")
+        original(board_id, stack_id, card_id, user_id, participant_type)
+
+    deck.assign_user = deck_says_no
+    with pytest.raises(RuntimeError, match=r"group:fremd.*not part of the board.*Zugriff auf das Board"):
+        AssignUserAction().execute(make_context(deck), {"user_id": ["anna", "group:fremd", "bernd"]})
+    assert assigned(deck) == ["anna", "bernd"]
+
+
+def test_unassign_a_group_and_a_user_by_token():
+    deck = make_deck()
+    context = make_context(deck)
+    AssignUserAction().execute(context, {"user_id": ["anna", "group:foerderkreis", "group:vorstand"]})
+    out = UnassignUserAction().execute(context, {"user_id": "group:foerderkreis, anna"})
+    assert out == {"user_ids": ["group:foerderkreis", "anna"]}
+    assert ("unassign_user", 1, 10, 100, "foerderkreis", 1) in deck.calls
+    assert assigned_tokens(deck) == ["group:vorstand"]
+
+
+def test_unassign_everybody_includes_groups():
+    deck = make_deck()
+    context = make_context(deck)
+    AssignUserAction().execute(context, {"user_id": ["anna", "group:foerderkreis"]})
+    out = UnassignUserAction().execute(context, {"all_users": True})
+    assert out == {"user_ids": ["anna", "group:foerderkreis"]}
+    assert assigned_tokens(deck) == []
+
+
+def test_unassigning_a_group_does_not_remove_a_user_of_the_same_name():
+    deck = make_deck()
+    context = make_context(deck)
+    AssignUserAction().execute(context, {"user_id": ["staff", "group:staff"]})
+    UnassignUserAction().execute(context, {"user_id": "group:staff"})
+    assert assigned_tokens(deck) == ["staff"]
