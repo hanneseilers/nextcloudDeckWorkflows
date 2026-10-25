@@ -50,7 +50,10 @@ $moduleLabel = static fn (string $name): string => (string) ($modules->get($name
 // "Kommentar hinzufügen → Wenn/Sonst → …" - the workflow at a glance.
 $summarize = static function (array $steps) use ($moduleLabel): string {
     $parts = array_map(
-        static fn ($step) => is_array($step) && ($step['type'] ?? null) === 'if' ? 'Wenn/Sonst' : $moduleLabel((string) ($step['module'] ?? '?')),
+        static function ($step) use ($moduleLabel): string {
+            $label = is_array($step) && ($step['type'] ?? null) === 'if' ? 'Wenn/Sonst' : $moduleLabel((string) ($step['module'] ?? '?'));
+            return is_array($step) && ($step['enabled'] ?? true) === false ? '(' . $label . ' - aus)' : $label;
+        },
         $steps
     );
     return $parts === [] ? 'keine Schritte' : implode(' → ', $parts);

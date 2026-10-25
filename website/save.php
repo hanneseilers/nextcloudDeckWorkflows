@@ -132,6 +132,9 @@ function processSteps(array $steps, ModuleRegistry $modules, array &$errors, arr
                 'then' => processSteps(is_array($step['then'] ?? null) ? $step['then'] : [], $modules, $errors, $seenStepIds),
                 'else' => processSteps(is_array($step['else'] ?? null) ? $step['else'] : [], $modules, $errors, $seenStepIds),
             ];
+            if (($step['enabled'] ?? true) === false) {
+                $result[count($result) - 1]['enabled'] = false; // written only when off
+            }
             continue;
         }
 
@@ -155,6 +158,9 @@ function processSteps(array $steps, ModuleRegistry $modules, array &$errors, arr
         $entry = ['module' => $moduleName];
         if ($stepId !== '') {
             $entry['id'] = $stepId;
+        }
+        if (($step['enabled'] ?? true) === false) {
+            $entry['enabled'] = false; // switched off: skipped when the workflow runs; written only when off
         }
         $entry['params'] = is_array($step['params'] ?? null) ? $step['params'] : [];
         $result[] = $entry;

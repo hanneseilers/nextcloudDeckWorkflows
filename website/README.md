@@ -104,6 +104,15 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   field, an incomplete reference) unfolds the step that holds the problem, without
   a redraw, so the half-typed value is still there to be seen. The one-time link's
   up to three actions each fold their settings the same way.
+  An opened, saved workflow starts with everything folded (steps, Wenn/Sonst
+  blocks, the link's actions); a step you add, or a link action you pick, starts
+  open.
+- **Switching a step off:** the power button (⏻) in a step's or block's header
+  switches it off and on. A switched-off step is striped, marked "deaktiviert -
+  wird übersprungen", and saved as `enabled: false` (written only when off);
+  the automation skips it. Picking a switched-off step's output in a reference
+  shows a warning, as it delivers no value. The workflow overview marks such
+  steps with "- aus".
 - **"Einmal-Link erstellen"** takes up to three actions (first, second, third;
   the second appears once the first is chosen, the third after the second, and
   an empty one is simply left out) and shows each chosen action's fields right

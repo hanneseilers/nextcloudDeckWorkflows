@@ -1168,3 +1168,34 @@ button.fold-btn {
 .step.is-folded {
     padding-bottom: 0.4rem;
 }
+
+/* a step that is switched off: skipped when the workflow runs */
+.step.is-disabled {
+    background: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--border) 25%, transparent) 10px 20px);
+}
+
+.step.is-disabled > :not(.step-header):not(.step-summary) {
+    opacity: 0.55;
+}
+
+.step.is-disabled .module-select,
+.step.is-disabled > .step-header > strong,
+.step.is-disabled > .step-header > .step-number {
+    opacity: 0.6;
+}
+
+.step-off-badge {
+    flex: none;
+    align-self: center;
+}
+
+button.power-btn {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+button.power-btn.is-off {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+}

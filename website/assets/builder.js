@@ -350,6 +350,11 @@
         }
       });
       state.forModule = module.name;
+      // An action that came from a saved workflow starts folded (like the steps do),
+      // one that was just picked stays open - it has to be filled in.
+      if (state.collapsed === undefined) {
+        state.collapsed = !!step.fromSaved;
+      }
     }
     return module;
   }
@@ -374,6 +379,9 @@
       id: '', // assigned by assignStepIds() on the next render
       module: firstModule,
       params: defaultParamsFor(firstModule),
+      enabled: true, // false = switched off: skipped when the workflow runs
+      // collapsed: whether the step is folded - UI only, never saved. A step you just
+      // added is open (it has to be filled in); loaded ones start folded (toInternalStep).
     };
   }
 
@@ -387,6 +395,7 @@
       },
       then: [],
       else: [],
+      enabled: true,
     };
   }
 
@@ -400,6 +409,23 @@
       }
     });
     return result;
+  }
+
+  // The steps that don't run: switched off themselves, or inside a switched-off block.
+  function disabledNodes() {
+    const off = new Set();
+    const walk = (list, inheritedOff) => list.forEach((node) => {
+      const isOff = inheritedOff || node.enabled === false;
+      if (isOff) {
+        off.add(node);
+      }
+      if (node.kind === 'if') {
+        walk(node.then, isOff);
+        walk(node.else, isOff);
+      }
+    });
+    walk(state.steps, false);
+    return off;
   }
 
   // How a value source reads in the "Wert übernehmen" dropdown.
@@ -980,7 +1006,9 @@
   // source is "ref".
   function appendRefOperandFields(wrapper, entry, owner) {
     // Only steps that run before this one can have produced a value.
-    const earlier = owner ? stepsBefore(owner).steps : collectAllSteps(state.steps);
+    const off = disabledNodes();
+    const earlier = (owner ? stepsBefore(owner).steps : collectAllSteps(state.steps))
+      .map((node) => (off.has(node) ? { ...node, warning: ' – deaktiviert, liefert keinen Wert' } : node));
     const refSources = [{ id: 'card' }, { id: 'vars' }, { id: 'now' }, ...earlier];
     // A saved reference to a later (or deleted) step stays visible - marked -
     // instead of silently showing an empty choice.
@@ -1321,6 +1349,7 @@
             step.params[LINK_SLOTS[index].params] = { source: 'literal', value: {} };
             if (step.slots) {
               step.slots[index].forModule = null;
+              step.slots[index].collapsed = false; // just picked: open, to fill in
             }
           }
           render();
@@ -1469,6 +1498,10 @@
   }
 
   function summarizeStep(node) {
+    return (node.enabled === false ? 'Deaktiviert (wird übersprungen) · ' : '') + summarizeStepSettings(node);
+  }
+
+  function summarizeStepSettings(node) {
     if (node.kind === 'if') {
       const op = (CONDITION_OPS.find(([value]) => value === node.condition.op) || [null, node.condition.op])[1];
       const count = (n) => n + (n === 1 ? ' Schritt' : ' Schritte');
@@ -1509,6 +1542,13 @@
     };
     // Also used to open a step after an error, WITHOUT redrawing the page - a redraw would
     // throw away a half-typed invalid value, and that is exactly what has to be seen.
+    wrapper.classList.toggle('is-disabled', node.enabled === false);
+    if (node.enabled === false) {
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-off step-off-badge';
+      badge.textContent = 'deaktiviert - wird übersprungen';
+      header.insertBefore(badge, header.querySelector('.step-controls'));
+    }
     node._setFolded = (folded) => {
       node.collapsed = folded;
       if (folded) {
@@ -1530,6 +1570,11 @@
     stepsEl.querySelectorAll('.step.is-folded').forEach((element) => {
       if (element._node && element.querySelector('.invalid')) {
         element._node._setFolded(false);
+      }
+    });
+    stepsEl.querySelectorAll('.link-slot.is-collapsed').forEach((box) => {
+      if (box.querySelector('.invalid')) {
+        box.querySelector('.link-slot-toggle').click();
       }
     });
   }
@@ -1806,6 +1851,19 @@
   function renderMoveRemoveControls(list, index) {
     const controls = document.createElement('span');
     controls.className = 'step-controls';
+    const node = list[index];
+    const power = document.createElement('button');
+    power.type = 'button';
+    power.className = 'icon-btn power-btn' + (node.enabled === false ? ' is-off' : '');
+    power.textContent = '⏻';
+    power.title = node.enabled === false ? 'Schritt aktivieren' : 'Schritt deaktivieren (er wird dann übersprungen)';
+    power.setAttribute('aria-label', power.title);
+    power.setAttribute('aria-pressed', node.enabled === false ? 'true' : 'false');
+    power.addEventListener('click', () => {
+      node.enabled = node.enabled === false; // a redraw: other steps' lists of usable values depend on it
+      render();
+    });
+    controls.appendChild(power);
     [
       ['↑', 'Nach oben', () => moveNode(list, index, -1), index === 0],
       ['↓', 'Nach unten', () => moveNode(list, index, 1), index === list.length - 1],
@@ -2083,6 +2141,12 @@
       if (node.collapsed) {
         node._setFolded ? node._setFolded(false) : (node.collapsed = false);
       }
+      // a link's folded action may hold the problem: open those of this step
+      stepsEl.querySelectorAll('.step').forEach((element) => {
+        if (element._node === node) {
+          element.querySelectorAll(':scope > .params .link-slot.is-collapsed .link-slot-toggle').forEach((toggle) => toggle.click());
+        }
+      });
       throw error;
     }
   }
@@ -2099,6 +2163,7 @@
           },
           then: collectSteps(node.then, seenIds),
           else: collectSteps(node.else, seenIds),
+          ...(node.enabled === false ? { enabled: false } : {}),
         };
       }
 
@@ -2127,7 +2192,7 @@
         }
       });
 
-      return { id, module: node.module, params };
+      return { id, module: node.module, params, ...(node.enabled === false ? { enabled: false } : {}) };
     }));
   }
 
@@ -2252,6 +2317,8 @@
         },
         then: (raw.then || []).map(toInternalStep),
         else: (raw.else || []).map(toInternalStep),
+        enabled: raw.enabled !== false,
+        collapsed: true, // a loaded workflow opens folded: the overview first, details on demand
       };
     }
     // Start from the module's defaults so a param omitted in a hand-written
@@ -2262,7 +2329,10 @@
     });
     // The saved id is kept only until the first render: assignStepIds() then
     // renames it (and every reference to it) to the module_N scheme.
-    return { kind: 'action', id: raw.id || '', module: raw.module, params };
+    return {
+      kind: 'action', id: raw.id || '', module: raw.module, params,
+      enabled: raw.enabled !== false, collapsed: true, fromSaved: true,
+    };
   }
 
   function initializeForEdit(existing) {

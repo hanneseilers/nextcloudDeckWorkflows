@@ -184,8 +184,17 @@ def _parse_step(data: dict) -> WorkflowStep:
             condition=condition,
             then_steps=_parse_steps(data.get("then", [])),
             else_steps=_parse_steps(data.get("else", [])),
+            enabled=_step_enabled(data),
         )
-    return ActionStep(module=data["module"], id=data.get("id", ""), params=data.get("params") or {})
+    return ActionStep(module=data["module"], id=data.get("id", ""), params=data.get("params") or {},
+                      enabled=_step_enabled(data))
+
+
+def _step_enabled(data: dict) -> bool:
+    """Only an explicit `enabled: false` switches a step off - a missing key (every
+    workflow written before this existed), `true`, or anything odd leaves it on."""
+
+    return data.get("enabled") is not False
 
 
 def _steps_to_list(steps: tuple[WorkflowStep, ...]) -> list:
@@ -203,9 +212,12 @@ def _step_to_dict(step: WorkflowStep) -> dict:
             },
             "then": _steps_to_list(step.then_steps),
             "else": _steps_to_list(step.else_steps),
+            **({} if step.enabled else {"enabled": False}),
         }
     data: dict = {"module": step.module}
     if step.id:
         data["id"] = step.id
+    if not step.enabled:
+        data["enabled"] = False  # written only when off: files of workflows that use nothing of this stay as they were
     data["params"] = dict(step.params)
     return data

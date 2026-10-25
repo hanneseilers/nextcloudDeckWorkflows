@@ -253,6 +253,12 @@ class WorkflowEngine:
 
     def _run_steps(self, steps: tuple[WorkflowStep, ...], context: ActionContext, state: _RunState) -> None:
         for step in steps:
+            if not step.enabled:
+                # Switched off in the editor: skipped like it wasn't there - no output (a
+                # later {"$ref": ...} to it resolves to nothing), no history entry, and an
+                # if-block's condition isn't even evaluated.
+                logger.debug("Skipping disabled step in workflow '%s'", state.workflow_id)
+                continue
             if isinstance(step, IfStep):
                 left = _resolve_params(step.condition.left, state.outputs_by_step)
                 right = _resolve_params(step.condition.right, state.outputs_by_step)

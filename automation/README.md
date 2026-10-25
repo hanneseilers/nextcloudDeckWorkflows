@@ -95,6 +95,23 @@ def execute(self, context: ActionContext, params: dict) -> None:
   unpredictably the first time it runs. Dependency chains cascade: if `b` requires
   `a` and `a` gets disabled, `b` is disabled too.
 
+## Switching a step off
+
+A step (an action, or a whole `if` block with everything in it) can carry
+`enabled: false`; the engine then skips it as if it were not there - the
+`if` condition is not even evaluated, nothing is logged for it and it adds no
+entry to the run history. The key is written only when a step is off (`enabled`
+is on by default). A later step that references a switched-off step's output
+(`{"$ref": "<id>.<field>"}`) gets `None` for it, like for any step that did not
+run; the website's editor warns about such a reference.
+
+```yaml
+actions:
+  - module: add_comment
+    enabled: false          # skipped until switched on again
+    params: {message: "Test"}
+```
+
 ## Chaining a workflow's steps
 
 Every action's input and output is a plain JSON object (dict). A step's output

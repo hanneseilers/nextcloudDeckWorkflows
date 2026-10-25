@@ -78,6 +78,10 @@ class ActionStep:
     module: str
     id: str = ""
     params: dict = field(default_factory=dict)
+    # False = switched off in the editor: the step is skipped when the workflow runs
+    # (no output, nothing in the history), but stays in the workflow. See
+    # WorkflowEngine._run_steps.
+    enabled: bool = True
 
 
 class ComparisonOp(str, Enum):
@@ -115,6 +119,7 @@ class IfStep:
     condition: Condition
     then_steps: tuple["WorkflowStep", ...] = ()
     else_steps: tuple["WorkflowStep", ...] = ()
+    enabled: bool = True  # False: the whole block - condition, then and else - is skipped
 
 
 WorkflowStep = Union[ActionStep, IfStep]
