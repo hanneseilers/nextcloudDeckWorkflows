@@ -567,9 +567,6 @@ button:disabled {
 }
 
 .info-btn {
-    font-style: italic;
-    font-weight: 700;
-    font-family: Georgia, serif;
 }
 
 .step-outputs {
@@ -1198,4 +1195,10 @@ button.power-btn.is-off {
     color: var(--danger);
     border-color: var(--danger);
     background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+button.chip-remove svg {
+    width: 0.8rem;
+    height: 0.8rem;
+    vertical-align: -0.1em;
 }

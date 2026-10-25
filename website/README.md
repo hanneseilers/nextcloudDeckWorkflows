@@ -107,7 +107,8 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   An opened, saved workflow starts with everything folded (steps, Wenn/Sonst
   blocks, the link's actions); a step you add, or a link action you pick, starts
   open.
-- **Switching a step off:** the power button (⏻) in a step's or block's header
+- **Icons:** the editor uses the same line icons as the workflow overview (`Layout::icon()`; the set is handed to `builder.js` as `#icons-data`) - one meaning, one icon: trash = delete, power = on/off, info = more.
+- **Switching a step off:** the power button in a step's or block's header
   switches it off and on. A switched-off step is striped, marked "deaktiviert -
   wird übersprungen", and saved as `enabled: false` (written only when off);
   the automation skips it. Picking a switched-off step's output in a reference

@@ -483,6 +483,15 @@
 
   // -- rendering: shared value/operand widgets --------------------------------
 
+  // The same line icons as the workflow overview (Layout::icon in PHP), so one meaning
+  // (delete, switch off ...) looks the same everywhere. The text goes in title/aria-label.
+  const ICONS = JSON.parse((document.getElementById('icons-data') || { textContent: '{}' }).textContent);
+  function setIcon(element, name) {
+    if (ICONS[name]) {
+      element.innerHTML = ICONS[name]; // fixed markup from the server, no user text
+    }
+  }
+
   function renderValueInput(defaultValue, currentValue) {
     const type = defaultValue === null ? 'nullable-string' : typeof defaultValue;
     let input;
@@ -605,7 +614,7 @@
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'icon-btn template-modal-close';
-    close.textContent = '✕';
+    setIcon(close, 'x');
     close.title = 'Schließen';
     close.setAttribute('aria-label', 'Schließen');
     header.append(title, close);
@@ -720,7 +729,7 @@
     const info = document.createElement('button');
     info.type = 'button';
     info.className = 'icon-btn info-btn';
-    info.textContent = 'i';
+    setIcon(info, 'info');
     info.title = 'Vorlage anzeigen';
     info.setAttribute('aria-label', info.title);
     const syncInfo = () => {
@@ -890,7 +899,7 @@
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'chip-remove';
-        remove.textContent = '✕';
+        setIcon(remove, 'x');
         remove.title = assigneeText(id) + ' entfernen';
         remove.setAttribute('aria-label', remove.title);
         remove.addEventListener('click', () => {
@@ -1537,7 +1546,7 @@
     const apply = () => {
       wrapper.classList.toggle('is-folded', !!node.collapsed);
       summary.hidden = !node.collapsed;
-      toggle.textContent = node.collapsed ? '▸' : '▾';
+      setIcon(toggle, node.collapsed ? 'chevron-right' : 'chevron-down');
       toggle.title = node.collapsed ? 'Schritt ausklappen' : 'Schritt einklappen';
       toggle.setAttribute('aria-label', toggle.title);
       toggle.setAttribute('aria-expanded', node.collapsed ? 'false' : 'true');
@@ -1713,7 +1722,7 @@
     const infoBtn = document.createElement('button');
     infoBtn.type = 'button';
     infoBtn.className = 'icon-btn info-btn';
-    infoBtn.textContent = 'i';
+    setIcon(infoBtn, 'info');
     infoBtn.title = 'Welche Werte liefert dieser Schritt?';
     infoBtn.setAttribute('aria-label', infoBtn.title);
     infoBtn.setAttribute('aria-expanded', step.showOutputs ? 'true' : 'false');
@@ -1857,7 +1866,7 @@
     const power = document.createElement('button');
     power.type = 'button';
     power.className = 'icon-btn power-btn' + (node.enabled === false ? ' is-off' : '');
-    power.textContent = '⏻';
+    setIcon(power, 'power');
     power.title = node.enabled === false ? 'Schritt aktivieren' : 'Schritt deaktivieren (er wird dann übersprungen)';
     power.setAttribute('aria-label', power.title);
     power.setAttribute('aria-pressed', node.enabled === false ? 'true' : 'false');
@@ -1867,14 +1876,14 @@
     });
     controls.appendChild(power);
     [
-      ['↑', 'Nach oben', () => moveNode(list, index, -1), index === 0],
-      ['↓', 'Nach unten', () => moveNode(list, index, 1), index === list.length - 1],
-      ['✕', 'Schritt entfernen', () => removeNode(list, index), false],
-    ].forEach(([text, title, onClick, disabled]) => {
+      ['arrow-up', 'Nach oben', () => moveNode(list, index, -1), index === 0],
+      ['arrow-down', 'Nach unten', () => moveNode(list, index, 1), index === list.length - 1],
+      ['trash', 'Schritt entfernen', () => removeNode(list, index), false],
+    ].forEach(([icon, title, onClick, disabled]) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'icon-btn' + (text === '✕' ? ' danger' : '');
-      button.textContent = text;
+      button.className = 'icon-btn' + (icon === 'trash' ? ' danger' : '');
+      setIcon(button, icon);
       button.title = title;
       button.setAttribute('aria-label', title);
       button.disabled = disabled;

@@ -166,6 +166,7 @@ der Workflow kann also entsprechend später beginnen.</p>
 </form>
 
 <script id="templates-data" type="application/json"><?= json_encode(TemplateStore::fromRepoRoot()->names(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>
+<script id="icons-data" type="application/json"><?= Layout::iconsJson() ?></script>
 <script id="modules-data" type="application/json"><?= $modules->rawModulesJson() ?></script>
 <?php if ($isEdit): ?>
 <script id="existing-workflow-data" type="application/json"><?= json_encode($existingWorkflow, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>
