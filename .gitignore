@@ -8,6 +8,9 @@ __pycache__/
 .venv/
 venv/
 
+# AI
+.claude/
+
 # Runtime state (recreated automatically per deployment)
 automation/var/*
 !automation/var/.gitkeep
