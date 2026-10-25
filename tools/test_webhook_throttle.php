@@ -111,6 +111,21 @@ check('an empty secret is a problem', is_string($w['secret_problem']));
 $w = webhooksFor($dir, "webhooks:\n  enabled: true\n  secret: 123456\n");
 check('a short unquoted number (YAML makes it an int) is refused, not compared', is_string($w['secret_problem']) && $w['secret'] === '');
 
+// -- the status page's warning threshold -----------------------------------------------------
+use NextcloudDeckWorkflows\HealthStatus;
+
+$w = webhooksFor($dir, "{}\n");
+check('health: the default warning threshold is 12 hours', (new Config($dir))->healthStaleMinutes() === 720.0 && HealthStatus::DEFAULT_STALE_MINUTES === 720.0);
+file_put_contents($dir . '/settings.yaml', "health_stale_minutes: 40\n");
+check('health: a configured value overrides the default', (new Config($dir))->healthStaleMinutes() === 40.0);
+file_put_contents($dir . '/settings.yaml', "health_stale_minutes: 0\n");
+check('health: a nonsense value (0) falls back to the default', (new Config($dir))->healthStaleMinutes() === 720.0);
+foreach ([[1, '1 Minute'], [40, '40 Minuten'], [60, '1 Stunde'], [90, '1 Stunde 30 Minuten'], [720, '12 Stunden'], [1440, '1 Tag'], [1560, '1 Tag 2 Stunden'], [2880, '2 Tage']] as [$min, $text]) {
+    check("health: $min minutes read as '$text'", HealthStatus::durationText($min) === $text);
+}
+$stale = new HealthStatus($db, 720.0);
+check('health: the threshold is named in the warning text', $stale->staleAfterText() === '12 Stunden');
+
 @unlink($db);
 array_map('unlink', glob($dir . '/*') ?: []);
 @rmdir($dir);

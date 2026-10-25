@@ -28,10 +28,10 @@ public_url: "https://example.com/nextcloudDeckWorkflows/website"
 # 15 Minuten (900 s), 600 ist dort sicher.
 max_run_seconds: 600
 
-# So alt darf der letzte Lauf sein, bevor website/health.php „gestoppt“ meldet (HTTP 503).
-# 15 passt zu einem Cron-Job alle paar Minuten; bei stündlichem Cron z. B. 90,
-# bei täglichem 1560.
-health_stale_minutes: 15
+# So alt darf der letzte Lauf sein, bevor website/health.php „gestoppt“ meldet (Warnung und HTTP 503).
+# 720 = 12 Stunden. Läuft der Cron-Job alle paar Minuten, geht auch ein kleiner Wert (z. B. 15),
+# um einen Stillstand früher zu bemerken; bei täglichem Cron mindestens 1560 (26 Stunden).
+health_stale_minutes: 720
 
 # Ausführungs-Historie (Historie, Statusseite) wird nach so vielen Tagen gelöscht.
 history_retention_days: 90

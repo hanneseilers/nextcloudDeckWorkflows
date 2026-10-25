@@ -155,11 +155,11 @@ SETTINGS = (
         "Unter dem Zeitlimit des Hosters für Cron-Jobs halten: STRATO beendet sie nach",
         "15 Minuten (900 s), 600 ist dort sicher.",
     ), kind="int", default=600, check=_check_positive),
-    Field("health_stale_minutes", "Ab wie vielen Minuten ohne Lauf die Statusseite Alarm meldet", (
-        "So alt darf der letzte Lauf sein, bevor website/health.php „gestoppt“ meldet (HTTP 503).",
-        "15 passt zu einem Cron-Job alle paar Minuten; bei stündlichem Cron z. B. 90,",
-        "bei täglichem 1560.",
-    ), kind="int", default=15, check=_check_positive),
+    Field("health_stale_minutes", "Ab wie vielen Minuten ohne Lauf die Statusseite warnt", (
+        "So alt darf der letzte Lauf sein, bevor website/health.php „gestoppt“ meldet (Warnung und HTTP 503).",
+        "720 = 12 Stunden. Läuft der Cron-Job alle paar Minuten, geht auch ein kleiner Wert (z. B. 15),",
+        "um einen Stillstand früher zu bemerken; bei täglichem Cron mindestens 1560 (26 Stunden).",
+    ), kind="int", default=720, check=_check_positive),
     Field("history_retention_days", "Wie viele Tage die Historie aufbewahrt wird", (
         "Ausführungs-Historie (Historie, Statusseite) wird nach so vielen Tagen gelöscht.",
     ), kind="int", default=90, check=_check_positive),

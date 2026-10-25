@@ -79,7 +79,7 @@ def test_first_run_with_all_defaults_writes_complete_documented_files(config_dir
     configure.save(io, "settings", None, values, assume_yes=True)
     text = (config_dir / "settings.yaml").read_text(encoding="utf-8")
     data = yaml.safe_load(text)
-    assert data["health_stale_minutes"] == 15 and data["webhooks"]["enabled"] is False
+    assert data["health_stale_minutes"] == 720 and data["webhooks"]["enabled"] is False
     assert "# Zeitzone, in der die Website Zeiten anzeigt" in text  # every value is explained
     (config_dir / "nextcloud.yaml").write_text("instances: []\n")
     assert load_settings(config_dir).public_url == "https://x.example/ncdw/website"
@@ -93,7 +93,7 @@ def test_existing_values_are_offered_and_changes_listed(config_dir):
     io = ScriptedIO([""] * 5 + ["450"] + [""] * 3 + ["n", "n"])
     values = configure.configure_fields(io, configure.SETTINGS, current, False)
     assert values["max_run_seconds"] == 450
-    assert values["health_stale_minutes"] == 15
+    assert values["health_stale_minutes"] == 720
     assert any("[300]" in prompt for prompt in io.prompts)  # the existing value was the proposal
     assert not any("[NEU]" in line for line in io.said)  # nothing counts as new
     configure.save(io, "settings", current, values, assume_yes=True)

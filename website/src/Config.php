@@ -17,7 +17,7 @@ class Config
     private string $stateDbPath;
     /** @var array{enabled: bool, secret: string, fallback_poll_minutes: float}|null */
     private ?array $webhooks = null;
-    private float $healthStaleMinutes = 15.0;
+    private float $healthStaleMinutes = HealthStatus::DEFAULT_STALE_MINUTES;
 
     public function __construct(string $configDir)
     {

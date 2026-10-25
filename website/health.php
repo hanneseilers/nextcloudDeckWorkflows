@@ -49,14 +49,14 @@ if (($_GET['format'] ?? '') === 'json') {
 <?php if ($health->isHealthy()): ?>
     <p class="notice" style="background:#e6f4ea;border-color:var(--accent);">
         ✓ Letzter Automatisierungs-Lauf: <?= Layout::dateTime($health->lastRunAt()) ?>
-        (vor <?= (int) round($health->minutesSinceLastRun()) ?> Minuten)
+        (vor <?= h(HealthStatus::durationText((int) round($health->minutesSinceLastRun()))) ?>)
     </p>
 <?php else: ?>
     <p class="notice error">
         ✗ Kein aktueller Automatisierungs-Lauf gefunden<?php if ($health->lastRunAt() !== null): ?>
         - letzter Lauf: <?= Layout::dateTime($health->lastRunAt()) ?>
-        (vor <?= (int) round($health->minutesSinceLastRun()) ?> Minuten)
-        <?php endif; ?>. Läuft der Cron-Job noch?
+        (vor <?= h(HealthStatus::durationText((int) round($health->minutesSinceLastRun()))) ?>)
+        <?php endif; ?>. Der Cron-Job ist länger als <?= h($health->staleAfterText()) ?> nicht gelaufen - läuft er noch?
     </p>
 <?php endif; ?>
 

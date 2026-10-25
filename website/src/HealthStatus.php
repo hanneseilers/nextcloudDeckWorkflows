@@ -9,15 +9,18 @@ namespace NextcloudDeckWorkflows;
  */
 class HealthStatus
 {
+    public const DEFAULT_STALE_MINUTES = 720.0; // 12 hours
+
     /**
      * @param float $staleAfterMinutes How old the heartbeat may be before the
      *   run counts as stopped - config/settings.yaml `health_stale_minutes`.
-     *   The default (15) fits a job started every few minutes; a host that
-     *   only starts it hourly or daily (STRATO's cron) needs a larger value.
+     *   The default is 12 hours (720): the status page warns when the job has
+     *   not run for longer than that. A job that runs every few minutes can use
+     *   a much smaller value to notice a stop sooner.
      */
     public function __construct(
         private readonly string $dbPath,
-        private readonly float $staleAfterMinutes = 15.0
+        private readonly float $staleAfterMinutes = self::DEFAULT_STALE_MINUTES
     ) {
     }
 
@@ -58,6 +61,33 @@ class HealthStatus
         $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
         $seconds = $now->getTimestamp() - $last->getTimestamp();
         return $seconds / 60;
+    }
+
+    /** The warning threshold as text: "12 Stunden", "90 Minuten", "1 Tag 12 Stunden" ... */
+    public function staleAfterText(): string
+    {
+        return self::durationText((int) round($this->staleAfterMinutes));
+    }
+
+    public static function durationText(int $minutes): string
+    {
+        if ($minutes < 60) {
+            return $minutes . ' ' . ($minutes === 1 ? 'Minute' : 'Minuten');
+        }
+        $days = intdiv($minutes, 1440);
+        $hours = intdiv($minutes % 1440, 60);
+        $rest = $minutes % 60;
+        $parts = [];
+        if ($days > 0) {
+            $parts[] = $days . ' ' . ($days === 1 ? 'Tag' : 'Tage');
+        }
+        if ($hours > 0) {
+            $parts[] = $hours . ' ' . ($hours === 1 ? 'Stunde' : 'Stunden');
+        }
+        if ($rest > 0) {
+            $parts[] = $rest . ' ' . ($rest === 1 ? 'Minute' : 'Minuten');
+        }
+        return implode(' ', $parts);
     }
 
     /** True if we have a heartbeat and it's recent enough. */
