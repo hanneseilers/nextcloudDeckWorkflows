@@ -96,6 +96,14 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   page. Useful for typing an id directly or checking that a label belongs
   to the workflow's board (labels are per board - another board's label id
   makes Deck answer "Label does not exist").
+- **Folding:** every step and every Wenn/Sonst block has a fold button (▾/▸) in
+  front; folded, only the header and a one-line summary of what the step is set
+  to remain (`summarizeStep()`), "Alle einklappen / ausklappen" above the steps does
+  all of them. It is only how the editor looks (`node.collapsed`) - not saved, not
+  in the payload, and folding doesn't redraw the page. A failed save (an invalid
+  field, an incomplete reference) unfolds the step that holds the problem, without
+  a redraw, so the half-typed value is still there to be seen. The one-time link's
+  up to three actions each fold their settings the same way.
 - **"Einmal-Link erstellen"** takes up to three actions (first, second, third;
   the second appears once the first is chosen, the third after the second, and
   an empty one is simply left out) and shows each chosen action's fields right

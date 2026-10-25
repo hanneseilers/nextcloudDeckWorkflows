@@ -1036,3 +1036,135 @@ button.template-modal-close {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     font-weight: 600;
 }
+
+/* "Einmal-Link erstellen": the actions the link runs - indented under the step, one box each */
+.link-actions {
+    margin: 0.75rem 0 1rem 1.5rem;
+    padding-left: 1rem;
+    border-left: 3px solid var(--accent);
+}
+
+.link-actions-title {
+    font-weight: 700;
+    margin-bottom: 0.1rem;
+}
+
+.link-slot {
+    margin-bottom: 0.9rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.link-slot:last-child {
+    margin-bottom: 0;
+}
+
+.link-slot-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.link-slot-number {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+}
+
+.link-slot-pick {
+    flex: 1 1 18rem;
+    margin-bottom: 0;
+}
+
+button.link-slot-toggle {
+    margin-left: auto;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.9rem;
+    background: transparent;
+}
+
+.link-slot-summary {
+    margin: 0.4rem 0 0 2.4rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    overflow-wrap: anywhere;
+}
+
+/* inside a box the fields need no frame of their own - the box is the frame */
+.link-slot .linked-action {
+    margin: 0.6rem 0 0 2.4rem;
+    padding: 0.6rem 0 0 0;
+    border-left: 0;
+    border-top: 1px dashed var(--border);
+    background: transparent;
+    border-radius: 0;
+}
+
+.link-slot [hidden] {
+    display: none;
+}
+
+@media (max-width: 640px) {
+    .link-actions {
+        margin-left: 0.25rem;
+        padding-left: 0.6rem;
+    }
+
+    .link-slot-summary,
+    .link-slot .linked-action {
+        margin-left: 0;
+    }
+}
+
+.link-options-title {
+    margin: 0.5rem 0 0.4rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+    font-weight: 700;
+}
+
+/* folding a step (any step, every Wenn/Sonst block) */
+button.fold-btn {
+    flex: none;
+    min-width: 1.9rem;
+}
+
+.card-info-bar .fold-all {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 0.4rem;
+}
+
+.card-info-bar .fold-all button {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.9rem;
+}
+
+.step-summary {
+    margin: 0 0 0.25rem 2.4rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    overflow-wrap: anywhere;
+}
+
+/* folded: only the header and the one-line summary stay */
+.step.is-folded > :not(.step-header):not(.step-summary) {
+    display: none;
+}
+
+.step.is-folded {
+    padding-bottom: 0.4rem;
+}

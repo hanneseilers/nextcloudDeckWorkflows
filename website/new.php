@@ -153,6 +153,10 @@ der Workflow kann also entsprechend später beginnen.</p>
     <button type="button" id="card-info-btn" class="icon-btn info-btn" aria-expanded="false" aria-controls="card-info"
         title="Welche Daten der auslösenden Karte kann ich verwenden?">i</button>
     <span>Daten der auslösenden Karte</span>
+    <span class="fold-all">
+        <button type="button" id="fold-all" class="small" title="Alle Schritte einklappen">▸ Alle einklappen</button>
+        <button type="button" id="unfold-all" class="small" title="Alle Schritte ausklappen">▾ Alle ausklappen</button>
+    </span>
 </div>
 <div id="card-info" class="step-outputs card-info" hidden></div>
 <div id="steps"></div>

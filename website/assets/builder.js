@@ -1402,10 +1402,6 @@
   function renderLinkedActionFields(step, linked, index) {
     const box = document.createElement('div');
     box.className = 'linked-action';
-    const heading = document.createElement('div');
-    heading.className = 'linked-action-title';
-    heading.textContent = LINK_SLOTS[index].ordinal + ': Felder von „' + moduleLabel(linked.name) + '" (läuft beim Aufruf des Links)';
-    box.appendChild(heading);
     if (linked.description) {
       const description = document.createElement('p');
       description.className = 'muted small';
@@ -1426,6 +1422,215 @@
       box.appendChild(none);
     }
     return box;
+  }
+
+  // One line that says what an action of a link is set to - shown while its
+  // settings are folded away: "Kommentar: Erledigt · Textvorlage: Freigabe".
+  function summarizeLinkedFields(linked, fields, skipKeys = []) {
+    const labels = linked.param_labels || {};
+    const parts = [];
+    Object.keys(linked.input || {}).forEach((key) => {
+      const entry = fields && fields[key];
+      if (!entry || skipKeys.includes(key)) {
+        return;
+      }
+      const name = labels[key] || key;
+      if (entry.source === 'ref') {
+        parts.push(name + ': ← ' + (entry.refStep || '?') + (entry.refField ? '.' + entry.refField : ''));
+        return;
+      }
+      const value = entry.value;
+      if (value === '' || value === null || value === undefined || value === false
+          || (Array.isArray(value) && value.length === 0)
+          || (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
+          || value === (linked.input || {})[key]) {
+        return; // empty or the default: nothing worth a word
+      }
+      const text = Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? '{…}' : String(value);
+      parts.push(name + ': ' + (text.length > 40 ? text.slice(0, 39) + '…' : text));
+    });
+    const line = parts.join(' · ');
+    return line === '' ? 'Standardwerte' : line.length > 150 ? line.slice(0, 149) + '…' : line;
+  }
+
+  // -- folding a step (any step, and every Wenn/Sonst block) ----------------------------
+  // Whether a step is folded is only how the editor looks (node.collapsed) - never
+  // part of the saved workflow. A folded step shows one line saying what it is set to.
+
+  function operandText(entry) {
+    if (!entry) {
+      return '?';
+    }
+    if (entry.source === 'ref') {
+      return (entry.refStep || '?') + (entry.refField ? '.' + entry.refField : '');
+    }
+    const text = entry.value === null || entry.value === undefined ? '' : String(entry.value);
+    return '„' + (text.length > 30 ? text.slice(0, 29) + '…' : text) + '"';
+  }
+
+  function summarizeStep(node) {
+    if (node.kind === 'if') {
+      const op = (CONDITION_OPS.find(([value]) => value === node.condition.op) || [null, node.condition.op])[1];
+      const count = (n) => n + (n === 1 ? ' Schritt' : ' Schritte');
+      return 'Wenn ' + operandText(node.condition.left) + ' ' + op + ' ' + operandText(node.condition.right)
+        + ' - Dann: ' + count(collectAllSteps(node.then).length) + ', Sonst: ' + count(collectAllSteps(node.else).length);
+    }
+    const module = modulesByName[node.module];
+    if (!module) {
+      return '';
+    }
+    if (node.module === 'create_action_link') {
+      const actions = LINK_SLOTS.map((slot) => node.params[slot.action])
+        .filter((entry) => entry && (entry.source === 'ref' || (typeof entry.value === 'string' && entry.value.trim() !== '')))
+        .map((entry) => (entry.source === 'ref' ? '← ' + operandText(entry) : moduleLabel(entry.value)));
+      const slotKeys = LINK_SLOTS.flatMap((slot) => [slot.action, slot.params]);
+      const rest = summarizeLinkedFields(module, node.params, slotKeys);
+      return (actions.length ? 'Aktionen: ' + actions.join(' → ') : 'Noch keine Aktion gewählt')
+        + (rest === 'Standardwerte' ? '' : ' · ' + rest);
+    }
+    return summarizeLinkedFields(module, node.params);
+  }
+
+  // The button in front of a step: folds/unfolds it without redrawing the page.
+  function attachFolding(node, wrapper, header) {
+    wrapper._node = node;
+    const summary = document.createElement('div');
+    summary.className = 'step-summary muted small';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'icon-btn fold-btn';
+    const apply = () => {
+      wrapper.classList.toggle('is-folded', !!node.collapsed);
+      summary.hidden = !node.collapsed;
+      toggle.textContent = node.collapsed ? '▸' : '▾';
+      toggle.title = node.collapsed ? 'Schritt ausklappen' : 'Schritt einklappen';
+      toggle.setAttribute('aria-label', toggle.title);
+      toggle.setAttribute('aria-expanded', node.collapsed ? 'false' : 'true');
+    };
+    // Also used to open a step after an error, WITHOUT redrawing the page - a redraw would
+    // throw away a half-typed invalid value, and that is exactly what has to be seen.
+    node._setFolded = (folded) => {
+      node.collapsed = folded;
+      if (folded) {
+        summary.textContent = summarizeStep(node);
+      }
+      apply();
+    };
+    toggle.addEventListener('click', () => node._setFolded(!node.collapsed));
+    header.insertBefore(toggle, header.firstChild);
+    if (node.collapsed) {
+      summary.textContent = summarizeStep(node);
+    }
+    apply();
+    return summary;
+  }
+
+  // After a failed save: open the steps that hold the problem, so it can be seen.
+  function unfoldInvalidSteps() {
+    stepsEl.querySelectorAll('.step.is-folded').forEach((element) => {
+      if (element._node && element.querySelector('.invalid')) {
+        element._node._setFolded(false);
+      }
+    });
+  }
+
+  function setAllFolded(list, folded) {
+    list.forEach((node) => {
+      node.collapsed = folded;
+      if (node.kind === 'if') {
+        setAllFolded(node.then, folded);
+        setAllFolded(node.else, folded);
+      }
+    });
+  }
+
+  // The up to three actions a one-time link runs: an indented block "Beim Aufruf des
+  // Links ..." with one clearly separated box per action - the action to pick, and
+  // its settings, which can be folded away once they are done.
+  function renderLinkActions(step, linkedModules, module) {
+    const container = document.createElement('div');
+    container.className = 'link-actions';
+    const heading = document.createElement('div');
+    heading.className = 'link-actions-title';
+    heading.textContent = 'Beim Aufruf des Links werden ausgeführt';
+    container.appendChild(heading);
+    const intro = document.createElement('p');
+    intro.className = 'muted small';
+    intro.textContent = (module.param_help || {}).action_2 || 'Bis zu drei Aktionen, nacheinander.';
+    container.appendChild(intro);
+
+    LINK_SLOTS.forEach((slot, index) => {
+      if (!linkSlotVisible(step, index)) {
+        return; // the second/third action appear once the one before is chosen
+      }
+      const state = step.slots[index];
+      const linked = linkedModules[index];
+      const chosen = step.params[slot.action];
+      const viaRef = !!chosen && chosen.source === 'ref';
+
+      const box = document.createElement('section');
+      box.className = 'link-slot';
+      const header = document.createElement('div');
+      header.className = 'link-slot-header';
+      const number = document.createElement('span');
+      number.className = 'link-slot-number';
+      number.textContent = String(index + 1);
+      header.appendChild(number);
+      const row = renderParamRow(step, slot.action, module.input[slot.action]);
+      const rowHelp = row.querySelector('.param-example');
+      if (rowHelp) {
+        rowHelp.remove(); // said once above instead of under every box
+      }
+      row.classList.add('link-slot-pick');
+      header.appendChild(row);
+      box.appendChild(header);
+
+      // what can be folded: the fields of the chosen action, or the JSON of a reference
+      let body = null;
+      if (linked) {
+        body = renderLinkedActionFields(step, linked, index);
+      } else if (viaRef) {
+        body = document.createElement('div');
+        body.className = 'linked-action';
+        body.appendChild(renderParamRow(step, slot.params, module.input[slot.params]));
+      } else if (index === 0) {
+        const hint = document.createElement('p');
+        hint.className = 'muted';
+        hint.textContent = 'Zuerst oben eine Action wählen - ihre Felder erscheinen dann hier.';
+        box.appendChild(hint);
+      }
+      if (body) {
+        const summary = document.createElement('div');
+        summary.className = 'link-slot-summary muted small';
+        summary.textContent = linked ? summarizeLinkedFields(linked, state.fields) : 'Aktion über einen Verweis gewählt';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'link-slot-toggle';
+        const apply = () => {
+          body.hidden = !!state.collapsed;
+          summary.hidden = !state.collapsed;
+          toggle.textContent = state.collapsed ? '▸ Einstellungen anzeigen' : '▾ Einstellungen einklappen';
+          toggle.setAttribute('aria-expanded', state.collapsed ? 'false' : 'true');
+          box.classList.toggle('is-collapsed', !!state.collapsed);
+        };
+        toggle.addEventListener('click', () => {
+          state.collapsed = !state.collapsed;
+          if (state.collapsed) {
+            summary.textContent = linked ? summarizeLinkedFields(linked, state.fields) : summary.textContent;
+          }
+          apply();
+        });
+        header.appendChild(toggle);
+        apply();
+        if (state.collapsed && linked) {
+          summary.textContent = summarizeLinkedFields(linked, state.fields);
+        }
+        box.appendChild(summary);
+        box.appendChild(body);
+      }
+      container.appendChild(box);
+    });
+    return container;
   }
 
   function renderActionNode(step, list, index) {
@@ -1469,6 +1674,7 @@
 
     header.appendChild(renderMoveRemoveControls(list, index));
     wrapper.appendChild(header);
+    wrapper.appendChild(attachFolding(step, wrapper, header));
 
     const module = modulesByName[step.module];
     if (module && module.description) {
@@ -1496,28 +1702,19 @@
         paramsEl.appendChild(renderCalculateRow(step));
       } else {
         keys.forEach((key) => {
-          const slotIndex = step.module === 'create_action_link' ? linkSlotIndex(key) : -1;
-          if (slotIndex >= 0) {
-            if (!linkSlotVisible(step, slotIndex)) {
-              return; // the second/third action appear once the one before is chosen
+          if (step.module === 'create_action_link' && linkSlotIndex(key) >= 0) {
+            // all the (up to three) actions of a link are drawn together, at the first of their keys
+            if (key === LINK_SLOTS[0].action) {
+              paramsEl.appendChild(renderLinkActions(step, linkedModules, module));
             }
-            if (key === LINK_SLOTS[slotIndex].params) {
-              if (linkedModules[slotIndex]) {
-                paramsEl.appendChild(renderLinkedActionFields(step, linkedModules[slotIndex], slotIndex));
-                return;
-              }
-              const chosen = step.params[LINK_SLOTS[slotIndex].action];
-              if (slotIndex === 0 && chosen && chosen.source === 'literal') {
-                const hint = document.createElement('p');
-                hint.className = 'muted';
-                hint.textContent = 'Zuerst oben eine Action wählen - ihre Felder erscheinen dann hier.';
-                paramsEl.appendChild(hint);
-                return;
-              }
-              if (slotIndex > 0 && chosen && chosen.source === 'literal') {
-                return; // no second/third action chosen: nothing to fill in
-              }
-            }
+            return;
+          }
+          if (step.module === 'create_action_link' && key === 'success_message') {
+            // what follows is about the link itself, not about one of its actions
+            const title = document.createElement('div');
+            title.className = 'link-options-title';
+            title.textContent = 'Einstellungen des Links';
+            paramsEl.appendChild(title);
           }
           paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
         });
@@ -1640,6 +1837,7 @@
 
     header.appendChild(renderMoveRemoveControls(list, index));
     wrapper.appendChild(header);
+    wrapper.appendChild(attachFolding(node, wrapper, header));
 
     // Left value, operator and right value each get their own line.
     const conditionEl = document.createElement('div');
@@ -1877,8 +2075,20 @@
     return entry.value === undefined ? null : entry.value;
   }
 
+  // Runs `build` for one step; if it fails, the step is unfolded first so the problem is visible.
+  function unfoldOnError(node, build) {
+    try {
+      return build();
+    } catch (error) {
+      if (node.collapsed) {
+        node._setFolded ? node._setFolded(false) : (node.collapsed = false);
+      }
+      throw error;
+    }
+  }
+
   function collectSteps(list, seenIds) {
-    return list.map((node) => {
+    return list.map((node) => unfoldOnError(node, () => {
       if (node.kind === 'if') {
         return {
           type: 'if',
@@ -1918,7 +2128,7 @@
       });
 
       return { id, module: node.module, params };
-    });
+    }));
   }
 
   // A board/stack id only ever becomes valid by picking a suggestion from
@@ -1962,9 +2172,11 @@
       throw new Error('Bitte mindestens einen Schritt hinzufügen.');
     }
     if (stepsEl.querySelector('textarea.invalid')) {
+      unfoldInvalidSteps();
       throw new Error('Ein JSON-Feld enthält ungültiges JSON - bitte prüfen.');
     }
     if (stepsEl.querySelector('input.invalid')) {
+      unfoldInvalidSteps();
       throw new Error('Ein Feld hat keinen gültigen Wert (Datum TT.MM.JJJJ hh:mm bzw. Auswahl aus der Liste) - bitte prüfen.');
     }
 
@@ -2098,6 +2310,20 @@
     cardInfoBtn.addEventListener('click', () => {
       cardInfoEl.hidden = !cardInfoEl.hidden;
       cardInfoBtn.setAttribute('aria-expanded', cardInfoEl.hidden ? 'false' : 'true');
+    });
+  }
+
+  // "Alle einklappen / ausklappen" above the steps
+  const foldAllBtn = document.getElementById('fold-all');
+  const unfoldAllBtn = document.getElementById('unfold-all');
+  if (foldAllBtn && unfoldAllBtn) {
+    foldAllBtn.addEventListener('click', () => {
+      setAllFolded(state.steps, true);
+      render();
+    });
+    unfoldAllBtn.addEventListener('click', () => {
+      setAllFolded(state.steps, false);
+      render();
     });
   }
 
