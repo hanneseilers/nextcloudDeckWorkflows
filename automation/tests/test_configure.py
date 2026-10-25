@@ -196,3 +196,22 @@ def test_enabling_webhooks_proposes_a_generated_long_secret_and_https(config_dir
 def test_min_secret_length_matches_the_website():
     php = (configure.REPO_ROOT / "website" / "src" / "Config.php").read_text(encoding="utf-8")
     assert f"MIN_WEBHOOK_SECRET_LENGTH = {configure.MIN_WEBHOOK_SECRET_LENGTH};" in php
+
+
+def test_the_backup_has_the_same_permissions_as_the_original(config_dir):
+    import os
+    import stat
+
+    path = config_dir / "settings.yaml"
+    path.write_text("workflows_dir: wf\n")
+    os.chmod(path, 0o640)
+    current = configure._read(path)
+    configure.save(ScriptedIO([]), "settings", current, {**configure._defaults(configure.SETTINGS, False), "workflows_dir": "x"}, assume_yes=True)
+    backup = config_dir / "settings.yaml.bak"
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o640 and "workflows_dir: wf" in backup.read_text()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640  # the rewritten file keeps its mode, too
+
+
+def test_backups_are_not_committed():
+    ignore = (configure.REPO_ROOT / ".gitignore").read_text()
+    assert "config/*.yaml.bak" in ignore

@@ -27,7 +27,9 @@ try {
 $workflowList = $listing['workflows'];
 $subfolders = $listing['folders'];
 $allFolders = $workflows->listFolders();
-$totalWorkflows = count($workflows->listAll());
+// Only used at the top level (the empty-state text): what is here plus what the subfolders hold -
+// no second read of every workflow file.
+$totalWorkflows = count($workflowList) + array_sum(array_column($subfolders, 'workflows'));
 ?>
 <?php Layout::start('Übersicht', 'Workflows', 'index'); ?>
 

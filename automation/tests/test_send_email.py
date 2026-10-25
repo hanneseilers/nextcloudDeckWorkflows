@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from automation.actions_registry import send_email as send_email_module
 from automation.actions_registry.send_email import SendEmailAction
 from automation.adapters import smtp_config as smtp_config_module
 from automation.adapters import text_templates
@@ -353,3 +352,14 @@ def test_the_duplicate_guard_treats_a_list_and_the_same_text_alike(tmp_path, mon
     SendEmailAction().execute(context, {"to": ["a@x.de", "b@x.de"], "subject": "S", "body": "B"})
     out = SendEmailAction().execute(context, {"to": "a@x.de, b@x.de", "subject": "S", "body": "B"})
     assert out == {"sent": False} and smtp_client.send_message.call_count == 1
+
+
+def test_a_line_break_in_a_substituted_subject_does_not_break_the_mail(tmp_path, monkeypatch, smtp_client, context):
+    write_smtp_config(tmp_path, monkeypatch)
+    SendEmailAction().execute(
+        context,
+        {"to": "a@example.com", "subject": "Neu: $titel", "body": "B", "template_data": {"titel": "Zeile eins\r\nBcc: boss@evil.example"}},
+    )
+    sent = smtp_client.send_message.call_args[0][0]
+    assert sent["Subject"] == "Neu: Zeile eins Bcc: boss@evil.example"  # one line; no second header
+    assert sent["Bcc"] is None

@@ -46,9 +46,10 @@ if (is_array($draft) && ($draft['new'] ? $isNew : (!$isNew && $draft['name'] ===
 $editing = $current !== null || $isNew;
 
 // Where each template is used (one pass over the workflows).
+$usageMap = $store->usageMap($workflows);
 $usage = [];
 foreach ($names as $name) {
-    $usage[$name] = $store->usages($workflows, $name);
+    $usage[$name] = $usageMap[$name] ?? [];
 }
 $usedHere = $current !== null ? $usage[$current['name']] : [];
 

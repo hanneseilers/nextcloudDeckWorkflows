@@ -606,13 +606,15 @@ def save(io: ConsoleIO, name: str, before: Optional[dict], after: dict, assume_y
     mode = None
     if path.exists():
         mode = path.stat().st_mode & 0o777
-        (CONFIG_DIR / f"{name}.yaml.bak").write_bytes(path.read_bytes())
+        backup = CONFIG_DIR / f"{name}.yaml.bak"
+        backup.write_bytes(path.read_bytes())
+        os.chmod(backup, mode)  # holds the same passwords: not more readable than the original
     tmp = path.with_suffix(".yaml.tmp")
     tmp.write_text(text, encoding="utf-8")
     if mode is not None:
         os.chmod(tmp, mode)
     os.replace(tmp, path)
-    io.say(f"  Gespeichert" + (f" (vorherige Fassung: config/{name}.yaml.bak)." if mode is not None else "."))
+    io.say("  Gespeichert" + (f" (vorherige Fassung: config/{name}.yaml.bak)." if mode is not None else "."))
     return True
 
 

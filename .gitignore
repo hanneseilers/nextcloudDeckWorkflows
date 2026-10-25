@@ -16,6 +16,8 @@ automation/var/*
 config/nextcloud.yaml
 config/settings.yaml
 config/smtp.yaml
+# Backups configure.sh makes of those (they hold the same passwords)
+config/*.yaml.bak
 # Decrypts any encrypted_app_password in nextcloud.yaml - see
 # automation/config/secrets.py. Never commit this.
 config/secret.key

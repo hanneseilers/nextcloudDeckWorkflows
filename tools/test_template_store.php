@@ -150,6 +150,11 @@ $repo->save($base + ['id' => 'b', 'name' => 'Zwei', 'actions' => [
 $repo->save($base + ['id' => 'c', 'name' => 'Drei', 'actions' => [['module' => 'log_action', 'params' => ['message' => 'willkommen']]]]);
 check('usages: send_email, nested steps included', $store->usages($repo, 'willkommen') === [['id' => 'a', 'name' => 'Eins']]);
 check('usages: format_text and add_comment, a workflow counted once', $store->usages($repo, 'Kurztext') === [['id' => 'b', 'name' => 'Zwei']]);
+$map = $store->usageMap($repo);
+check('usageMap: one pass gives every template with its workflows, same as usages()',
+    ($map['willkommen'] ?? null) === $store->usages($repo, 'willkommen') && ($map['Kurztext'] ?? null) === [['id' => 'b', 'name' => 'Zwei']]
+    && isset($map['andere']) && !isset($map['frei']) && count($map) === 3);
+check('usageMap: a template named through a reference (not a string) is not listed', !array_key_exists('x.y', $map) && !isset($map['']));
 check('usages: a template used nowhere', $store->usages($repo, 'frei') === []);
 $changed = $store->renameReferences($repo, 'willkommen', 'Begrüßung2');
 $a = $repo->get('a');

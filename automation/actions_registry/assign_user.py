@@ -4,6 +4,7 @@ import logging
 from typing import Any, ClassVar
 
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.actions.card_reader import read_current_card
 from automation.adapters.actions.user_ids import parse_user_ids
 from automation.core.domain.card_data import assigned_user_ids
 from automation.core.ports.action_module import ActionContext
@@ -50,7 +51,7 @@ class AssignUserAction(WorkflowAction):
         if not user_ids:
             raise ValueError("assign_user: no user given")
 
-        already = _currently_assigned(context)
+        already = assigned_user_ids(read_current_card(context, "assign_user"))
         failures = []
         for user_id in user_ids:
             if user_id in already:
@@ -68,17 +69,3 @@ class AssignUserAction(WorkflowAction):
         if failures:
             raise RuntimeError("Could not assign: " + "; ".join(failures))
         return {"user_ids": user_ids}
-
-
-def _currently_assigned(context: ActionContext) -> list[str]:
-    """Who the card has right now; nobody if that can't be read (then every
-    user is simply attempted)."""
-
-    try:
-        card = context.deck.get_card(
-            board_id=context.event.board_id, stack_id=context.current_stack_id, card_id=context.event.card_id
-        )
-    except Exception as exc:
-        logger.warning("assign_user: could not read the card's current assignees: %s", exc)
-        return []
-    return assigned_user_ids(card)

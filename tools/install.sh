@@ -376,10 +376,12 @@ EOF
 section_writable_checks() {
     log "6/8 Schreibrechte-Check"
 
-    mkdir -p "$AUTOMATION_DIR/var" "$WORKFLOWS_DIR"
+    mkdir -p "$AUTOMATION_DIR/var" "$WORKFLOWS_DIR" "$CONFIG_DIR/text_templates"
 
+    # config/text_templates: the website's "Vorlagen" page writes there;
+    # config/ itself: configure.sh saves its .bak copies there.
     local dir testfile
-    for dir in "$AUTOMATION_DIR/var" "$WORKFLOWS_DIR"; do
+    for dir in "$AUTOMATION_DIR/var" "$WORKFLOWS_DIR" "$CONFIG_DIR/text_templates" "$CONFIG_DIR"; do
         testfile="$dir/.install_write_test"
         if ( touch "$testfile" 2>/dev/null && rm -f "$testfile" 2>/dev/null ); then
             info "$dir ist beschreibbar."

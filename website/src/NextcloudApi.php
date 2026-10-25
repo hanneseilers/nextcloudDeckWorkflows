@@ -173,8 +173,13 @@ class NextcloudApi
      */
     private static function mapPropfindCalendars(string $xml, string $basePath, string $urlPrefix = ''): array
     {
+        // A real CalDAV answer has no DOCTYPE; refusing one rules out entity tricks
+        // (and LIBXML_NONET forbids network access while parsing).
+        if (stripos(substr($xml, 0, 4096), '<!DOCTYPE') !== false || stripos(substr($xml, 0, 4096), '<!ENTITY') !== false) {
+            return [];
+        }
         $doc = new \DOMDocument();
-        if (!@$doc->loadXML($xml)) {
+        if (!@$doc->loadXML($xml, LIBXML_NONET)) {
             return []; // malformed response must not break the picker - just show no calendars
         }
         $xpath = new \DOMXPath($doc);
@@ -266,6 +271,8 @@ class NextcloudApi
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_USERPWD => $this->username . ':' . $this->appPassword,
             CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => 5, // an unreachable host must not hold a PHP worker for the whole timeout
+            CURLOPT_FOLLOWLOCATION => false, // never send the app password to wherever a redirect points
         ]);
         $body = curl_exec($handle);
         $error = curl_error($handle);

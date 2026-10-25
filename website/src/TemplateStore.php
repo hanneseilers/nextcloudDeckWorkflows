@@ -222,16 +222,58 @@ class TemplateStore
      */
     public function usages(WorkflowRepository $workflows, string $name): array
     {
-        $found = [];
+        return $this->usageMap($workflows)[$name] ?? [];
+    }
+
+    /**
+     * Template name => the workflows naming it, from ONE pass over the
+     * workflow files (asking usages() per template re-reads every workflow
+     * each time: 60 templates x 150 workflows took 4 s).
+     *
+     * @return array<string, array<int, array{id: string, name: string}>>
+     */
+    public function usageMap(WorkflowRepository $workflows): array
+    {
+        $map = [];
         foreach ($workflows->listAll() as $workflow) {
-            $count = 0;
+            $names = [];
             $actions = $workflow['actions'] ?? [];
-            self::walkSteps($actions, $name, null, $count);
-            if ($count > 0) {
-                $found[] = ['id' => (string) $workflow['id'], 'name' => (string) ($workflow['name'] ?? $workflow['id'])];
+            self::collectNames($actions, $names);
+            foreach (array_keys($names) as $name) {
+                $map[(string) $name][] = ['id' => (string) $workflow['id'], 'name' => (string) ($workflow['name'] ?? $workflow['id'])];
             }
         }
-        return $found;
+        return $map;
+    }
+
+    /**
+     * The template names the steps name (literal strings only - a reference to
+     * another step's output can't be followed), as the keys of $names.
+     *
+     * @param array<int, mixed> $steps
+     * @param array<string, true> $names
+     */
+    private static function collectNames(array $steps, array &$names): void
+    {
+        foreach ($steps as $step) {
+            if (!is_array($step)) {
+                continue;
+            }
+            if (($step['type'] ?? null) === 'if') {
+                foreach (['then', 'else'] as $branch) {
+                    if (isset($step[$branch]) && is_array($step[$branch])) {
+                        self::collectNames($step[$branch], $names);
+                    }
+                }
+                continue;
+            }
+            foreach (self::USED_BY as [$module, $param]) {
+                $value = ($step['module'] ?? null) === $module ? ($step['params'][$param] ?? null) : null;
+                if (is_string($value) && $value !== '') {
+                    $names[$value] = true;
+                }
+            }
+        }
     }
 
     /**

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, ClassVar, Optional
 
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.actions.card_reader import read_current_card
 from automation.core.domain.card_data import card_label_ids
 from automation.core.ports.action_module import ActionContext
-
-logger = logging.getLogger(__name__)
 
 
 class RemoveLabelAction(WorkflowAction):
@@ -45,13 +43,7 @@ class RemoveLabelAction(WorkflowAction):
         label_id = params["label_id"]
         name = _label_name(context, label_id)
 
-        try:
-            card = context.deck.get_card(
-                board_id=context.event.board_id, stack_id=context.current_stack_id, card_id=context.event.card_id
-            )
-        except Exception as exc:
-            logger.warning("remove_label: could not read the card's labels, trying anyway: %s", exc)
-            card = None
+        card = read_current_card(context, "remove_label")
         if card is not None and "labels" in card and str(label_id) not in card_label_ids(card):
             return {"label_id": label_id, "label_name": name, "removed": False}
 

@@ -248,3 +248,17 @@ def test_user_name_is_url_encoded_in_the_calendar_home_path():
     client = _FakeCalDavClient(propfind_xml="<d:multistatus xmlns:d=\"DAV:\"/>")
     NextcloudCalendarGateway(client, "anna maier@example.org").list_calendars()
     assert client.paths == [("PROPFIND", "/remote.php/dav/calendars/anna%20maier%40example.org/")]
+
+
+def test_an_answer_with_a_doctype_or_entities_is_refused_not_parsed():
+    import pytest
+
+    bomb = (
+        '<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;">]>'
+        '<d:multistatus xmlns:d="DAV:"><d:response>&lol2;</d:response></d:multistatus>'
+    )
+    gateway = _gateway(propfind_xml=bomb, report_xml=bomb)
+    with pytest.raises(ValueError, match="DOCTYPE"):
+        gateway.list_calendars()
+    with pytest.raises(ValueError, match="DOCTYPE"):
+        gateway.find_next_occurrence("/remote.php/dav/calendars/alice/personal/", "x")

@@ -89,7 +89,9 @@ class SendEmailAction(WorkflowAction):
             subject = params["subject"]
             body = params["body"]
 
-        subject = Template(subject).safe_substitute(**template_data)
+        # A header is one line: a line break from a substituted value (a card title or
+        # description) would make the mail library refuse the message.
+        subject = " ".join(Template(subject).safe_substitute(**template_data).split())
         body = Template(body).safe_substitute(**template_data)
 
         recipients = parse_recipients(params.get("to"))

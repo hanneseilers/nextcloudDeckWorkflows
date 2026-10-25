@@ -14,7 +14,13 @@ if (PHP_SAPI !== 'cli') {
         // The pages carry delete/disable buttons - never render them inside
         // a foreign frame (clickjacking).
         header('X-Frame-Options: DENY');
-        header("Content-Security-Policy: frame-ancestors 'none'");
+        // No scripts, styles, forms or <base> from anywhere but this site. The pages
+        // embed their data as inline JSON/scripts and a few inline styles, so those
+        // stay allowed; what is closed is loading code from outside and sending a
+        // form (or the page's data) to another origin.
+        header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            . "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+            . "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
         header('X-Content-Type-Options: nosniff');
         // link.php URLs carry their one-time token - don't leak any URL.
         header('Referrer-Policy: no-referrer');

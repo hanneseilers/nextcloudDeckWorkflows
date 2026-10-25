@@ -4,6 +4,7 @@ import logging
 from typing import Any, ClassVar
 
 from automation.adapters.actions.base import WorkflowAction
+from automation.adapters.actions.card_reader import read_current_card
 from automation.adapters.actions.user_ids import parse_user_ids
 from automation.core.domain.card_data import assigned_user_ids
 from automation.core.ports.action_module import ActionContext
@@ -49,15 +50,9 @@ class UnassignUserAction(WorkflowAction):
         if not everyone and not wanted:
             raise ValueError("unassign_user: no user given (and all_users is off)")
 
-        card = None
-        try:
-            card = context.deck.get_card(
-                board_id=context.event.board_id, stack_id=context.current_stack_id, card_id=context.event.card_id
-            )
-        except Exception as exc:
-            if everyone:
-                raise RuntimeError(f"Could not read who is assigned to the card: {exc}") from exc
-            logger.warning("unassign_user: could not read the card's current assignees: %s", exc)
+        card = read_current_card(context, "unassign_user")
+        if everyone and card is None:
+            raise RuntimeError("Could not read who is assigned to the card (see the warning above)")
 
         if everyone:
             targets = assigned_user_ids(card)

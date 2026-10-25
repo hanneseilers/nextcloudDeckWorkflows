@@ -38,6 +38,18 @@ _CALDAV = "{urn:ietf:params:xml:ns:caldav}"
 _SEARCH_HORIZON = timedelta(days=730)
 
 
+def _parse_xml(xml_text: str) -> ET.Element:
+    """ElementTree on a server's answer, minus the one thing that makes it
+    dangerous: a DOCTYPE (entity declarations are how "billion laughs" /
+    entity-expansion bombs are built, and older expat versions don't defend
+    against them). A real CalDAV answer never has one - it is refused, not
+    parsed."""
+
+    if "<!DOCTYPE" in xml_text[:4096].upper() or "<!ENTITY" in xml_text[:4096].upper():
+        raise ValueError("The calendar server's answer contains a DOCTYPE/ENTITY declaration - refused")
+    return ET.fromstring(xml_text)
+
+
 class NextcloudCalendarGateway:
     """Implements CalendarGatewayPort against Nextcloud's CalDAV endpoint."""
 
@@ -71,7 +83,7 @@ class NextcloudCalendarGateway:
             "</d:propfind>"
         )
         xml_text = self._client.request_xml("PROPFIND", self._base_path, body=body, depth=1)
-        root = ET.fromstring(xml_text)
+        root = _parse_xml(xml_text)
 
         calendars = []
         for response in root.findall(f"{_DAV}response"):
@@ -137,7 +149,7 @@ class NextcloudCalendarGateway:
             "</c:calendar-query>"
         )
         xml_text = self._client.request_xml("REPORT", self._relative(calendar_id), body=body, depth=1)
-        root = ET.fromstring(xml_text)
+        root = _parse_xml(xml_text)
 
         for response in root.findall(f"{_DAV}response"):
             ics_text = response.findtext(f".//{_CALDAV}calendar-data")

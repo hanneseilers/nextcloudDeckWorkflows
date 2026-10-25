@@ -48,6 +48,7 @@ $encodedHome = '/remote.php/dav/calendars/anna%40example.org/';
 check('encoded user name: home collection recognised either way',
     $map->invoke(null, propfind('/remote.php/dav/calendars/anna@example.org/', []), $encodedHome, '') === []);
 
+check('a DOCTYPE/entity answer is refused (empty list)', $map->invoke(null, '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]>' . propfind($home, [$home . 'p/' => '&a;']), $home, '') === []);
 check('malformed XML gives an empty list', $map->invoke(null, 'not xml', $home, '') === []);
 
 echo $failures === 0 ? "ALL PASSED\n" : "$failures FAILED\n";
