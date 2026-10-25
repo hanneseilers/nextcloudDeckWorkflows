@@ -294,10 +294,12 @@ What that means for the settings here (defaults changed accordingly):
 - `max_run_seconds` (default **600**): below the 15-minute kill, leaving room
   for the event still running when the budget ends. With an hourly or daily
   cron there is no shorter interval to stay under.
-- `health_stale_minutes` (default **720 = 12 hours**): how long the last run
-  may be ago before `health.php` warns and answers 503. Lower it (e.g. 15) for a
-  job that runs every few minutes to notice a stop sooner; with a daily cron use
-  at least 1560 (26 hours), otherwise it warns between runs.
+- `cron_interval_minutes` (default **240 = every 4 hours**): how often the
+  cron job is meant to run - tell it the rhythm you set up (60 = hourly, the
+  shortest STRATO offers). `health.php` derives its warnings from it: "late"
+  after 1.5 x that, "stopped" (HTTP 503) after 3 x (6 and 12 hours at the
+  default). It replaces the old `health_stale_minutes`, which is ignored and
+  dropped from the file the next time `configure.sh` rewrites it.
 - `dedupe_minutes` of `send_email` (default **10080 = 7 days**): a killed
   run is restarted at the next scheduled slot, hours or a day later - the
   window covers that. It only matches the very same event, so the long
@@ -637,16 +639,24 @@ run continues and only logs to the console.
 
 ## Health check & statistics
 
-`website/health.php` shows whether `main.py` is still running (via the
-heartbeat above - stale after `health_stale_minutes` from `config/settings.yaml`,
-default 720 = 12 hours; lower it for a job that runs every few minutes, use at least 1560 for a daily one)
-and simple
-run statistics for the last 24 hours, overall and per workflow. The history is
+`website/health.php` shows whether the **cron job** is still running, from the
+heartbeat `main.py` writes at the end of a run. Only the cron job's own runs
+write it: a run the website starts for a webhook ping or a one-time link
+(`--triggered`) does the work but doesn't count - otherwise incoming webhooks
+would make a dead cron job look alive. How old the heartbeat may be depends on
+`cron_interval_minutes` (default 240 = every 4 hours): up to 1.5 x that it is
+"ok", up to 3 x "late" (a run was missed - a host may delay its cron jobs; a
+yellow notice, still HTTP 200), beyond that "stopped" (red, HTTP 503). The page
+names the rhythm and when the next run is expected, and shows simple run
+statistics for the last 24 hours, overall and per workflow. The history is
 kept `history_retention_days` (default 90) and then deleted at the end of a
 run, so the database doesn't grow forever.
-`health.php?format=json` returns the same data as JSON with an HTTP status
-code (200 healthy, 503 not) an external uptime monitor can check directly
-without parsing HTML.
+`health.php?format=json` returns the same data as JSON (`status`: `ok`/`late`/
+`stopped`, `expected_every_minutes`, `late_after_minutes`,
+`stopped_after_minutes`) with an HTTP status code (200 unless stopped, 503 when
+stopped) an external uptime monitor can check directly without parsing HTML.
+Pages that wait for a run (a queued test run, a schedule-triggered workflow)
+name the rhythm, too.
 
 ## Adding a new action module
 

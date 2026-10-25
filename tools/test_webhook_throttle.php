@@ -111,20 +111,48 @@ check('an empty secret is a problem', is_string($w['secret_problem']));
 $w = webhooksFor($dir, "webhooks:\n  enabled: true\n  secret: 123456\n");
 check('a short unquoted number (YAML makes it an int) is refused, not compared', is_string($w['secret_problem']) && $w['secret'] === '');
 
-// -- the status page's warning threshold -----------------------------------------------------
+// -- the status page: expected cron rhythm -> ok / late / stopped --------------------------------
 use NextcloudDeckWorkflows\HealthStatus;
 
 $w = webhooksFor($dir, "{}\n");
-check('health: the default warning threshold is 12 hours', (new Config($dir))->healthStaleMinutes() === 720.0 && HealthStatus::DEFAULT_STALE_MINUTES === 720.0);
+check('health: the cron interval defaults to 4 hours', (new Config($dir))->cronIntervalMinutes() === 240.0 && HealthStatus::DEFAULT_INTERVAL_MINUTES === 240.0);
+file_put_contents($dir . '/settings.yaml', "cron_interval_minutes: 60\n");
+check('health: a configured interval is used', (new Config($dir))->cronIntervalMinutes() === 60.0);
+file_put_contents($dir . '/settings.yaml', "cron_interval_minutes: 0\n");
+check('health: a nonsense interval (0) falls back to the default', (new Config($dir))->cronIntervalMinutes() === 240.0);
 file_put_contents($dir . '/settings.yaml', "health_stale_minutes: 40\n");
-check('health: a configured value overrides the default', (new Config($dir))->healthStaleMinutes() === 40.0);
-file_put_contents($dir . '/settings.yaml', "health_stale_minutes: 0\n");
-check('health: a nonsense value (0) falls back to the default', (new Config($dir))->healthStaleMinutes() === 720.0);
+check('health: the retired health_stale_minutes is ignored (it no longer decides anything)', (new Config($dir))->cronIntervalMinutes() === 240.0);
+
 foreach ([[1, '1 Minute'], [40, '40 Minuten'], [60, '1 Stunde'], [90, '1 Stunde 30 Minuten'], [720, '12 Stunden'], [1440, '1 Tag'], [1560, '1 Tag 2 Stunden'], [2880, '2 Tage']] as [$min, $text]) {
     check("health: $min minutes read as '$text'", HealthStatus::durationText($min) === $text);
 }
-$stale = new HealthStatus($db, 720.0);
-check('health: the threshold is named in the warning text', $stale->staleAfterText() === '12 Stunden');
+
+$hdb = sys_get_temp_dir() . '/ncdw_health_' . bin2hex(random_bytes(4)) . '.sqlite3';
+$pdo = new PDO('sqlite:' . $hdb);
+$pdo->exec('CREATE TABLE heartbeat (id INTEGER PRIMARY KEY CHECK (id = 1), last_run_at TEXT NOT NULL)');
+$beat = function (int $minutesAgo) use ($pdo): void {
+    $at = (new DateTimeImmutable('now', new DateTimeZone('UTC')))->modify("-$minutesAgo minutes")->format('c');
+    $pdo->prepare('INSERT INTO heartbeat (id, last_run_at) VALUES (1, :t) ON CONFLICT(id) DO UPDATE SET last_run_at = :t')->execute([':t' => $at]);
+};
+$health = new HealthStatus($hdb, 240.0); // cron every 4 hours: late after 6 h, stopped after 12 h
+check('health: thresholds of a 4-hour rhythm are 6 h and 12 h',
+    $health->lateAfterMinutes() === 360.0 && $health->stoppedAfterMinutes() === 720.0
+    && $health->lateAfterText() === '6 Stunden' && $health->stoppedAfterText() === '12 Stunden' && $health->intervalText() === '4 Stunden');
+foreach ([[5, 'ok'], [200, 'ok'], [239, 'ok'], [359, 'ok'], [361, 'late'], [600, 'late'], [719, 'late'], [721, 'stopped'], [3000, 'stopped']] as [$ago, $expected]) {
+    $beat($ago);
+    check("health: last run $ago min ago is '$expected' with a 4-hour rhythm", $health->status() === $expected && $health->isHealthy() === ($expected !== 'stopped'));
+}
+$beat(300);
+$next = $health->nextExpectedRunAt();
+check('health: the next expected run is the last one + the interval', $next !== null && abs($next->getTimestamp() - (time() - 300 * 60 + 240 * 60)) <= 2);
+$hourly = new HealthStatus($hdb, 60.0);
+$beat(100);
+check('health: the same 100 minutes are late for an hourly job, fine for a 4-hourly one', $hourly->status() === 'late' && $health->status() === 'ok');
+$pdo->exec('DELETE FROM heartbeat');
+check('health: no run ever recorded is "stopped", with no next run', $health->status() === 'stopped' && $health->nextExpectedRunAt() === null);
+check('health: without a database file the status is "stopped" too', (new HealthStatus('/nonexistent/state.sqlite3'))->status() === 'stopped');
+$pdo = null;
+@unlink($hdb);
 
 @unlink($db);
 array_map('unlink', glob($dir . '/*') ?: []);

@@ -5,12 +5,14 @@ require __DIR__ . '/vendor/autoload.php';
 use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\EventTypes;
+use NextcloudDeckWorkflows\HealthStatus;
 use NextcloudDeckWorkflows\ExecutionLog;
 use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\TestRunStore;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
+$healthStatus = new HealthStatus($config->stateDbPath(), $config->cronIntervalMinutes());
 $workflows = new WorkflowRepository($config->workflowsDir());
 $executionLog = new ExecutionLog($config->stateDbPath());
 
@@ -57,8 +59,8 @@ foreach ($workflows->listAll() as $workflow) {
     <?php if ($pendingTestRun['status'] === 'running'): ?>
         Testlauf läuft gerade ...
     <?php else: ?>
-        Testlauf angefragt - er wird gleich ausgeführt, spätestens beim nächsten Lauf von
-        <code>python -m automation.main</code> (Cron oder manuell).
+        Testlauf angefragt - er wird gleich ausgeführt. Geht das auf diesem Server nicht, läuft er spätestens beim
+        nächsten Cron-Lauf (alle <?= h($healthStatus->intervalText()) ?><?php $next = $healthStatus->nextExpectedRunAt(); ?><?= $next !== null ? ', der nächste etwa ' . Layout::dateTime($next->format('c')) : '' ?>).
     <?php endif; ?>
     Die Seite aktualisiert sich selbst.</p>
     <script>setTimeout(function () { location.reload(); }, 3000);</script>

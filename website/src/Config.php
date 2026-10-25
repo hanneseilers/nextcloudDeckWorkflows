@@ -17,7 +17,7 @@ class Config
     private string $stateDbPath;
     /** @var array{enabled: bool, secret: string, fallback_poll_minutes: float}|null */
     private ?array $webhooks = null;
-    private float $healthStaleMinutes = HealthStatus::DEFAULT_STALE_MINUTES;
+    private float $cronIntervalMinutes = HealthStatus::DEFAULT_INTERVAL_MINUTES;
 
     public function __construct(string $configDir)
     {
@@ -47,8 +47,8 @@ class Config
             date_default_timezone_set($timezone);
         }
 
-        if (isset($settings['health_stale_minutes']) && (float) $settings['health_stale_minutes'] > 0) {
-            $this->healthStaleMinutes = (float) $settings['health_stale_minutes'];
+        if (isset($settings['cron_interval_minutes']) && (float) $settings['cron_interval_minutes'] > 0) {
+            $this->cronIntervalMinutes = (float) $settings['cron_interval_minutes'];
         }
 
         if (!empty($settings['webhooks'])) {
@@ -114,9 +114,10 @@ class Config
         return $this->stateDbPath;
     }
 
-    public function healthStaleMinutes(): float
+    /** How often the cron job is meant to run (settings `cron_interval_minutes`, default 240). */
+    public function cronIntervalMinutes(): float
     {
-        return $this->healthStaleMinutes;
+        return $this->cronIntervalMinutes;
     }
 
     /** @return array{enabled: bool, secret: string, secret_problem: ?string, require_https: bool, fallback_poll_minutes: float}|null */

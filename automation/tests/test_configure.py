@@ -79,7 +79,7 @@ def test_first_run_with_all_defaults_writes_complete_documented_files(config_dir
     configure.save(io, "settings", None, values, assume_yes=True)
     text = (config_dir / "settings.yaml").read_text(encoding="utf-8")
     data = yaml.safe_load(text)
-    assert data["health_stale_minutes"] == 720 and data["webhooks"]["enabled"] is False
+    assert data["cron_interval_minutes"] == 240 and data["webhooks"]["enabled"] is False
     assert "# Zeitzone, in der die Website Zeiten anzeigt" in text  # every value is explained
     (config_dir / "nextcloud.yaml").write_text("instances: []\n")
     assert load_settings(config_dir).public_url == "https://x.example/ncdw/website"
@@ -93,7 +93,7 @@ def test_existing_values_are_offered_and_changes_listed(config_dir):
     io = ScriptedIO([""] * 5 + ["450"] + [""] * 3 + ["n", "n"])
     values = configure.configure_fields(io, configure.SETTINGS, current, False)
     assert values["max_run_seconds"] == 450
-    assert values["health_stale_minutes"] == 720
+    assert values["cron_interval_minutes"] == 240
     assert any("[300]" in prompt for prompt in io.prompts)  # the existing value was the proposal
     assert not any("[NEU]" in line for line in io.said)  # nothing counts as new
     configure.save(io, "settings", current, values, assume_yes=True)
@@ -215,3 +215,22 @@ def test_the_backup_has_the_same_permissions_as_the_original(config_dir):
 def test_backups_are_not_committed():
     ignore = (configure.REPO_ROOT / ".gitignore").read_text()
     assert "config/*.yaml.bak" in ignore
+
+
+def test_the_cron_rhythm_is_a_setting_with_a_four_hour_default():
+    field = next(f for f in configure.SETTINGS if getattr(f, "key", "") == "cron_interval_minutes")
+    assert field.default == 240 and field.kind == "int"
+    assert not any(getattr(f, "key", "") == "health_stale_minutes" for f in configure.SETTINGS)
+
+
+def test_the_retired_health_stale_minutes_is_dropped_when_the_file_is_rewritten(config_dir):
+    path = config_dir / "settings.yaml"
+    path.write_text("workflows_dir: wf\nhealth_stale_minutes: 40\nmy_custom_key: 7\n")
+    assert "cron_interval_minutes" in configure.missing_keys("settings", configure._read(path))  # the new value is asked for
+
+    io = ScriptedIO([""] * 40 + ["n", "n", "j"])
+    assert configure.run(io, ["settings"], only_missing=True) == 0
+    data = yaml.safe_load(path.read_text())
+    assert "health_stale_minutes" not in data and data["cron_interval_minutes"] == 240
+    assert data["my_custom_key"] == 7 and data["workflows_dir"] == "wf"  # everything else stays
+    assert any("health_stale_minutes wird nicht mehr verwendet" in line for line in io.said)

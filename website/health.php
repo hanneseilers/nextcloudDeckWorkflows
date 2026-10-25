@@ -8,7 +8,7 @@ use NextcloudDeckWorkflows\HealthStatus;
 use NextcloudDeckWorkflows\WorkflowRepository;
 
 $config = Config::fromRepoRoot();
-$health = new HealthStatus($config->stateDbPath(), $config->healthStaleMinutes());
+$health = new HealthStatus($config->stateDbPath(), $config->cronIntervalMinutes());
 
 // execution_log.created_at is written in UTC (Python's datetime.now(timezone.utc))
 // - compute the cutoff in UTC too, independent of this PHP installation's
@@ -30,9 +30,13 @@ if (($_GET['format'] ?? '') === 'json') {
     header('Content-Type: application/json');
     http_response_code($health->isHealthy() ? 200 : 503);
     echo json_encode([
-        'ok' => $health->isHealthy(),
-        'last_run_at' => $health->lastRunAt(),
+        'ok' => $health->isHealthy(),                 // false only when "stopped" (then HTTP 503)
+        'status' => $health->status(),                // ok | late | stopped
+        'last_run_at' => $health->lastRunAt(),         // the cron job's last run
         'minutes_since_last_run' => $health->minutesSinceLastRun(),
+        'expected_every_minutes' => $config->cronIntervalMinutes(),
+        'late_after_minutes' => $health->lateAfterMinutes(),
+        'stopped_after_minutes' => $health->stoppedAfterMinutes(),
         'last_24h' => $stats,
         'recent_webhook_pings' => ($config->webhooks()['enabled'] ?? false) ? $health->recentWebhookPings() : null,
     ]);
@@ -46,17 +50,25 @@ if (($_GET['format'] ?? '') === 'json') {
     beim ersten Lauf von <code>python -m automation.main</code>.</p>
 <?php else: ?>
 
-<?php if ($health->isHealthy()): ?>
+<?php $ago = $health->lastRunAt() === null ? '' : h(HealthStatus::durationText((int) round($health->minutesSinceLastRun()))); ?>
+<?php if ($health->status() === 'ok'): ?>
     <p class="notice" style="background:#e6f4ea;border-color:var(--accent);">
-        ✓ Letzter Automatisierungs-Lauf: <?= Layout::dateTime($health->lastRunAt()) ?>
-        (vor <?= h(HealthStatus::durationText((int) round($health->minutesSinceLastRun()))) ?>)
+        ✓ Letzter Cron-Lauf: <?= Layout::dateTime($health->lastRunAt()) ?> (vor <?= $ago ?>).
+        Erwartet: alle <?= h($health->intervalText()) ?>, der nächste etwa
+        <?= Layout::dateTime($health->nextExpectedRunAt()?->format('c')) ?>.
+    </p>
+<?php elseif ($health->status() === 'late'): ?>
+    <p class="notice" style="background:#fff8e1;border-color:#d4a017;">
+        ⚠ Der Cron-Lauf ist verspätet: der letzte war <?= Layout::dateTime($health->lastRunAt()) ?> (vor <?= $ago ?>),
+        erwartet wird alle <?= h($health->intervalText()) ?>. Kommt innerhalb von <?= h($health->stoppedAfterText()) ?>
+        kein Lauf, meldet diese Seite „gestoppt“.
     </p>
 <?php else: ?>
     <p class="notice error">
-        ✗ Kein aktueller Automatisierungs-Lauf gefunden<?php if ($health->lastRunAt() !== null): ?>
-        - letzter Lauf: <?= Layout::dateTime($health->lastRunAt()) ?>
-        (vor <?= h(HealthStatus::durationText((int) round($health->minutesSinceLastRun()))) ?>)
-        <?php endif; ?>. Der Cron-Job ist länger als <?= h($health->staleAfterText()) ?> nicht gelaufen - läuft er noch?
+        ✗ Der Cron-Job ist länger als <?= h($health->stoppedAfterText()) ?> nicht gelaufen<?php if ($health->lastRunAt() !== null): ?>
+        - der letzte Lauf war <?= Layout::dateTime($health->lastRunAt()) ?> (vor <?= $ago ?>)<?php endif; ?>.
+        Erwartet wird alle <?= h($health->intervalText()) ?> - läuft er noch? Läufe, die die Website selbst anstößt
+        (Webhook, Einmal-Link), zählen hier nicht mit.
     </p>
 <?php endif; ?>
 

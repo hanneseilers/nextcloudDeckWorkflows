@@ -13,7 +13,7 @@ class AutomationRunner
 {
     public static function triggerNow(): void
     {
-        self::start('--wait-lock 120');
+        self::start('--wait-lock 120 --triggered');
     }
 
     /**

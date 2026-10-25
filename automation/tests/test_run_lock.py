@@ -48,7 +48,7 @@ def test_main_exits_without_running_while_another_run_holds_the_lock(tmp_path, m
     settings = _settings(tmp_path)
     ran = []
     monkeypatch.setattr(main_module, "load_settings", lambda config_dir=None: settings)
-    monkeypatch.setattr(main_module, "run", lambda s: ran.append(s))
+    monkeypatch.setattr(main_module, "run", lambda s, record_heartbeat=True: ran.append(s))
     monkeypatch.setattr(main_module, "_write_modules_snapshot", lambda path: None)
     monkeypatch.setattr(sys, "argv", ["main"])
 
@@ -66,7 +66,7 @@ def test_main_with_wait_lock_waits_for_the_running_process(tmp_path, monkeypatch
     settings = _settings(tmp_path)
     ran = []
     monkeypatch.setattr(main_module, "load_settings", lambda config_dir=None: settings)
-    monkeypatch.setattr(main_module, "run", lambda s: ran.append(s))
+    monkeypatch.setattr(main_module, "run", lambda s, record_heartbeat=True: ran.append(s))
     monkeypatch.setattr(main_module, "_write_modules_snapshot", lambda path: None)
     monkeypatch.setattr(sys, "argv", ["main", "--wait-lock", "5"])
 
@@ -82,7 +82,7 @@ def test_main_with_wait_lock_exits_when_another_invocation_is_already_waiting(tm
     settings = _settings(tmp_path)
     ran = []
     monkeypatch.setattr(main_module, "load_settings", lambda config_dir=None: settings)
-    monkeypatch.setattr(main_module, "run", lambda s: ran.append(s))
+    monkeypatch.setattr(main_module, "run", lambda s, record_heartbeat=True: ran.append(s))
     monkeypatch.setattr(main_module, "_write_modules_snapshot", lambda path: None)
     monkeypatch.setattr(sys, "argv", ["main", "--wait-lock", "5"])
 

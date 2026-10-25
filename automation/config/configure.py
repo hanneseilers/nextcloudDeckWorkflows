@@ -155,11 +155,12 @@ SETTINGS = (
         "Unter dem Zeitlimit des Hosters für Cron-Jobs halten: STRATO beendet sie nach",
         "15 Minuten (900 s), 600 ist dort sicher.",
     ), kind="int", default=600, check=_check_positive),
-    Field("health_stale_minutes", "Ab wie vielen Minuten ohne Lauf die Statusseite warnt", (
-        "So alt darf der letzte Lauf sein, bevor website/health.php „gestoppt“ meldet (Warnung und HTTP 503).",
-        "720 = 12 Stunden. Läuft der Cron-Job alle paar Minuten, geht auch ein kleiner Wert (z. B. 15),",
-        "um einen Stillstand früher zu bemerken; bei täglichem Cron mindestens 1560 (26 Stunden).",
-    ), kind="int", default=720, check=_check_positive),
+    Field("cron_interval_minutes", "Wie oft der Cron-Job läuft (Minuten)", (
+        "Der Rhythmus des Cron-Jobs, in Minuten: 240 = alle 4 Stunden, 60 = stündlich (bei STRATO ist stündlich",
+        "das Kürzeste). Die Statusseite (website/health.php) meldet „verspätet“, wenn der letzte Lauf länger als",
+        "das 1,5-fache her ist, und „gestoppt“ (HTTP 503) nach dem 3-fachen - bei 240 also nach 6 bzw. 12 Stunden.",
+        "Nur Läufe des Cron-Jobs zählen, keine, die die Website anstößt (Webhook, Einmal-Link).",
+    ), kind="int", default=240, check=_check_positive),
     Field("history_retention_days", "Wie viele Tage die Historie aufbewahrt wird", (
         "Ausführungs-Historie (Historie, Statusseite) wird nach so vielen Tagen gelöscht.",
     ), kind="int", default=90, check=_check_positive),
@@ -227,6 +228,10 @@ INSTANCE = (
 )
 
 FILES = ("nextcloud", "settings", "smtp")
+
+# Settings that no longer do anything, with what replaced them: dropped from the file
+# when it is rewritten (a leftover value would look as if it still mattered).
+RETIRED = {"health_stale_minutes": "ersetzt durch cron_interval_minutes"}
 
 
 # -- dialog --------------------------------------------------------------------
@@ -727,7 +732,10 @@ def run(io: ConsoleIO, names: list, only_missing: bool) -> int:
             else:
                 fields = SETTINGS if name == "settings" else SMTP
                 values = configure_fields(io, fields, current or {}, only_missing and current is not None)
-                values.update({key: value for key, value in (current or {}).items() if key not in values})
+                retired = [key for key in (current or {}) if key in RETIRED]
+                for key in retired:
+                    io.say(f"  Hinweis: {key} wird nicht mehr verwendet ({RETIRED[key]}) und aus der Datei entfernt.")
+                values.update({key: value for key, value in (current or {}).items() if key not in values and key not in RETIRED})
             save(io, name, current, values)
         except (KeyboardInterrupt, EOFError):
             io.say()

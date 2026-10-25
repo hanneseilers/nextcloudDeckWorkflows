@@ -3,25 +3,68 @@
 namespace NextcloudDeckWorkflows;
 
 /**
- * Reads automation/var/state.sqlite3's heartbeat (written by main.py's
- * run() on every successful completion) and simple aggregate statistics
- * from execution_log - for the website's health.php.
+ * Reads automation/var/state.sqlite3's heartbeat (written by the CRON job's
+ * runs of main.py on every successful completion - runs the website starts
+ * itself don't count) and simple aggregate statistics from execution_log - for
+ * the website's health.php.
+ *
+ * How old the heartbeat may be depends on how often the cron job is meant to
+ * run (config/settings.yaml `cron_interval_minutes`, default 4 hours):
+ *   - up to 1.5 x that: "ok"
+ *   - up to 3 x that: "late" - a run was missed (a host may delay its cron jobs)
+ *   - beyond: "stopped" (health.php answers 503)
  */
 class HealthStatus
 {
-    public const DEFAULT_STALE_MINUTES = 720.0; // 12 hours
+    public const DEFAULT_INTERVAL_MINUTES = 240.0; // every 4 hours
+    public const LATE_FACTOR = 1.5;
+    public const STOPPED_FACTOR = 3.0;
 
-    /**
-     * @param float $staleAfterMinutes How old the heartbeat may be before the
-     *   run counts as stopped - config/settings.yaml `health_stale_minutes`.
-     *   The default is 12 hours (720): the status page warns when the job has
-     *   not run for longer than that. A job that runs every few minutes can use
-     *   a much smaller value to notice a stop sooner.
-     */
     public function __construct(
         private readonly string $dbPath,
-        private readonly float $staleAfterMinutes = self::DEFAULT_STALE_MINUTES
+        private readonly float $intervalMinutes = self::DEFAULT_INTERVAL_MINUTES
     ) {
+    }
+
+    public function intervalText(): string
+    {
+        return self::durationText((int) round($this->intervalMinutes));
+    }
+
+    /** After this many minutes without a cron run the status is "late". */
+    public function lateAfterMinutes(): float
+    {
+        return $this->intervalMinutes * self::LATE_FACTOR;
+    }
+
+    /** After this many minutes without a cron run the status is "stopped". */
+    public function stoppedAfterMinutes(): float
+    {
+        return $this->intervalMinutes * self::STOPPED_FACTOR;
+    }
+
+    /** 'ok' | 'late' | 'stopped' ('stopped' also when there was never a run). */
+    public function status(): string
+    {
+        $minutes = $this->minutesSinceLastRun();
+        if ($minutes === null || $minutes > $this->stoppedAfterMinutes()) {
+            return 'stopped';
+        }
+        return $minutes > $this->lateAfterMinutes() ? 'late' : 'ok';
+    }
+
+    /** When the next cron run is expected (last run + interval), or null without a last run. */
+    public function nextExpectedRunAt(): ?\DateTimeImmutable
+    {
+        $lastRunAt = $this->lastRunAt();
+        if ($lastRunAt === null) {
+            return null;
+        }
+        try {
+            return (new \DateTimeImmutable($lastRunAt))->modify('+' . (int) round($this->intervalMinutes * 60) . ' seconds');
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     public function isAvailable(): bool
@@ -63,10 +106,15 @@ class HealthStatus
         return $seconds / 60;
     }
 
-    /** The warning threshold as text: "12 Stunden", "90 Minuten", "1 Tag 12 Stunden" ... */
-    public function staleAfterText(): string
+    /** The "stopped" threshold as text: "12 Stunden", "90 Minuten", "1 Tag 12 Stunden" ... */
+    public function stoppedAfterText(): string
     {
-        return self::durationText((int) round($this->staleAfterMinutes));
+        return self::durationText((int) round($this->stoppedAfterMinutes()));
+    }
+
+    public function lateAfterText(): string
+    {
+        return self::durationText((int) round($this->lateAfterMinutes()));
     }
 
     public static function durationText(int $minutes): string
@@ -90,11 +138,10 @@ class HealthStatus
         return implode(' ', $parts);
     }
 
-    /** True if we have a heartbeat and it's recent enough. */
+    /** False only when the status is "stopped" - "late" is a warning, not an outage. */
     public function isHealthy(): bool
     {
-        $minutes = $this->minutesSinceLastRun();
-        return $minutes !== null && $minutes <= $this->staleAfterMinutes;
+        return $this->status() !== 'stopped';
     }
 
     /**

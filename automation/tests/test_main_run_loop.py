@@ -452,6 +452,45 @@ def test_run_sets_a_heartbeat_on_successful_completion(tmp_path):
     assert row is not None and row[0]
 
 
+def test_a_run_started_by_the_website_does_not_count_as_the_cron_jobs_heartbeat(tmp_path):
+    """A webhook/link-triggered run does the work but must not make a dead cron
+    job look alive on the status page."""
+
+    settings = Settings(
+        workflows_dir=tmp_path / "workflows",
+        state_db_path=tmp_path / "state.sqlite3",
+        log_level="INFO",
+        instances=make_instances(),
+        max_run_seconds=5.0,
+    )
+
+    run(settings, record_heartbeat=False)
+    with sqlite3.connect(settings.state_db_path) as conn:
+        assert conn.execute("SELECT last_run_at FROM heartbeat WHERE id = 1").fetchone() is None
+
+    run(settings)  # the cron job's own run
+    with sqlite3.connect(settings.state_db_path) as conn:
+        assert conn.execute("SELECT last_run_at FROM heartbeat WHERE id = 1").fetchone() is not None
+
+
+def test_the_triggered_flag_reaches_run(tmp_path, monkeypatch):
+    import sys
+
+    from automation import main as main_module
+
+    calls = []
+    monkeypatch.setattr(main_module, "load_settings", lambda *a, **k: Settings(
+        workflows_dir=tmp_path / "workflows", state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0))
+    monkeypatch.setattr(main_module, "run", lambda settings, record_heartbeat=True: calls.append(record_heartbeat))
+    monkeypatch.setattr(main_module, "MODULES_SNAPSHOT_PATH", tmp_path / "modules.json")
+
+    for argv, expected in ((["main"], True), (["main", "--triggered"], False), (["main", "--wait-lock", "5", "--triggered"], False)):
+        monkeypatch.setattr(sys, "argv", argv)
+        main_module.main()
+        assert calls[-1] is expected
+
+
 def test_webhooks_disabled_by_default_polls_every_run(tmp_path, monkeypatch):
     """Baseline: with no webhooks configured at all, behavior is exactly
     what it always was - every board is polled every single run()."""

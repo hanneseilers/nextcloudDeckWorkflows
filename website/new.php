@@ -6,6 +6,7 @@ use NextcloudDeckWorkflows\Config;
 use NextcloudDeckWorkflows\Layout;
 use NextcloudDeckWorkflows\Csrf;
 use NextcloudDeckWorkflows\EventTypes;
+use NextcloudDeckWorkflows\HealthStatus;
 use NextcloudDeckWorkflows\ModuleRegistry;
 use NextcloudDeckWorkflows\TemplateStore;
 use NextcloudDeckWorkflows\WorkflowRepository;
@@ -123,7 +124,10 @@ if ($currentFolder !== '' && !in_array($currentFolder, $allFolders, true)) {
 
 <div id="schedule-trigger-fields" hidden>
 <p class="muted">Läuft unabhängig von Karten-Events zur angegebenen Zeit - nutze dafür
-Schritte ohne Kartenbezug (z. B. „E-Mail senden", „Zufallszahl erzeugen", „Berechnen").</p>
+Schritte ohne Kartenbezug (z. B. „E-Mail senden", „Zufallszahl erzeugen", „Berechnen").
+Gestartet wird beim <strong>ersten Cron-Lauf nach dieser Uhrzeit</strong>; der Cron-Job läuft alle
+<?= h((new HealthStatus($config->stateDbPath(), $config->cronIntervalMinutes()))->intervalText()) ?>,
+der Workflow kann also entsprechend später beginnen.</p>
 <label>Uhrzeit
     <input type="time" id="schedule-time">
 </label>

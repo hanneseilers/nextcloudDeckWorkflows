@@ -397,17 +397,42 @@ section_writable_checks() {
     done
 }
 
+# cron_expression MINUTES -> the crontab time fields for a job that runs that often.
+# Cron can't express "every 90 minutes": from an hour up it is whole hours (rounded
+# down, at least 1), from a day up once a day.
+cron_expression() {
+    local minutes="${1:-240}"
+    case "$minutes" in ''|*[!0-9]*) minutes=240 ;; esac
+    if [ "$minutes" -ge 1440 ]; then
+        echo "0 3 * * *"
+    elif [ "$minutes" -ge 60 ]; then
+        local hours=$((minutes / 60))
+        if [ "$hours" -le 1 ]; then echo "0 * * * *"; else echo "0 */$hours * * *"; fi
+    elif [ "$minutes" -ge 1 ]; then
+        echo "*/$minutes * * * *"
+    else
+        echo "0 */4 * * *"
+    fi
+}
+
 section_cron() {
     log "7/8 Cron-Job"
 
-    local cron_entry="*/5 * * * * cd $PROJECT_ROOT && $PYTHON_BIN -m automation.main >> $AUTOMATION_DIR/var/cron.log 2>&1"
+    # The rhythm chosen in the config dialog (cron_interval_minutes); 4 hours without it.
+    local interval
+    interval="$("$PYTHON_BIN" -m automation.config.configure --get settings.cron_interval_minutes 2>/dev/null)"
+    interval="${interval:-240}"
+    local cron_entry
+    cron_entry="$(cron_expression "$interval") cd $PROJECT_ROOT && $PYTHON_BIN -m automation.main >> $AUTOMATION_DIR/var/cron.log 2>&1"
 
-    info "Empfohlene Cron-Zeile (alle 5 Minuten):"
+    info "Empfohlene Cron-Zeile (Rhythmus aus der Konfiguration: alle $interval Minuten):"
     info "  $cron_entry"
+    info "Die Statusseite meldet den Cron-Job als „verspätet“ nach dem 1,5-fachen und als „gestoppt“ nach dem"
+    info "  3-fachen dieses Rhythmus (cron_interval_minutes in config/settings.yaml - ./configure.sh settings)."
     info "Hinweis STRATO: Cron-Jobs gibt es dort nur über die Hosting-Verwaltung (Legacy-Plattform ab Hosting Plus),"
     info "  mit höchstens 15 Minuten Laufzeit und nur den Intervallen einmalig/täglich/wöchentlich/monatlich"
     info "  (laut Nutzerberichten teils stündlich). Dann in config/settings.yaml 'max_run_seconds' unter 900"
-    info "  lassen (Standard 600). 'health_stale_minutes' (Standard 12 Stunden) bei täglichem Cron auf mindestens 1560 setzen (siehe automation/README.md)."
+    info "  lassen (Standard 600) und cron_interval_minutes auf den dort gewählten Rhythmus setzen (siehe automation/README.md)."
 
     if ! command -v crontab >/dev/null 2>&1; then
         warn "crontab ist auf diesem System nicht verfügbar."

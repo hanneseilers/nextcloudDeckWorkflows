@@ -117,7 +117,7 @@ def run_single_test_run(settings: Settings, test_run_id: str) -> None:
     _process_test_runs(settings, workflows, state_store, _build_engine(settings, workflows, state_store), only_id=test_run_id)
 
 
-def run(settings: Settings) -> None:
+def run(settings: Settings, record_heartbeat: bool = True) -> None:
     # Started before anything else: max_run_seconds has to stay below the
     # host's cron kill limit, so the links/test runs/schedules handled before
     # polling count against it too.
@@ -232,7 +232,10 @@ def run(settings: Settings) -> None:
     # only ever compared against itself (by PHP, a separate runtime/process),
     # so it must be unambiguous rather than "whatever this server's local
     # timezone happens to be".
-    state_store.set_heartbeat(datetime.now(timezone.utc).isoformat())
+    # Only the cron job's own runs count: a run the website starts for a webhook
+    # ping, a one-time link ... must not make a dead cron job look alive.
+    if record_heartbeat:
+        state_store.set_heartbeat(datetime.now(timezone.utc).isoformat())
 
 
 def _apply_webhook_gate(
@@ -667,6 +670,11 @@ def main() -> None:
              "instead of exiting right away (used for the immediate runs the website starts)",
     )
     parser.add_argument(
+        "--triggered", action="store_true",
+        help="This run was started by the website (webhook, one-time link), not by the cron job: "
+             "it does the work but does not count as the cron job's heartbeat on the status page",
+    )
+    parser.add_argument(
         "--test-run", default=None, metavar="ID",
         help="Run only this queued test run (started by the website for an immediate answer) and exit",
     )
@@ -737,7 +745,7 @@ def main() -> None:
             logger.info("Another run is still in progress - exiting; the next invocation picks up what is left")
             return
     try:
-        run(settings)
+        run(settings, record_heartbeat=not args.triggered)
     except Exception:
         logger.exception("Unhandled error - stopping this run without crashing the process")
     finally:
