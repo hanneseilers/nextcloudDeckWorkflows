@@ -85,8 +85,10 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   page. Useful for typing an id directly or checking that a label belongs
   to the workflow's board (labels are per board - another board's label id
   makes Deck answer "Label does not exist").
-- **"Einmal-Link erstellen"** shows the chosen action's fields right in the
-  step - the same rows (pickers, "Wert übernehmen", date fields ...) the action
+- **"Einmal-Link erstellen"** takes up to three actions (first, second, third;
+  the second appears once the first is chosen, the third after the second, and
+  an empty one is simply left out) and shows each chosen action's fields right
+  in the step - the same rows (pickers, "Wert übernehmen", date fields ...) the action
   has as a step of its own - instead of a JSON box. They are saved as the
   step's `action_params` object (`syncActionFields()` in `assets/builder.js`);
   keys the action doesn't declare (hand-written YAML) are kept, and picking

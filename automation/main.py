@@ -429,7 +429,7 @@ def _process_action_links(settings: Settings, state_store: SqliteStateStore, eng
             state_store.record(ExecutionResult(
                 workflow_id=link["workflow_id"],
                 event=_link_event(link),
-                action_results=[ActionResult(module=link["module"], success=False, error=message)],
+                action_results=[ActionResult(module=step["module"], success=False, error=message) for step in link["steps"]],
             ))
         except Exception:
             logger.exception("Could not record the aborted link run")
@@ -472,17 +472,21 @@ def _run_claimed_links(
                 _, live_stack_id = _find_card(deck, link["board_id"], link["card_id"])
                 if live_stack_id is not None:
                     current_stack_id = live_stack_id
-            result, _ = engine.run_link_action(
+            result, _ = engine.run_link_actions(
                 workflow_id=link["workflow_id"],
                 event=_link_event(link),
                 current_stack_id=current_stack_id,
-                module=link["module"],
-                params=link["params"],
+                steps=link["steps"],
                 variables=link["variables"],
                 deck=RecordingDeckGateway(deck, link["instance"], written_boards) if written_boards is not None else deck,
                 calendar=NextcloudCalendarGateway(client, instance.username),
             )
-            failure = next((r.error for r in result.action_results if not r.success), None)
+            failures = [r for r in result.action_results if not r.success]
+            # one failed action of several: say which (the visitor only sees a generic text anyway)
+            failure = None
+            if failures:
+                failure = failures[0].error if len(result.action_results) == 1 else "; ".join(
+                    f"{r.module}: {r.error}" for r in failures)
             state_store.finish_link(token_hash, error=failure)
         except Exception as exc:
             logger.exception("One-time link for workflow '%s' failed", link["workflow_id"])

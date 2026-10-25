@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -931,3 +932,52 @@ def test_a_test_run_left_running_by_a_killed_process_is_failed_not_rerun(tmp_pat
     assert fetched["status"] == "error" and "abgebrochen" in fetched["error"]
     with sqlite3.connect(settings.state_db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM execution_log").fetchone()[0] == 0
+
+
+def test_a_link_with_three_actions_runs_all_in_order_in_one_run_and_one_failure_does_not_stop_the_rest(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_request(self, method, url, **kwargs):
+        calls.append((method, url.replace("https://cloud.example.com", ""), kwargs.get("json")))
+        if method == "GET" and url.endswith("/stacks"):
+            return FakeResponse([{"id": 10, "cards": [{"id": 1, "title": "Card", "lastModified": 1, "stackId": 10}]}])
+        if url.endswith("/comments"):
+            raise RuntimeError("comment service down")  # the FIRST action fails
+        return FakeResponse({})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    workflows_dir = tmp_path / "workflows"
+    YamlWorkflowRepository(workflows_dir).save(Workflow(
+        id="multi", name="Multi", instance="prod", board_id=1, trigger=Trigger(event_type=EventType.CARD_CREATED),
+        actions=(ActionStep(module="create_action_link", id="lnk", params={
+            "action": "add_comment", "action_params": {"message": "eins"},
+            "action_2": "set_title", "action_params_2": {"title": "zwei"},
+            "action_3": "set_description", "action_params_3": {"description": "drei"},
+            "success_message": "Alles erledigt!",
+        }),),
+    ))
+    settings = Settings(
+        workflows_dir=workflows_dir, state_db_path=tmp_path / "state.sqlite3", log_level="INFO",
+        instances=make_instances(), max_run_seconds=5.0, public_url="https://site.example/deck",
+    )
+    run(settings)  # creates the link
+    with sqlite3.connect(settings.state_db_path) as conn:
+        extra = conn.execute("SELECT extra_steps_json FROM action_links").fetchone()[0]
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+    assert [s["module"] for s in json.loads(extra)] == ["set_title", "set_description"]
+    del calls[:]
+
+    run(settings)  # the visitor used the link
+
+    puts = [c for c in calls if c[0] == "PUT"]
+    assert [c[2]["title"] for c in puts if "title" in (c[2] or {}) and c[2]["title"] == "zwei"] == ["zwei"]  # action 2 ran
+    assert any((c[2] or {}).get("description") == "drei" for c in puts)                                         # action 3 ran
+    with sqlite3.connect(settings.state_db_path) as conn:
+        status, error = conn.execute("SELECT status, error FROM action_links").fetchone()
+        logged = conn.execute(
+            "SELECT module, success FROM execution_log WHERE workflow_id = 'multi' AND module IN ('add_comment', 'set_title', 'set_description') ORDER BY id"
+        ).fetchall()
+        runs = conn.execute("SELECT COUNT(DISTINCT run_id) FROM execution_log WHERE module IN ('set_title', 'set_description')").fetchone()[0]
+    assert status == "error" and "add_comment" in error and "set_title" not in error  # only the failed one is named
+    assert logged[-3:] == [("add_comment", 0), ("set_title", 1), ("set_description", 1)]  # in order, one result each
+    assert runs == 1  # all three are ONE run in the history

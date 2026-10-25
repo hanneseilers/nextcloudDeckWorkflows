@@ -293,42 +293,69 @@
     return params;
   }
 
-  // "Einmal-Link erstellen" runs another action: its fields are edited right in
-  // the step, exactly like that action as a step of its own. They live in
-  // step.actionFields ({field: entry}, same entries as step.params) and become
-  // the `action_params` object when saving. Returns the chosen action's module,
-  // or null while no action is chosen / it is picked through a reference (the
-  // fields are unknown then - the plain "Felder der Action" JSON row is shown).
-  function syncActionFields(step) {
+  // "Einmal-Link erstellen" runs one to three other actions (the params action /
+  // action_2 / action_3 and their action_params*): the fields of each are edited
+  // right in the step, exactly like that action as a step of its own. They live in
+  // step.slots[i].fields ({field: entry}, same entries as step.params) and become
+  // that slot's `action_params*` object when saving. A slot's module is the chosen
+  // action, or null while none is chosen / it is picked through a reference (the
+  // fields are unknown then - the plain JSON row is shown).
+  const LINK_SLOTS = [
+    { action: 'action', params: 'action_params', ordinal: 'Erste Aktion' },
+    { action: 'action_2', params: 'action_params_2', ordinal: 'Zweite Aktion' },
+    { action: 'action_3', params: 'action_params_3', ordinal: 'Dritte Aktion' },
+  ];
+
+  function linkSlotIndex(key) {
+    return LINK_SLOTS.findIndex((slot) => slot.action === key || slot.params === key);
+  }
+
+  function syncActionFields(step, index) {
     if (step.module !== 'create_action_link') {
       return null;
     }
-    const chosen = step.params.action;
+    const slot = LINK_SLOTS[index];
+    step.slots = step.slots || LINK_SLOTS.map(() => ({ fields: null, extra: {}, forModule: null }));
+    const state = step.slots[index];
+    const chosen = step.params[slot.action];
     const module = chosen && chosen.source === 'literal' && chosen.value !== 'create_action_link'
       ? modulesByName[chosen.value]
       : null;
-    const saved = step.params.action_params;
+    const saved = step.params[slot.params];
     if (!module || !saved || saved.source !== 'literal') {
-      step.actionFields = null;
-      step.actionFieldsFor = null;
+      state.fields = null;
+      state.forModule = null;
       return null;
     }
-    if (step.actionFieldsFor !== module.name) {
+    if (state.forModule !== module.name) {
       // First time (or another action chosen): the saved values - if any - on
       // top of the action's defaults, like a standalone step loaded for editing.
       const loaded = saved.value !== null && typeof saved.value === 'object' && !Array.isArray(saved.value) ? saved.value : {};
-      step.actionFields = defaultParamsFor(module.name);
-      step.actionExtra = {}; // keys the action doesn't declare (hand-written YAML): kept as they are
+      state.fields = defaultParamsFor(module.name);
+      state.extra = {}; // keys the action doesn't declare (hand-written YAML): kept as they are
       Object.keys(loaded).forEach((key) => {
-        if (key in step.actionFields) {
-          step.actionFields[key] = toInternalOperand(loaded[key]);
+        if (key in state.fields) {
+          state.fields[key] = toInternalOperand(loaded[key]);
         } else {
-          step.actionExtra[key] = loaded[key];
+          state.extra[key] = loaded[key];
         }
       });
-      step.actionFieldsFor = module.name;
+      state.forModule = module.name;
     }
     return module;
+  }
+
+  // A second/third action is offered once the one before it is set (or when it
+  // already holds an action, e.g. a workflow saved with a gap).
+  function linkSlotVisible(step, index) {
+    if (index === 0) {
+      return true;
+    }
+    const filled = (i) => {
+      const entry = step.params[LINK_SLOTS[i].action];
+      return !!entry && (entry.source === 'ref' || (typeof entry.value === 'string' && entry.value.trim() !== ''));
+    };
+    return filled(index - 1) || filled(index);
   }
 
   function makeActionNode() {
@@ -483,16 +510,16 @@
   }
 
   function isActionNameField(moduleName, key) {
-    return moduleName === 'create_action_link' && key === 'action';
+    return moduleName === 'create_action_link' && LINK_SLOTS.some((slot) => slot.action === key);
   }
 
   // The action an one-time link runs: a dropdown of every action (not the
   // link action itself), value = the technical name.
-  function renderActionSelectField(entry, onChange) {
+  function renderActionSelectField(entry, onChange, placeholderText) {
     const select = document.createElement('select');
     const placeholder = document.createElement('option');
     placeholder.value = '';
-    placeholder.textContent = '– Action wählen –';
+    placeholder.textContent = placeholderText || '– Action wählen –';
     select.appendChild(placeholder);
     moduleNames.filter((name) => name !== 'create_action_link').forEach((name) => {
       const option = document.createElement('option');
@@ -1220,7 +1247,7 @@
     } else if (opts.isTemplate) {
       wrapper.appendChild(renderTemplateSelectField(entry));
     } else if (opts.isActionName) {
-      wrapper.appendChild(renderActionSelectField(entry, opts.onActionChange || render));
+      wrapper.appendChild(renderActionSelectField(entry, opts.onActionChange || render, opts.actionPlaceholder));
     } else if (opts.isBoardId) {
       wrapper.appendChild(renderBoardSearchField(entry));
     } else if (opts.isStackId) {
@@ -1271,10 +1298,16 @@
         isActionName: isActionNameField(target.module, key),
         isTemplate: isTemplateField(target.module, key),
         rerenderOnChange: target.module === 'unassign_user' && key === 'all_users',
+        actionPlaceholder: linkSlotIndex(key) > 0 ? '– keine weitere Aktion –' : undefined,
         onActionChange: () => {
           // Another action: its fields start from their defaults.
-          step.params.action_params = { source: 'literal', value: {} };
-          step.actionFieldsFor = null;
+          const index = linkSlotIndex(key);
+          if (index >= 0) {
+            step.params[LINK_SLOTS[index].params] = { source: 'literal', value: {} };
+            if (step.slots) {
+              step.slots[index].forModule = null;
+            }
+          }
           render();
         },
         // copy_card's target column belongs to its own target board, not the workflow's.
@@ -1351,12 +1384,12 @@
 
   // The fields of the action a one-time link runs - the same rows as that
   // action would have as a step of its own.
-  function renderLinkedActionFields(step, linked) {
+  function renderLinkedActionFields(step, linked, index) {
     const box = document.createElement('div');
     box.className = 'linked-action';
     const heading = document.createElement('div');
     heading.className = 'linked-action-title';
-    heading.textContent = 'Felder von „' + moduleLabel(linked.name) + '" (läuft beim Aufruf des Links)';
+    heading.textContent = LINK_SLOTS[index].ordinal + ': Felder von „' + moduleLabel(linked.name) + '" (läuft beim Aufruf des Links)';
     box.appendChild(heading);
     if (linked.description) {
       const description = document.createElement('p');
@@ -1364,7 +1397,7 @@
       description.textContent = linked.description + ' Verweise auf frühere Schritte gelten zum Zeitpunkt, an dem der Link erstellt wird.';
       box.appendChild(description);
     }
-    const target = { module: linked.name, params: step.actionFields };
+    const target = { module: linked.name, params: step.slots[index].fields };
     const keys = Object.keys(linked.input || {});
     if (linked.name === 'calculate' && target.params.left && target.params.op && target.params.right) {
       box.appendChild(renderCalculateRow(step, target.params));
@@ -1405,8 +1438,7 @@
     moduleSelect.addEventListener('change', () => {
       step.module = moduleSelect.value;
       step.params = defaultParamsFor(step.module);
-      step.actionFields = null;
-      step.actionFieldsFor = null;
+      step.slots = null;
       render();
     });
     header.appendChild(moduleSelect);
@@ -1444,22 +1476,33 @@
 
     if (module) {
       const keys = Object.keys(module.input || {});
-      const linkedModule = syncActionFields(step);
+      const linkedModules = LINK_SLOTS.map((slot, index) => syncActionFields(step, index));
       if (step.module === 'calculate' && step.params.left && step.params.op && step.params.right) {
         paramsEl.appendChild(renderCalculateRow(step));
       } else {
         keys.forEach((key) => {
-          if (step.module === 'create_action_link' && key === 'action_params' && linkedModule) {
-            paramsEl.appendChild(renderLinkedActionFields(step, linkedModule));
-            return;
-          }
-          if (step.module === 'create_action_link' && key === 'action_params' && !linkedModule
-              && step.params.action && step.params.action.source === 'literal') {
-            const hint = document.createElement('p');
-            hint.className = 'muted';
-            hint.textContent = 'Zuerst oben eine Action wählen - ihre Felder erscheinen dann hier.';
-            paramsEl.appendChild(hint);
-            return;
+          const slotIndex = step.module === 'create_action_link' ? linkSlotIndex(key) : -1;
+          if (slotIndex >= 0) {
+            if (!linkSlotVisible(step, slotIndex)) {
+              return; // the second/third action appear once the one before is chosen
+            }
+            if (key === LINK_SLOTS[slotIndex].params) {
+              if (linkedModules[slotIndex]) {
+                paramsEl.appendChild(renderLinkedActionFields(step, linkedModules[slotIndex], slotIndex));
+                return;
+              }
+              const chosen = step.params[LINK_SLOTS[slotIndex].action];
+              if (slotIndex === 0 && chosen && chosen.source === 'literal') {
+                const hint = document.createElement('p');
+                hint.className = 'muted';
+                hint.textContent = 'Zuerst oben eine Action wählen - ihre Felder erscheinen dann hier.';
+                paramsEl.appendChild(hint);
+                return;
+              }
+              if (slotIndex > 0 && chosen && chosen.source === 'literal') {
+                return; // no second/third action chosen: nothing to fill in
+              }
+            }
           }
           paramsEl.appendChild(renderParamRow(step, key, module.input[key]));
         });
@@ -1781,12 +1824,12 @@
       }
       Object.keys(node.params).forEach((key) => renameOperand(node.params[key]));
       // A one-time link's action fields (and keys it has no field for).
-      Object.keys(node.actionFields || {}).forEach((key) => renameOperand(node.actionFields[key]));
-      if (node.actionExtra) {
-        Object.keys(node.actionExtra).forEach((key) => {
-          node.actionExtra[key] = renameInValue(node.actionExtra[key]);
+      (node.slots || []).forEach((slot) => {
+        Object.keys(slot.fields || {}).forEach((key) => renameOperand(slot.fields[key]));
+        Object.keys(slot.extra || {}).forEach((key) => {
+          slot.extra[key] = renameInValue(slot.extra[key]);
         });
-      }
+      });
       if (oldId) {
         seen[oldId] = newId;
       }
@@ -1847,14 +1890,17 @@
       Object.keys(node.params).forEach((key) => {
         params[key] = operandValue(node.params[key]);
       });
-      if (syncActionFields(node)) {
-        // The fields edited under the chosen action become the link's action_params.
-        const actionParams = { ...(node.actionExtra || {}) };
-        Object.keys(node.actionFields).forEach((key) => {
-          actionParams[key] = operandValue(node.actionFields[key]);
-        });
-        params.action_params = actionParams;
-      }
+      LINK_SLOTS.forEach((slot, index) => {
+        if (syncActionFields(node, index)) {
+          // The fields edited under a chosen action become that slot's action_params*.
+          const state = node.slots[index];
+          const actionParams = { ...(state.extra || {}) };
+          Object.keys(state.fields).forEach((key) => {
+            actionParams[key] = operandValue(state.fields[key]);
+          });
+          params[slot.params] = actionParams;
+        }
+      });
 
       return { id, module: node.module, params };
     });

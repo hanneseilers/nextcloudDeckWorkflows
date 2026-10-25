@@ -95,3 +95,62 @@ def test_unknown_timezone_falls_back_to_utc_text():
     ctx.display_timezone = "Nowhere/Nothing"
     out = CreateActionLinkAction().execute(ctx, {"action": "add_comment", "valid_days": 1})
     assert out["expires_text"].endswith(" UTC")
+
+
+# -- up to three actions per link ---------------------------------------------------------------
+
+def make_with(store, *names):
+    ctx = make(store)
+    ctx.modules = InMemoryActionRegistry({name: _Noop() for name in names})
+    return ctx
+
+
+def test_a_link_can_run_up_to_three_actions_in_order():
+    store = InMemoryActionLinkStore()
+    CreateActionLinkAction().execute(make_with(store, "add_comment", "move_card", "assign_user"), {
+        "action": "add_comment", "action_params": {"message": "hi"},
+        "action_2": "move_card", "action_params_2": {"target_stack_id": 30},
+        "action_3": "assign_user", "action_params_3": {"user_id": "anna"},
+    })
+    link = store.links[0]
+    assert (link["module"], link["params"]) == ("add_comment", {"message": "hi"})  # the first one, as before
+    assert link["extra_steps"] == [
+        {"module": "move_card", "params": {"target_stack_id": 30}},
+        {"module": "assign_user", "params": {"user_id": "anna"}},
+    ]
+
+
+def test_a_link_with_one_action_has_no_extra_steps():
+    store = InMemoryActionLinkStore()
+    CreateActionLinkAction().execute(make_with(store, "add_comment"), {"action": "add_comment", "action_params": {}})
+    assert store.links[0]["extra_steps"] == []
+
+
+def test_an_empty_second_action_is_skipped_and_the_third_moves_up():
+    store = InMemoryActionLinkStore()
+    CreateActionLinkAction().execute(make_with(store, "add_comment", "move_card"), {
+        "action": "add_comment", "action_2": "", "action_params_2": {"x": 1}, "action_3": "move_card", "action_params_3": {"target_stack_id": 5},
+    })
+    assert store.links[0]["extra_steps"] == [{"module": "move_card", "params": {"target_stack_id": 5}}]
+
+
+@pytest.mark.parametrize("params, message", [
+    ({"action": "add_comment", "action_2": "create_action_link"}, "cannot run create_action_link"),
+    ({"action": "add_comment", "action_3": "create_action_link"}, "cannot run create_action_link"),
+    ({"action": "add_comment", "action_2": "gibtsnicht"}, None),                                  # unknown: fails at creation, not on click
+    ({"action": "add_comment", "action_2": "add_comment", "action_params_2": "nope"}, "action_params_2"),
+    ({"action": "", "action_2": "add_comment"}, "`action` is required"),                           # the first one is not optional
+])
+def test_every_action_of_a_link_is_checked_when_the_link_is_created(params, message):
+    store = InMemoryActionLinkStore()
+    with pytest.raises(Exception) as caught:
+        CreateActionLinkAction().execute(make(store), params)
+    if message:
+        assert message in str(caught.value)
+    assert store.links == []  # nothing half-created
+
+
+def test_a_workflow_saved_before_the_extra_actions_existed_still_works():
+    store = InMemoryActionLinkStore()
+    CreateActionLinkAction().execute(make(store), {"action": "add_comment", "action_params": {"message": "alt"}})
+    assert store.links[0]["extra_steps"] == [] and store.links[0]["params"] == {"message": "alt"}

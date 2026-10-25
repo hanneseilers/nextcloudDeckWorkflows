@@ -23,6 +23,9 @@ class ActionLinkStorePort(Protocol):
         success_message: str,
         require_confirmation: bool,
         expires_at: Optional[str] = None,
+        extra_steps: Optional[list[dict[str, Any]]] = None,
     ) -> str:
-        """Stores the link and returns its secret token (only its hash is kept)."""
+        """Stores the link and returns its secret token (only its hash is kept).
+        `module`/`params` are the link's first action, `extra_steps` ([{"module",
+        "params"}], at most two) the ones that follow it."""
         ...

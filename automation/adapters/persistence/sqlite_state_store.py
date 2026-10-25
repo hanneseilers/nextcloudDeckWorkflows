@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS action_links (
     module TEXT,
     params_json TEXT,
     variables_json TEXT,
+    extra_steps_json TEXT,
     success_message TEXT NOT NULL DEFAULT '',
     require_confirmation INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
@@ -182,6 +183,9 @@ class SqliteStateStore:
             ("execution_log", _MODULE_COLUMN, "TEXT"),
             ("action_links", "running_at", "TEXT"),
             ("action_links", "expires_at", "TEXT"),
+            # A link may run up to three actions: `module`/`params_json` hold the first,
+            # this the others ([{"module": ..., "params": {...}}]); NULL on links created before.
+            ("action_links", "extra_steps_json", "TEXT"),
             ("test_runs", "started_at", "TEXT"),
         ]:
             try:
@@ -493,20 +497,22 @@ class SqliteStateStore:
         success_message: str,
         require_confirmation: bool,
         expires_at: Optional[str] = None,
+        extra_steps: Optional[list[dict[str, Any]]] = None,
     ) -> str:
         token = secrets.token_urlsafe(32)
         conn = self._connect()
         conn.execute(
             "INSERT INTO action_links (token_hash, workflow_id, instance, board_id, card_id, stack_id, "
             "current_stack_id, event_type, card_json, module, params_json, variables_json, "
-            "success_message, require_confirmation, status, created_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+            "success_message, require_confirmation, status, created_at, expires_at, extra_steps_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
             (
                 hashlib.sha256(token.encode()).hexdigest(), workflow_id, event.instance, event.board_id,
                 event.card_id, event.stack_id, current_stack_id, event.event_type.value,
                 json.dumps(event.card, default=str), module, json.dumps(params, default=str),
                 json.dumps(variables, default=str), success_message, int(require_confirmation),
                 datetime.now(timezone.utc).isoformat(), expires_at,
+                json.dumps(extra_steps, default=str) if extra_steps else None,
             ),
         )
         conn.commit()
@@ -527,18 +533,21 @@ class SqliteStateStore:
         conn = self._connect()
         rows = conn.execute(
             "SELECT token_hash, workflow_id, instance, board_id, card_id, stack_id, current_stack_id, "
-            "event_type, card_json, module, params_json, variables_json FROM action_links "
+            "event_type, card_json, module, params_json, variables_json, extra_steps_json FROM action_links "
             f"WHERE {where}",
             args,
         ).fetchall()
         keys = ("token_hash", "workflow_id", "instance", "board_id", "card_id", "stack_id",
-                "current_stack_id", "event_type", "card", "module", "params", "variables")
+                "current_stack_id", "event_type", "card", "module", "params", "variables", "extra_steps")
         links = []
         for row in rows:
             link = dict(zip(keys, row))
             link["event_type"] = EventType(link["event_type"])
             for key in ("card", "params", "variables"):
                 link[key] = json.loads(link[key]) if link[key] else {}
+            link["extra_steps"] = json.loads(link["extra_steps"]) if link["extra_steps"] else []
+            # Everything the link runs, in order: the first action, then the others.
+            link["steps"] = [{"module": link["module"], "params": link["params"]}] + link["extra_steps"]
             links.append(link)
         return links
 
@@ -561,7 +570,7 @@ class SqliteStateStore:
         conn = self._connect()
         conn.execute(
             "UPDATE action_links SET status = ?, error = ?, finished_at = ?, card_json = NULL, "
-            "params_json = NULL, variables_json = NULL WHERE token_hash = ?",
+            "params_json = NULL, variables_json = NULL, extra_steps_json = NULL WHERE token_hash = ?",
             ("error" if error else "done", error, datetime.now(timezone.utc).isoformat(), token_hash),
         )
         conn.commit()

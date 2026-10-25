@@ -146,22 +146,27 @@ class WorkflowEngine:
         run_id = self._execution_log.record(result)
         return result, run_id
 
-    def run_link_action(
+    def run_link_actions(
         self,
         workflow_id: str,
         event: DeckEvent,
         current_stack_id: int,
-        module: str,
-        params: dict[str, Any],
+        steps: list[dict[str, Any]],
         variables: dict[str, Any],
         deck: DeckGatewayPort,
         calendar: Optional[CalendarGatewayPort] = None,
     ) -> tuple[ExecutionResult, str]:
-        """Runs one action on its own, in the context (card, stack, variables)
-        a one-time link captured when it was created - see create_action_link
-        and main.py::_process_action_links. Recorded to the execution log
-        like any other run, attributed to the workflow that created the link.
-        `params` were already $ref-resolved at link-creation time."""
+        """Runs a one-time link's actions - up to three, in order - in the
+        context (card, stack, variables) the link captured when it was created,
+        see create_action_link and main.py::_process_action_links. One run in
+        the execution log like any other, attributed to the workflow that
+        created the link. Each step is {"module": ..., "params": ...}; the
+        params were already $ref-resolved at link-creation time (so one action
+        can't read another's output, but a variable they share is the same).
+
+        One failing action doesn't stop the next one (same as the steps of a
+        workflow); the card's column carries on from action to action, so a
+        move_card first makes the later ones act on the new column."""
 
         context = ActionContext(
             event=event,
@@ -176,12 +181,14 @@ class WorkflowEngine:
         )
         context.current_stack_id = current_stack_id
         result = ExecutionResult(workflow_id=workflow_id, event=event)
-        try:
-            self._actions.get(module).execute(context, params)
-            result.action_results.append(ActionResult(module=module, success=True))
-        except Exception as exc:
-            logger.exception("Link action '%s' failed for workflow '%s'", module, workflow_id)
-            result.action_results.append(ActionResult(module=module, success=False, error=str(exc)))
+        for step in steps:
+            module = step["module"]
+            try:
+                self._actions.get(module).execute(context, step.get("params") or {})
+                result.action_results.append(ActionResult(module=module, success=True))
+            except Exception as exc:
+                logger.exception("Link action '%s' failed for workflow '%s'", module, workflow_id)
+                result.action_results.append(ActionResult(module=module, success=False, error=str(exc)))
         run_id = self._execution_log.record(result)
         return result, run_id
 

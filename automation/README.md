@@ -425,8 +425,8 @@ The Deck API calls are not verified against a live Nextcloud instance.
 ## One-time action links
 
 `create_action_link` creates a link such as
-`https://example.com/website/link.php?h=<long random token>` that runs one
-other action - for the card and workflow context it was created in - the
+`https://example.com/website/link.php?h=<long random token>` that runs one to
+three other actions - for the card and workflow context it was created in - the
 first time it is opened. Typical use: `create_action_link` → `set_variable`
 (`name: linkurl`, `value: {$ref: <step>.url}`) → `add_comment`/`send_email`
 with `$linkurl`, so someone can e.g. confirm or move a card with one click.
@@ -436,7 +436,9 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   `website/README.md`.
 - **Params:** `action` (any action but `create_action_link` itself),
   `action_params` (its params - the editor shows them as the chosen action's own fields; `$ref`s are resolved when the link is
-  *created*, so they capture that moment), `success_message` (shown on
+  *created*, so they capture that moment); optionally `action_2`/`action_params_2`
+  and `action_3`/`action_params_3` for up to **three actions** per link (see
+  below); `success_message` (shown on
   success, empty = "Die Aktion wurde erfolgreich ausgeführt."),
   `valid_days` (days from creation the link can be used, 0/empty = no
   expiry; the step outputs `expires_at` (ISO, UTC) and `expires_text` -
@@ -446,6 +448,17 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   `require_confirmation` (a GET only shows a "Jetzt ausführen" button - set
   this if the link may pass through chat/mail systems whose link-preview or
   virus-scanner bots would otherwise use it up by merely fetching it).
+- **Several actions:** with `action_2`/`action_3` the link runs up to three
+  actions, in this order, as ONE run (one entry in the history). A failing one
+  does not stop the next - the page then shows the error text, the link
+  records which action failed - and the card's column carries on from action to
+  action (a `move_card` first makes the later ones act on the new column).
+  An action cannot use the output of another one: all values are fixed when the
+  link is created. Every action is checked at creation (unknown action,
+  `create_action_link` inside a link, params that aren't an object fail the
+  `create_action_link` step, not the click). An empty `action_2` is skipped, so
+  a gap closes. Open links created before this existed still run unchanged
+  (`action_links.extra_steps_json` is NULL for them).
 - **One-time:** only the SHA-256 of the token is stored. The first visit
   claims the link atomically; every later visit - even a concurrent one -
   sees "ungültig oder bereits verwendet". A failed action also uses the link

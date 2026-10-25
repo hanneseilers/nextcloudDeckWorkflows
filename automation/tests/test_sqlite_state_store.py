@@ -438,3 +438,39 @@ def test_expired_unused_links_are_purged_but_used_or_unlimited_ones_stay(tmp_pat
     with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
         assert sorted(r[0] or "none" for r in conn.execute("SELECT expires_at FROM action_links")) == [
             "2999-01-01T00:00:00+00:00", "none"]
+
+
+def test_a_link_with_several_actions_keeps_them_in_order(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    _make_link(store, extra_steps=[{"module": "move_card", "params": {"target_stack_id": 30}},
+                                   {"module": "assign_user", "params": {"user_id": "anna"}}])
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        conn.execute("UPDATE action_links SET status = 'claimed', claimed_at = '2026-01-01T00:00:00+00:00'")
+    [link] = store.claimed_links()
+    assert link["steps"] == [
+        {"module": "add_comment", "params": {"message": "hi"}},
+        {"module": "move_card", "params": {"target_stack_id": 30}},
+        {"module": "assign_user", "params": {"user_id": "anna"}},
+    ]
+    store.begin_link_run(link["token_hash"])
+    store.finish_link(link["token_hash"])
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        assert conn.execute("SELECT extra_steps_json FROM action_links").fetchone() == (None,)  # wiped like the rest
+
+
+def test_a_link_created_before_extra_actions_existed_still_loads(tmp_path):
+    """An open link of an older version (no extra_steps_json column yet) must still run."""
+
+    db = tmp_path / "state.sqlite3"
+    SqliteStateStore(db)  # current schema
+    with sqlite3.connect(db) as conn:
+        conn.executescript("ALTER TABLE action_links RENAME TO new_links; CREATE TABLE action_links AS SELECT * FROM new_links WHERE 0;")
+        conn.execute("ALTER TABLE action_links DROP COLUMN extra_steps_json")
+        conn.execute(
+            "INSERT INTO action_links (token_hash, workflow_id, instance, board_id, card_id, stack_id, current_stack_id, event_type, "
+            "card_json, module, params_json, variables_json, success_message, require_confirmation, status, created_at, claimed_at) "
+            "VALUES ('h', 'wf', 'prod', 1, 7, 10, 20, 'card_created', '{}', 'add_comment', '{\"message\": \"alt\"}', '{}', 'ok', 0, 'claimed', 'x', 'y')"
+        )
+    store = SqliteStateStore(db)  # the migration adds the column to the old table
+    [link] = store.claimed_links()
+    assert link["steps"] == [{"module": "add_comment", "params": {"message": "alt"}}] and link["extra_steps"] == []
