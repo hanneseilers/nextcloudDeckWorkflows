@@ -273,6 +273,11 @@ section_website_protection() {
     local user pass hash htpasswd_path
     user="$(ask "Benutzername" "admin")"
     pass="$(ask_secret "Passwort")"
+    if [ -z "$pass" ]; then
+        warn "Leeres Passwort - ein Zugang ohne Passwort schützt nichts. Zugriffsschutz wird übersprungen."
+        note_todo "website/ schützen: ./install.sh erneut ausführen (mit Passwort) oder die Passwortschutz-Funktion der Hosting-Verwaltung nutzen."
+        return
+    fi
     hash="$(openssl passwd -apr1 "$pass" 2>/dev/null)"
     if [ -z "$hash" ]; then
         warn "Passwort-Hash konnte nicht erzeugt werden - Zugriffsschutz wird übersprungen."
