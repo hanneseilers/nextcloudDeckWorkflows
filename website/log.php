@@ -13,7 +13,8 @@ $available = $reader->available();
 
 $file = isset($_GET['file'], LogReader::FILES[$_GET['file']]) ? (string) $_GET['file'] : 'automation';
 $levelChoices = ['' => 'alles', 'WARNING' => 'Warnungen und Fehler', 'ERROR' => 'nur Fehler'];
-$level = array_key_exists((string) ($_GET['level'] ?? ''), $levelChoices) ? (string) $_GET['level'] : '';
+$requestedLevel = (string) ($_GET['level'] ?? '');
+$level = array_key_exists($requestedLevel, $levelChoices) ? $requestedLevel : '';
 $query = mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100);
 $countChoices = [100, 300, 1000];
 $requested = (int) ($_GET['n'] ?? 300);
