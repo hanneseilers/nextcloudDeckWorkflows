@@ -5,6 +5,7 @@ from typing import Any, ClassVar
 
 from automation.adapters.actions.base import WorkflowAction
 from automation.adapters.text_templates import load_template_text
+from automation.core.domain.date_values import with_date_values
 from automation.core.ports.action_module import ActionContext
 
 
@@ -33,7 +34,7 @@ class FormatTextAction(WorkflowAction):
     LABEL: ClassVar[str] = "Text zusammensetzen"
     DESCRIPTION: ClassVar[str] = "Setzt einen Text aus festen Teilen und Werten zusammen."
     PARAM_LABELS: ClassVar[dict[str, str]] = {"template": "Text (mit Platzhaltern)", "text_template": "Textvorlage (optional)", "values": "Werte"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Text.", "template": "Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter Werte ersetzt.", "values": "Beispiel: {\"nummer\": {\"$ref\": \"schritt1.number\"}, \"titel\": {\"$ref\": \"card.title\"}} - links der Name, rechts der Wert."}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"text_template": "Eine Textvorlage (Menü „Vorlagen“) - ihr Text ersetzt das Feld Text.", "template": "Beispiel: Ticket $nummer: $titel - jedes $name wird durch den gleichnamigen Eintrag unter Werte ersetzt. Immer da, ohne Eintrag: $date (Datum und Uhrzeit), $day (Datum), $weekday (Wochentag).", "values": "Beispiel: {\"nummer\": {\"$ref\": \"schritt1.number\"}, \"titel\": {\"$ref\": \"card.title\"}} - links der Name, rechts der Wert."}
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"text": "Text"}
 
     def default_input(self) -> dict[str, Any]:
@@ -45,4 +46,4 @@ class FormatTextAction(WorkflowAction):
     def execute(self, context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         template = load_template_text(params["text_template"]) if params.get("text_template") else params.get("template") or ""
         values = params.get("values") or {}
-        return {"text": Template(template).safe_substitute(**values)}
+        return {"text": Template(template).safe_substitute(**with_date_values(values, context.display_timezone))}

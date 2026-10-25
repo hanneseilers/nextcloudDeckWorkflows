@@ -64,6 +64,15 @@
     ['attachmentCount', 'Anzahl Anhänge'],
   ];
 
+  // "now" is the third reserved source (next to "card" and "vars"): the date values
+  // every text can also use as $date, $day, $weekday - the same list as DATE_FIELDS in
+  // automation/core/domain/date_values.py (a test keeps both in sync).
+  const DATE_FIELDS = [
+    ['date', 'Datum und Uhrzeit (TT.MM.JJJJ hh:mm)'],
+    ['day', 'Datum (TT.MM.JJJJ)'],
+    ['weekday', 'Wochentag'],
+  ];
+
   const CONDITION_OPS = [
     ['eq', '='],
     ['ne', '≠'],
@@ -400,6 +409,9 @@
     }
     if (source.id === 'vars') {
       return 'Variablen';
+    }
+    if (source.id === 'now') {
+      return 'Datum und Uhrzeit (jetzt)';
     }
     return 'Schritt ' + stepNumber(source) + ': ' + moduleLabel(source.module);
   }
@@ -969,7 +981,7 @@
   function appendRefOperandFields(wrapper, entry, owner) {
     // Only steps that run before this one can have produced a value.
     const earlier = owner ? stepsBefore(owner).steps : collectAllSteps(state.steps);
-    const refSources = [{ id: 'card' }, { id: 'vars' }, ...earlier];
+    const refSources = [{ id: 'card' }, { id: 'vars' }, { id: 'now' }, ...earlier];
     // A saved reference to a later (or deleted) step stays visible - marked -
     // instead of silently showing an empty choice.
     if (entry.refStep && !refSources.some((source) => source.id === entry.refStep)) {
@@ -986,7 +998,7 @@
     refSources.forEach((source) => {
       const option = document.createElement('option');
       option.value = source.id;
-      option.textContent = (source.module || source.id === 'card' || source.id === 'vars' ? sourceLabel(source) : source.id) + (source.warning || '');
+      option.textContent = (source.module || ['card', 'vars', 'now'].includes(source.id) ? sourceLabel(source) : source.id) + (source.warning || '');
       option.title = source.id;
       option.selected = source.id === entry.refStep;
       refSelect.appendChild(option);
@@ -1003,6 +1015,9 @@
       }
       if (stepId === 'vars') {
         return variableNamesFrom(earlier).map((name) => [name, name]);
+      }
+      if (stepId === 'now') {
+        return DATE_FIELDS;
       }
       const refStepObj = refSources.find((s) => s.id === stepId);
       const refModule = refStepObj ? modulesByName[refStepObj.module] : null;
@@ -1771,7 +1786,7 @@
     });
     const seen = {};
     const rename = (oldId) => {
-      if (oldId === 'card' || oldId === 'vars') {
+      if (oldId === 'card' || oldId === 'vars' || oldId === 'now') {
         return oldId;
       }
       if (oldId in seen) {

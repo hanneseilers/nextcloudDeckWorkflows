@@ -24,6 +24,9 @@
   const body = document.getElementById('template-body');
   const list = document.getElementById('template-placeholders');
 
+  // Filled in by the automation itself, no variable or value needed (date_values.py).
+  const AUTOMATIC = ['date', 'day', 'weekday'];
+
   // What string.Template substitutes: $name, ${name}; "$$" is a literal dollar sign.
   function placeholders(text) {
     const found = [];
@@ -58,8 +61,14 @@
       const code = document.createElement('code');
       code.textContent = '$' + name;
       list.appendChild(code);
+      if (AUTOMATIC.includes(name)) {
+        list.append(' (automatisch)');
+      }
     });
-    list.append(' - jeder braucht beim Verwenden einen Wert (Variable oder Eintrag unter „Werte“).');
+    const needValue = names.filter((name) => !AUTOMATIC.includes(name));
+    list.append(needValue.length > 0
+      ? ' - ' + (needValue.length === names.length ? 'jeder' : 'die anderen') + ' braucht beim Verwenden einen Wert (Variable oder Eintrag unter „Werte“).'
+      : ' - dafür ist nichts weiter nötig.');
   }
 
   // -- unsaved changes ------------------------------------------------------------------------

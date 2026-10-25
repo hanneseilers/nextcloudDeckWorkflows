@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional
 
+from automation.core.domain.date_values import date_values
 from automation.core.domain.models import (
     ActionResult,
     ActionStep,
@@ -233,7 +234,10 @@ class WorkflowEngine:
         # Seeded before any step runs: lets every step's params reference the
         # triggering card's raw Nextcloud fields directly via {"$ref": "card.<field>"}
         # (e.g. "card.title", "card.duedate") without needing a lookup module.
-        outputs_by_step: dict[str, dict[str, Any]] = {"card": dict(event.card), "vars": variables}
+        # "now": the date values ($date/$day/$weekday as references), from the start of the run.
+        outputs_by_step: dict[str, dict[str, Any]] = {
+            "card": dict(event.card), "vars": variables, "now": date_values(self._display_timezone),
+        }
         # One counter shared across the whole (possibly nested) run, so two
         # id-less steps in different if/else branches never collide on the
         # same fallback key - see _run_steps.

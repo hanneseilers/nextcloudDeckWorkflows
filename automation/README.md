@@ -132,6 +132,14 @@ holds the triggering card's raw Nextcloud fields, e.g. `{$ref: card.title}` or
 (`title`, `description`, `duedate`, `labels`, `assignedUsers`, ...). Don't give
 one of your own steps the id `card` - it would shadow this.
 
+`now` is a third one: the current date as text - `{$ref: now.date}` ("25.10.2026
+14:05"), `{$ref: now.day}` ("25.10.2026"), `{$ref: now.weekday}` ("Sonntag") - at
+the start of the run, in the `timezone` of `config/settings.yaml`. The same
+three values are available in every text as `$date`, `$day`, `$weekday`
+(`add_comment`, `send_email`, `format_text`, the text templates), filled in when
+the step runs; a variable or a `format_text` value of the same name wins.
+(`core/domain/date_values.py`)
+
 `vars` is a second reserved step id: the workflow's global variables, set via
 the `set_variable` action (`{"name": "due_in_three_days", "value": {$ref: ...}}`)
 under whatever name you choose. Read one back structurally with

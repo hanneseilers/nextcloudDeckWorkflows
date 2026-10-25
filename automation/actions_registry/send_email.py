@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Optional
 
 from automation.adapters.actions.base import WorkflowAction
 from automation.adapters.text_templates import load_template
+from automation.core.domain.date_values import with_date_values
 from automation.adapters.smtp_config import load_smtp_config, parse_recipients, send_email as smtp_send
 from automation.core.ports.action_module import ActionContext
 
@@ -62,7 +63,7 @@ class SendEmailAction(WorkflowAction):
     LABEL: ClassVar[str] = "E-Mail senden"
     DESCRIPTION: ClassVar[str] = "Verschickt eine E-Mail über den eingerichteten SMTP-Server."
     PARAM_LABELS: ClassVar[dict[str, str]] = {"to": "Empfänger (mehrere mit Komma)", "subject": "Betreff", "body": "Text", "template": "Textvorlage (optional)", "template_data": "Werte für die Vorlage", "dedupe_minutes": "Doppelversand-Schutz (Minuten)"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"to": "Mehrere Empfänger mit Komma oder Semikolon trennen, z. B. anna@example.com, bernd@example.com (in der YAML auch als Liste). Alle bekommen dieselbe Mail und sehen alle Adressen. Nur reine Adressen, keine Namen wie \"Anna <anna@example.com>\".", "template": "Eine Textvorlage (Menü „Vorlagen“) - ersetzt Betreff und Text; steht in der Vorlage kein Betreff (erste Zeile „Subject: …“), gilt der hier eingetragene.", "dedupe_minutes": "Wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis innerhalb dieser Minuten nicht noch einmal raus. Neue Ereignisse, Testläufe und Zeitpläne senden immer. 0 = aus."}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"to": "Mehrere Empfänger mit Komma oder Semikolon trennen, z. B. anna@example.com, bernd@example.com (in der YAML auch als Liste). Alle bekommen dieselbe Mail und sehen alle Adressen. Nur reine Adressen, keine Namen wie \"Anna <anna@example.com>\".", "template": "Eine Textvorlage (Menü „Vorlagen“) - ersetzt Betreff und Text; steht in der Vorlage kein Betreff (erste Zeile „Subject: …“), gilt der hier eingetragene. In Betreff und Text gehen immer $date (Datum und Uhrzeit), $day (Datum) und $weekday (Wochentag).", "dedupe_minutes": "Wird ein abgebrochener Lauf wiederholt, geht dieselbe Mail zum selben Ereignis innerhalb dieser Minuten nicht noch einmal raus. Neue Ereignisse, Testläufe und Zeitpläne senden immer. 0 = aus."}
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"sent": "Gesendet"}
 
     def default_input(self) -> dict[str, Any]:
@@ -91,8 +92,9 @@ class SendEmailAction(WorkflowAction):
 
         # A header is one line: a line break from a substituted value (a card title or
         # description) would make the mail library refuse the message.
-        subject = " ".join(Template(subject).safe_substitute(**template_data).split())
-        body = Template(body).safe_substitute(**template_data)
+        subject_text, body_text = subject, body
+        subject = " ".join(Template(subject_text).safe_substitute(**with_date_values(template_data, context.display_timezone)).split())
+        body = Template(body_text).safe_substitute(**with_date_values(template_data, context.display_timezone))  # $date, $day, $weekday
 
         recipients = parse_recipients(params.get("to"))
         if not recipients:
@@ -107,7 +109,11 @@ class SendEmailAction(WorkflowAction):
             key = "email:" + hashlib.sha256(json.dumps(
                 [
                     context.workflow_id, context.event.card_id, context.event.event_type.value,
-                    context.event.previous_last_modified, to_text, subject, body,
+                    context.event.previous_last_modified, to_text,
+                    # Without $date/$day/$weekday filled in: a mail repeated hours later (a killed
+                    # run's rerun) has another time in it, but is still the same mail.
+                    " ".join(Template(subject_text).safe_substitute(**template_data).split()),
+                    Template(body_text).safe_substitute(**template_data),
                 ]
             ).encode()).hexdigest()
             if guard.seen_within(key, minutes):

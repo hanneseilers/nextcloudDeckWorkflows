@@ -74,7 +74,11 @@ Layout::start('Vorlagen', 'Vorlagen', 'templates');
             <li>bei „E-Mail senden“ durch den Eintrag gleichen Namens unter „Werte für die Vorlage“,
                 bei „Text zusammensetzen“ unter „Werte“ (der Eintrag hat Vorrang vor der Variablen).</li>
         </ul>
-        <p>Gibt es zu einem Platzhalter keinen Wert, bleibt er <em>unverändert im Text stehen</em> - es gibt keinen Fehler.
+        <p><strong>Immer verfügbar</strong> (ohne Variable und ohne Eintrag): <code>$date</code> = Datum und Uhrzeit
+        (<?= h(date('d.m.Y H:i')) ?>), <code>$day</code> = Datum (<?= h(date('d.m.Y')) ?>), <code>$weekday</code> = Wochentag
+        (<?= h(['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][(int) date('w')]) ?>) - jeweils zum Zeitpunkt der Ausführung,
+        in der eingestellten Zeitzone. Eine eigene Variable oder ein Eintrag gleichen Namens hat Vorrang.</p>
+        <p>Gibt es zu einem anderen Platzhalter keinen Wert, bleibt er <em>unverändert im Text stehen</em> - es gibt keinen Fehler.
         Ein echtes Dollarzeichen schreibst du als <code>$$</code>.</p>
         <p><strong>Betreff:</strong> Nur für E-Mails. Er wird als erste Zeile <code>Subject: …</code> gefolgt von einer
         Leerzeile in der Datei gespeichert - hier trägst du ihn einfach ins Feld „Betreff“ ein. Ein im Schritt
