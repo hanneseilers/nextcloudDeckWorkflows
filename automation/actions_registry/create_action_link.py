@@ -3,18 +3,24 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar
 
+from string import Template
+
 from automation.adapters.actions.base import WorkflowAction
+from automation.core.domain.date_values import with_date_values
 from automation.core.ports.action_module import ActionContext
 
 DEFAULT_SUCCESS_MESSAGE = "Die Aktion wurde erfolgreich ausgeführt."
 
-# A link runs one to three actions, in this order. The first pair keeps the names
+# A link runs one to five actions, in this order. The first pair keeps the names
 # links always had, so workflows saved before stay valid.
-ACTION_SLOTS = (("action", "action_params"), ("action_2", "action_params_2"), ("action_3", "action_params_3"))
+ACTION_SLOTS = (
+    ("action", "action_params"), ("action_2", "action_params_2"), ("action_3", "action_params_3"),
+    ("action_4", "action_params_4"), ("action_5", "action_params_5"),
+)
 
 
 class CreateActionLinkAction(WorkflowAction):
-    """Creates a one-time link that, when opened in a browser, runs one to three
+    """Creates a one-time link that, when opened in a browser, runs one to five
     other actions - with the current card, in the context of the workflow the
     link was created in.
 
@@ -30,7 +36,7 @@ class CreateActionLinkAction(WorkflowAction):
 
     `action_params` are resolved ($ref) when the link is *created*, so they
     capture the values at that moment; the link's actions then run against
-    the same card (and global variables) as of creation. With up to three
+    the same card (and global variables) as of creation. With up to five
     actions they run in order, one after the other, in one run: a failing one
     doesn't stop the next (the page then shows the error text), the card's
     column carries on from action to action (a move_card first makes the later
@@ -42,14 +48,19 @@ class CreateActionLinkAction(WorkflowAction):
     params:
       action: str - name of the action module to run (not create_action_link)
       action_params: dict - that action's params, e.g. {"message": "Erledigt"}
-      action_2, action_params_2, action_3, action_params_3: optional second and
-        third action, the same way (empty action = none)
-      success_message: str - text shown on success (empty = default text)
+      action_2 ... action_5, action_params_2 ... action_params_5: optional
+        further actions, the same way (empty action = none)
+      success_message: str - text shown on success (empty = default text).
+        $placeholders are filled in when the link is created, from the
+        workflow's variables (set_variable) and $date/$day/$weekday; a
+        {"$ref": ...} as the whole value works as everywhere
+      confirm_message: str - the question on the confirmation page (empty =
+        default question), filled in like success_message
       valid_days: number - how many days from now the link can be used; 0 or
         empty = no expiry. An expired link shows "abgelaufen" and is deleted.
-      require_confirmation: bool - show a "Jetzt ausführen" button first
-        instead of running on the first GET (protects the link from being
-        used up by link-preview/virus-scanner bots; default false)
+      require_confirmation: bool - show the question and a "Jetzt ausführen"
+        button first instead of running on the first GET (protects the link
+        from being used up by link-preview/virus-scanner bots; default false)
 
     output:
       url: str - the one-time link
@@ -61,16 +72,17 @@ class CreateActionLinkAction(WorkflowAction):
     ACTION_NAME: ClassVar[str] = "create_action_link"
     LABEL: ClassVar[str] = "Einmal-Link erstellen"
     DESCRIPTION: ClassVar[str] = "Erstellt einen Link, der beim ersten Aufruf eine Action für diese Karte ausführt."
-    PARAM_LABELS: ClassVar[dict[str, str]] = {"action": "Erste Aktion", "action_params": "Felder der ersten Aktion", "action_2": "Zweite Aktion (optional)", "action_params_2": "Felder der zweiten Aktion", "action_3": "Dritte Aktion (optional)", "action_params_3": "Felder der dritten Aktion", "success_message": "Text bei Erfolg", "valid_days": "Gültig (Tage)", "require_confirmation": "Erst bestätigen lassen"}
-    PARAM_HELP: ClassVar[dict[str, str]] = {"action_2": "Bis zu drei Aktionen pro Link. Sie laufen nacheinander; scheitert eine, laufen die anderen trotzdem. Alle Werte stehen beim Erstellen des Links fest - eine Aktion kann nicht das Ergebnis einer anderen nutzen.", "action_params": "Im Editor erscheinen die Felder der gewählten Action direkt im Schritt. In der YAML ein Objekt, z. B. {\"message\": \"Per Link erledigt\"} für „Kommentar hinzufügen“ - Verweise werden beim Erstellen des Links aufgelöst.", "success_message": "Wird nach erfolgreicher Ausführung angezeigt - leer = Standardtext.", "valid_days": "So viele Tage ab Erstellung ist der Link gültig - 0 = unbegrenzt. Das Ablaufdatum gibt der Schritt als „Gültig bis\u201c aus, z. B. für die Mail mit dem Link.", "require_confirmation": "An = die Seite zeigt zuerst einen Button \"Jetzt ausführen\" (schützt den Link vor Link-Vorschau-Bots)."}
+    PARAM_LABELS: ClassVar[dict[str, str]] = {"action": "Erste Aktion", "action_params": "Felder der ersten Aktion", "action_2": "Zweite Aktion (optional)", "action_params_2": "Felder der zweiten Aktion", "action_3": "Dritte Aktion (optional)", "action_params_3": "Felder der dritten Aktion", "action_4": "Vierte Aktion (optional)", "action_params_4": "Felder der vierten Aktion", "action_5": "Fünfte Aktion (optional)", "action_params_5": "Felder der fünften Aktion", "success_message": "Text bei Erfolg", "confirm_message": "Frage bei der Bestätigung (optional)", "valid_days": "Gültig (Tage)", "require_confirmation": "Erst bestätigen lassen"}
+    PARAM_HELP: ClassVar[dict[str, str]] = {"action_2": "Bis zu fünf Aktionen pro Link, es dürfen auch weniger sein. Sie laufen nacheinander; scheitert eine, laufen die anderen trotzdem. Alle Werte stehen beim Erstellen des Links fest - eine Aktion kann nicht das Ergebnis einer anderen nutzen.", "action_params": "Im Editor erscheinen die Felder der gewählten Action direkt im Schritt. In der YAML ein Objekt, z. B. {\"message\": \"Per Link erledigt\"} für „Kommentar hinzufügen“ - Verweise werden beim Erstellen des Links aufgelöst.", "success_message": "Wird nach erfolgreicher Ausführung angezeigt - leer = Standardtext. Variablen ($name, $date, $day, $weekday) werden beim Erstellen des Links eingesetzt; ein Verweis auf einen früheren Schritt geht auch.", "confirm_message": "Die Frage auf der Bestätigungsseite (nur mit „Erst bestätigen lassen“) - leer = „Soll die Aktion jetzt ausgeführt werden?“. Variablen und Verweise wie beim Text bei Erfolg.", "valid_days": "So viele Tage ab Erstellung ist der Link gültig - 0 = unbegrenzt. Das Ablaufdatum gibt der Schritt als „Gültig bis\u201c aus, z. B. für die Mail mit dem Link.", "require_confirmation": "An = die Seite zeigt zuerst einen Button \"Jetzt ausführen\" (schützt den Link vor Link-Vorschau-Bots)."}
     OUTPUT_LABELS: ClassVar[dict[str, str]] = {"url": "Link", "expires_text": "Gültig bis", "expires_at": "Gültig bis (ISO-Zeitpunkt)"}
 
     def default_input(self) -> dict[str, Any]:
         return {
             "action": "", "action_params": {},
             "action_2": "", "action_params_2": {}, "action_3": "", "action_params_3": {},
+            "action_4": "", "action_params_4": {}, "action_5": "", "action_params_5": {},
             "success_message": "", "valid_days": 7,
-            "require_confirmation": False,
+            "require_confirmation": False, "confirm_message": "",
         }
 
     def default_output(self) -> dict[str, Any]:
@@ -88,7 +100,7 @@ class CreateActionLinkAction(WorkflowAction):
             if not module:
                 if number == 1:
                     raise ValueError("create_action_link: `action` is required")
-                continue  # an unused second/third action
+                continue  # an unused further action
             if module == self.ACTION_NAME:
                 raise ValueError("create_action_link: a link cannot run create_action_link itself")
             context.modules.get(module)  # raises UnknownActionError for an unknown action - fail at creation, not on click
@@ -108,6 +120,13 @@ class CreateActionLinkAction(WorkflowAction):
             expires_at = moment.isoformat()
             expires_text = _format_local(moment, context.display_timezone)
 
+        variables = dict(context.variables)
+        shown = with_date_values(variables, context.display_timezone)
+
+        def text(key: str) -> str:
+            # $placeholders: the workflow's variables and the date values, as in every other text
+            return Template(str(params.get(key) or "")).safe_substitute(**shown).strip()
+
         token = context.link_store.create_link(
             workflow_id=context.workflow_id,
             event=context.event,
@@ -115,8 +134,9 @@ class CreateActionLinkAction(WorkflowAction):
             module=steps[0]["module"],
             params=steps[0]["params"],
             extra_steps=steps[1:],
-            variables=dict(context.variables),
-            success_message=(params.get("success_message") or "").strip() or DEFAULT_SUCCESS_MESSAGE,
+            variables=variables,
+            success_message=text("success_message") or DEFAULT_SUCCESS_MESSAGE,
+            confirm_message=text("confirm_message"),
             require_confirmation=bool(params.get("require_confirmation")),
             expires_at=expires_at,
         )

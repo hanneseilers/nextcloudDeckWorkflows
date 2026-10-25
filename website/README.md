@@ -113,16 +113,19 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   the automation skips it. Picking a switched-off step's output in a reference
   shows a warning, as it delivers no value. The workflow overview marks such
   steps with "- aus".
-- **"Einmal-Link erstellen"** takes up to three actions (first, second, third;
-  the second appears once the first is chosen, the third after the second, and
-  an empty one is simply left out) and shows each chosen action's fields right
+- **"Einmal-Link erstellen"** takes up to five actions (first ... fifth;
+  each next one appears once the one before is chosen, and an empty one is
+  simply left out) and shows each chosen action's fields right
   in the step - the same rows (pickers, "Wert übernehmen", date fields ...) the action
   has as a step of its own - instead of a JSON box. They are saved as the
   step's `action_params` object (`syncActionFields()` in `assets/builder.js`);
   keys the action doesn't declare (hand-written YAML) are kept, and picking
   another action starts from that action's defaults. If the action itself is
   taken from a reference, its fields are unknown and the JSON row stays.
-  References inside the fields follow renamed steps like any other.
+  References inside the fields follow renamed steps like any other. The link's
+  own settings below the actions are the success text, the validity, "Erst
+  bestätigen lassen" and the optional question shown on that confirmation page;
+  both texts take variables (`$name`, `$date`, ...) and references.
 - **Form controls** (inputs, dropdowns, textareas) share one look through the
   `--control-*` variables at the top of `assets/style.css` (applied with a
   zero-specificity `:where()` rule), so filters, folder forms and the log page

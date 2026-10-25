@@ -462,8 +462,8 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
 - **Params:** `action` (any action but `create_action_link` itself),
   `action_params` (its params - the editor shows them as the chosen action's own fields; `$ref`s are resolved when the link is
   *created*, so they capture that moment); optionally `action_2`/`action_params_2`
-  and `action_3`/`action_params_3` for up to **three actions** per link (see
-  below); `success_message` (shown on
+  up to `action_5`/`action_params_5` for up to **five actions** per link, fewer
+  are fine (see below); `success_message` (shown on
   success, empty = "Die Aktion wurde erfolgreich ausgeführt."),
   `valid_days` (days from creation the link can be used, 0/empty = no
   expiry; the step outputs `expires_at` (ISO, UTC) and `expires_text` -
@@ -472,8 +472,18 @@ with `$linkurl`, so someone can e.g. confirm or move a card with one click.
   unused expired links are deleted),
   `require_confirmation` (a GET only shows a "Jetzt ausführen" button - set
   this if the link may pass through chat/mail systems whose link-preview or
-  virus-scanner bots would otherwise use it up by merely fetching it).
-- **Several actions:** with `action_2`/`action_3` the link runs up to three
+  virus-scanner bots would otherwise use it up by merely fetching it),
+  `confirm_message` (optional: the question on that confirmation page, empty =
+  "Soll die Aktion jetzt ausgeführt werden?").
+- **Texts:** `success_message` and `confirm_message` are filled in when the link
+  is *created*: `$name` from the workflow's variables (`set_variable`) and the
+  date values `$date`, `$day`, `$weekday`; unknown `$names` stay as written. A
+  `{"$ref": ...}` as the whole value works as for every param. The filled-in
+  texts are stored with the link, so a visitor sees what was true at creation.
+  The confirmation text is stored in `action_links.confirm_message` (added to
+  databases from before by the automation's schema upgrade; `link.php` copes
+  with a database that doesn't have the column yet).
+- **Several actions:** with `action_2` ... `action_5` the link runs up to five
   actions, in this order, as ONE run (one entry in the history). A failing one
   does not stop the next - the page then shows the error text, the link
   records which action failed - and the card's column carries on from action to

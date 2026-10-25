@@ -474,3 +474,16 @@ def test_a_link_created_before_extra_actions_existed_still_loads(tmp_path):
     store = SqliteStateStore(db)  # the migration adds the column to the old table
     [link] = store.claimed_links()
     assert link["steps"] == [{"module": "add_comment", "params": {"message": "alt"}}] and link["extra_steps"] == []
+
+
+def test_a_link_keeps_its_confirmation_question_and_an_old_database_gets_the_column(tmp_path):
+    db = tmp_path / "state.sqlite3"
+    store = SqliteStateStore(db)
+    _make_link(store, require_confirmation=True, confirm_message="Wirklich?")
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT confirm_message FROM action_links").fetchone() == ("Wirklich?",)
+        # a database from before the column existed: rebuild the table without it
+        conn.execute("ALTER TABLE action_links DROP COLUMN confirm_message")
+    SqliteStateStore(db)  # opening it runs the upgrade
+    with sqlite3.connect(db) as conn:
+        assert "confirm_message" in [row[1] for row in conn.execute("PRAGMA table_info(action_links)")]

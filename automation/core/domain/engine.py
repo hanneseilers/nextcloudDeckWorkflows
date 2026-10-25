@@ -157,7 +157,7 @@ class WorkflowEngine:
         deck: DeckGatewayPort,
         calendar: Optional[CalendarGatewayPort] = None,
     ) -> tuple[ExecutionResult, str]:
-        """Runs a one-time link's actions - up to three, in order - in the
+        """Runs a one-time link's actions - up to five, in order - in the
         context (card, stack, variables) the link captured when it was created,
         see create_action_link and main.py::_process_action_links. One run in
         the execution log like any other, attributed to the workflow that

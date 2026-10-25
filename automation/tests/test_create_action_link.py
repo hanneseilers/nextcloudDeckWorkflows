@@ -154,3 +154,37 @@ def test_a_workflow_saved_before_the_extra_actions_existed_still_works():
     store = InMemoryActionLinkStore()
     CreateActionLinkAction().execute(make(store), {"action": "add_comment", "action_params": {"message": "alt"}})
     assert store.links[0]["extra_steps"] == [] and store.links[0]["params"] == {"message": "alt"}
+
+
+# -- up to five actions, texts with variables -----------------------------------------------------
+
+def test_a_link_can_run_up_to_five_actions_and_fewer_work_too():
+    store = InMemoryActionLinkStore()
+    params = {"action": "add_comment", "action_params": {"message": "1"}}
+    for n in (2, 3, 4, 5):
+        params[f"action_{n}"] = "add_comment"
+        params[f"action_params_{n}"] = {"message": str(n)}
+    CreateActionLinkAction().execute(make(store), params)
+    link = store.links[0]
+    assert [link["params"]["message"]] + [s["params"]["message"] for s in link["extra_steps"]] == ["1", "2", "3", "4", "5"]
+
+    CreateActionLinkAction().execute(make(store), {"action": "add_comment", "action_4": "add_comment", "action_params_4": {"message": "x"}})
+    assert len(store.links[1]["extra_steps"]) == 1
+
+
+def test_success_and_confirm_messages_get_variables_and_date_values_filled_in():
+    store = InMemoryActionLinkStore()
+    CreateActionLinkAction().execute(
+        make(store, variables={"nr": "0042"}),
+        {"action": "add_comment", "require_confirmation": True,
+         "success_message": "Ticket $nr erledigt ($unbekannt, $day)", "confirm_message": "Ticket $nr abschließen?"},
+    )
+    link = store.links[0]
+    assert link["confirm_message"] == "Ticket 0042 abschließen?" and link["require_confirmation"] is True
+    assert link["success_message"].startswith("Ticket 0042 erledigt ($unbekannt, ") and "$day" not in link["success_message"]
+
+
+def test_confirm_message_defaults_to_empty_so_the_page_asks_its_standard_question():
+    store = InMemoryActionLinkStore()
+    CreateActionLinkAction().execute(make(store), {"action": "add_comment"})
+    assert store.links[0]["confirm_message"] == ""

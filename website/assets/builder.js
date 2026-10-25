@@ -302,8 +302,8 @@
     return params;
   }
 
-  // "Einmal-Link erstellen" runs one to three other actions (the params action /
-  // action_2 / action_3 and their action_params*): the fields of each are edited
+  // "Einmal-Link erstellen" runs one to five other actions (the params action /
+  // action_2 ... action_5 and their action_params*): the fields of each are edited
   // right in the step, exactly like that action as a step of its own. They live in
   // step.slots[i].fields ({field: entry}, same entries as step.params) and become
   // that slot's `action_params*` object when saving. A slot's module is the chosen
@@ -313,6 +313,8 @@
     { action: 'action', params: 'action_params', ordinal: 'Erste Aktion' },
     { action: 'action_2', params: 'action_params_2', ordinal: 'Zweite Aktion' },
     { action: 'action_3', params: 'action_params_3', ordinal: 'Dritte Aktion' },
+    { action: 'action_4', params: 'action_params_4', ordinal: 'Vierte Aktion' },
+    { action: 'action_5', params: 'action_params_5', ordinal: 'Fünfte Aktion' },
   ];
 
   function linkSlotIndex(key) {
@@ -359,7 +361,7 @@
     return module;
   }
 
-  // A second/third action is offered once the one before it is set (or when it
+  // A further action is offered once the one before it is set (or when it
   // already holds an action, e.g. a workflow saved with a gap).
   function linkSlotVisible(step, index) {
     if (index === 0) {
@@ -1589,7 +1591,7 @@
     });
   }
 
-  // The up to three actions a one-time link runs: an indented block "Beim Aufruf des
+  // The up to five actions a one-time link runs: an indented block "Beim Aufruf des
   // Links ..." with one clearly separated box per action - the action to pick, and
   // its settings, which can be folded away once they are done.
   function renderLinkActions(step, linkedModules, module) {
@@ -1601,12 +1603,12 @@
     container.appendChild(heading);
     const intro = document.createElement('p');
     intro.className = 'muted small';
-    intro.textContent = (module.param_help || {}).action_2 || 'Bis zu drei Aktionen, nacheinander.';
+    intro.textContent = (module.param_help || {}).action_2 || 'Bis zu fünf Aktionen, nacheinander.';
     container.appendChild(intro);
 
     LINK_SLOTS.forEach((slot, index) => {
       if (!linkSlotVisible(step, index)) {
-        return; // the second/third action appear once the one before is chosen
+        return; // the further actions appear once the one before is chosen
       }
       const state = step.slots[index];
       const linked = linkedModules[index];
@@ -1748,7 +1750,7 @@
       } else {
         keys.forEach((key) => {
           if (step.module === 'create_action_link' && linkSlotIndex(key) >= 0) {
-            // all the (up to three) actions of a link are drawn together, at the first of their keys
+            // all the (up to five) actions of a link are drawn together, at the first of their keys
             if (key === LINK_SLOTS[0].action) {
               paramsEl.appendChild(renderLinkActions(step, linkedModules, module));
             }

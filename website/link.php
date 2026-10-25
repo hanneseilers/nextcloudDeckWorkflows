@@ -58,7 +58,8 @@ if ($link['expired']) {
 
 if ($link['require_confirmation'] && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     // GET only asks - link-preview/virus-scanner bots follow GETs, they don't submit forms.
-    page(200, 'confirm', 'Soll die Aktion jetzt ausgeführt werden? Der Link kann nur einmal verwendet werden.',
+    $question = trim($link['confirm_message']) !== '' ? $link['confirm_message'] : 'Soll die Aktion jetzt ausgeführt werden?';
+    page(200, 'confirm', $question . "\n\nDer Link kann nur einmal verwendet werden.",
         '<form method="post" action="link.php?h=' . h(rawurlencode($token)) . '"><button type="submit">Jetzt ausführen</button></form>');
 }
 

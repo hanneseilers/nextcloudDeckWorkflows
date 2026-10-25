@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS action_links (
     params_json TEXT,
     variables_json TEXT,
     extra_steps_json TEXT,
+    confirm_message TEXT NOT NULL DEFAULT '',
     success_message TEXT NOT NULL DEFAULT '',
     require_confirmation INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
@@ -183,9 +184,10 @@ class SqliteStateStore:
             ("execution_log", _MODULE_COLUMN, "TEXT"),
             ("action_links", "running_at", "TEXT"),
             ("action_links", "expires_at", "TEXT"),
-            # A link may run up to three actions: `module`/`params_json` hold the first,
+            # A link may run up to five actions: `module`/`params_json` hold the first,
             # this the others ([{"module": ..., "params": {...}}]); NULL on links created before.
             ("action_links", "extra_steps_json", "TEXT"),
+            ("action_links", "confirm_message", "TEXT NOT NULL DEFAULT ''"),
             ("test_runs", "started_at", "TEXT"),
         ]:
             try:
@@ -496,6 +498,7 @@ class SqliteStateStore:
         variables: dict[str, Any],
         success_message: str,
         require_confirmation: bool,
+        confirm_message: str = "",
         expires_at: Optional[str] = None,
         extra_steps: Optional[list[dict[str, Any]]] = None,
     ) -> str:
@@ -504,15 +507,15 @@ class SqliteStateStore:
         conn.execute(
             "INSERT INTO action_links (token_hash, workflow_id, instance, board_id, card_id, stack_id, "
             "current_stack_id, event_type, card_json, module, params_json, variables_json, "
-            "success_message, require_confirmation, status, created_at, expires_at, extra_steps_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
+            "success_message, require_confirmation, status, created_at, expires_at, extra_steps_json, confirm_message) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
             (
                 hashlib.sha256(token.encode()).hexdigest(), workflow_id, event.instance, event.board_id,
                 event.card_id, event.stack_id, current_stack_id, event.event_type.value,
                 json.dumps(event.card, default=str), module, json.dumps(params, default=str),
                 json.dumps(variables, default=str), success_message, int(require_confirmation),
                 datetime.now(timezone.utc).isoformat(), expires_at,
-                json.dumps(extra_steps, default=str) if extra_steps else None,
+                json.dumps(extra_steps, default=str) if extra_steps else None, confirm_message,
             ),
         )
         conn.commit()
