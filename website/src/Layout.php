@@ -16,6 +16,7 @@ final class Layout
         'templates' => ['templates.php', 'Vorlagen', 'mail'],
         'boards' => ['boards.php', 'Boards', 'grid'],
         'docs' => ['docs.php', 'Doku', 'book'],
+        'users' => ['users.php', 'Benutzer', 'users'], // only shown to the admin, see BasicAuthUsers
     ];
 
     /** Reference pages - opened in a new tab, so the editor stays open. */
@@ -34,7 +35,11 @@ final class Layout
             . '<title>' . h($title) . ' — Nextcloud Deck Workflows</title>'
             . '<link rel="stylesheet" href="assets/style.css"></head><body>'
             . '<nav class="topnav"><a class="brand" href="index.php">Deck Workflows</a><span class="nav-links">';
+        $isAdmin = BasicAuthUsers::fromRepoRoot()->isAdmin(BasicAuthUsers::currentUser());
         foreach (self::NAV as $key => [$href, $label, $icon]) {
+            if ($key === 'users' && !$isAdmin) {
+                continue;
+            }
             $newTab = in_array($key, self::NEW_TAB, true);
             echo '<a href="' . $href . '"' . ($key === $active ? ' class="active" aria-current="page"' : '')
                 . ($newTab ? ' target="_blank" rel="noopener" title="Öffnet in einem neuen Tab"' : '') . '>'
@@ -153,6 +158,7 @@ final class Layout
             'arrow-down' => '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
             'chevron-down' => '<polyline points="6 9 12 15 18 9"/>',
             'chevron-right' => '<polyline points="9 18 15 12 9 6"/>',
+            'users' => '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
             'x' => '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
             'info' => '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
         ];

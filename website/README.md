@@ -107,6 +107,16 @@ header - see "Webhooks" in `automation/README.md`). With Basic Auth in
   An opened, saved workflow starts with everything folded (steps, Wenn/Sonst
   blocks, the link's actions); a step you add, or a link action you pick, starts
   open.
+- **Benutzer** (`users.php`, only the admin sees it): adds users to the site's Basic
+  Auth, sets a new password for one, deletes one - nothing else. It edits the
+  `.htpasswd` file that `website/.htaccess` names (`AuthUserFile`; `website/.htpasswd`
+  without one); the first user in that file is the admin (the one `tools/install.sh`
+  created) and cannot be deleted. The web server does the logging in, the page
+  only trusts the user name it reports - without Basic Auth in front there is no
+  admin and the page says so. Passwords are written as `$apr1$` hashes
+  (`BasicAuthUsers::hash()`, checked against `openssl passwd -apr1`), at least 8
+  characters; the file is locked while it is rewritten. The file must be writable
+  for the web server's PHP user, otherwise the page says so.
 - **Icons:** the editor uses the same line icons as the workflow overview (`Layout::icon()`; the set is handed to `builder.js` as `#icons-data`) - one meaning, one icon: trash = delete, power = on/off, info = more.
 - **Switching a step off:** the power button in a step's or block's header
   switches it off and on. A switched-off step is striped, marked "deaktiviert -
